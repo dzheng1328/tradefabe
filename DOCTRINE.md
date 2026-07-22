@@ -56,6 +56,14 @@ logged so it can be tightened (Bonferroni-style) later.
 Every evaluated strategy — alive or dead — is appended to `graveyard.csv` with its metrics,
 the null bar, and the verdict. The graveyard *is* the multiple-testing record.
 
+## Amendments
+- **v1.0.1 (2026-07-21).** The noise floor is computed **per rebalance frequency** (D/W/M):
+  a strategy is judged against random strategies rebalanced at the SAME frequency, so fast
+  strategies face a luck bar that pays the same fast trading costs. Engineering fix, not a
+  gate change. A strategy's rebalance frequency is part of its pre-registered spec.
+  (Gate 2's diversifier clause is under review per combine.py results; any change will be
+  v1.1, decided on principle and re-applied to every strategy in the graveyard.)
+
 ## What the doctrine deliberately does NOT reward
 - High raw returns from leverage — Sharpe is scale-invariant; leverage can't create edge.
 - In-sample beauty — only out-of-sample counts.
