@@ -60,7 +60,27 @@ def calmar(s):
 
 # ---------- strategies: prices -> signal matrix ----------
 def sig_tsmom(prices):
+    """Time-series momentum: long if the trailing 12-month return is positive, else short."""
     return np.sign(prices / prices.shift(LOOKBACK) - 1)
+
+
+def sig_tsmom_ensemble(prices):
+    """Multi-lookback trend: blend of 3/6/12-month time-series momentum (the stronger form)."""
+    sigs = [np.sign(prices / prices.shift(lb) - 1) for lb in (63, 126, 252)]
+    return sum(sigs) / len(sigs)
+
+
+def sig_xsec_momentum(prices):
+    """Cross-sectional momentum: long the 12-month winners, short the losers (market-neutral-ish)."""
+    r12 = prices / prices.shift(252) - 1
+    pr  = r12.rank(axis=1, pct=True)          # 0..1 rank within each day, ignoring missing
+    return np.sign(pr - 0.5)
+
+
+def sig_green_line(prices):
+    """The Instagram-reel rule: long above the 200-day moving average, short below ('buy the green line')."""
+    ma = prices.rolling(200).mean()
+    return np.sign(prices - ma)
 
 
 def sig_random(prices, rng):
@@ -97,7 +117,8 @@ def noise_floor(prices, trials=NULL_TRIALS):
 
 # ---------- doctrine verdict ----------
 def evaluate(name, sig_fn, prices, null):
-    r_oos = (lambda r: r[r.index >= OOS_START])(net_returns(prices, size_and_rebalance(prices, sig_fn(prices))))
+    r = net_returns(prices, size_and_rebalance(prices, sig_fn(prices)))
+    r_oos = r[r.index >= OOS_START]
     b_all = benchmark_returns(prices)
     b_oos = b_all[b_all.index >= OOS_START]
     s, b  = stats(r_oos), stats(b_oos)
@@ -132,18 +153,35 @@ def evaluate(name, sig_fn, prices, null):
 def main():
     prices, source = load_prices()
     print(f"data: {source} | {prices.index.min().date()} -> {prices.index.max().date()} | {prices.shape[1]} assets")
-    print(f"computing noise floor from {NULL_TRIALS} random strategies (this is the honest pass bar)...")
+    print(f"computing noise floor from {NULL_TRIALS} random strategies (the honest pass bar)...")
     null = noise_floor(prices)
-    s, null_bar = evaluate("TSMOM_12m_xasset", sig_tsmom, prices, null)
+    null_bar = float(np.percentile(null, NULL_PCTILE))
 
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    ax.hist(null, bins=40, color="steelblue", alpha=0.75, label=f"{len(null)} random strategies")
-    ax.axvline(null_bar, color="k", ls="--", lw=1, label=f"p{NULL_PCTILE} noise floor = {null_bar:.2f}")
-    ax.axvline(s["Sharpe"], color="crimson", lw=2, label=f"TSMOM = {s['Sharpe']:.2f}")
-    ax.set_title("Is the strategy distinguishable from luck?  (out-of-sample Sharpe)")
-    ax.set_xlabel("OOS Sharpe"); ax.legend(); ax.grid(alpha=0.3)
+    strategies = {
+        "green_line_200d": sig_green_line,      # the Instagram-reel rule
+        "tsmom_12m":       sig_tsmom,
+        "tsmom_ensemble":  sig_tsmom_ensemble,
+        "xsec_momentum":   sig_xsec_momentum,
+    }
+    sharpes = {}
+    for name, fn in strategies.items():
+        s, _ = evaluate(name, fn, prices, null)
+        sharpes[name] = s["Sharpe"]
+
+    print("\n=== SUMMARY (out-of-sample Sharpe vs the luck floor) ===")
+    print(f"  luck floor p{NULL_PCTILE} = {null_bar:.2f}   (random mean {null.mean():.2f}, max {null.max():.2f})")
+    for name, sh in sorted(sharpes.items(), key=lambda kv: -kv[1]):
+        print(f"  {name:<18} {sh:>5.2f}   {'clears luck floor' if sh > null_bar else 'below luck floor'}")
+
+    fig, ax = plt.subplots(figsize=(9.5, 4.8))
+    ax.hist(null, bins=40, color="steelblue", alpha=0.7, label=f"{len(null)} random strategies")
+    ax.axvline(null_bar, color="k", ls="--", lw=1.2, label=f"p{NULL_PCTILE} luck floor = {null_bar:.2f}")
+    for (name, sh), c in zip(sharpes.items(), ["crimson", "darkorange", "green", "purple"]):
+        ax.axvline(sh, color=c, lw=2, label=f"{name} = {sh:.2f}")
+    ax.set_title("Can any strategy beat luck?   (out-of-sample Sharpe)")
+    ax.set_xlabel("OOS Sharpe"); ax.legend(fontsize=8); ax.grid(alpha=0.3)
     fig.tight_layout(); fig.savefig(os.path.join(BASE, "noise_floor.png"), dpi=110)
-    print("\nwrote noise_floor.png and appended to graveyard.csv")
+    print("\nwrote noise_floor.png; all verdicts appended to graveyard.csv")
 
 
 if __name__ == "__main__":

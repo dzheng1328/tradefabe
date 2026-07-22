@@ -25,7 +25,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # ------------------------------------------------------------------ CONFIG
-UNIVERSE   = ["SPY", "EFA", "EEM", "TLT", "IEF", "GLD", "DBC", "VNQ"]  # cross-asset breadth
+UNIVERSE   = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "IEF", "LQD", "HYG",
+              "GLD", "SLV", "DBC", "USO", "VNQ", "UUP"]  # ~15 markets for real breadth
 START      = "2007-01-01"
 LOOKBACK   = 252        # ~12 months, the canonical TSMOM signal (do NOT tune this)
 VOL_WINDOW = 60         # trailing window for volatility targeting
