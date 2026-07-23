@@ -41,8 +41,17 @@ The 5 paper books: `tsmom_12m`, `tsmom_ensemble`, `green_line_200d`, `turn_of_mo
 Hyperliquid funding** on a delta-neutral notional — when funding goes negative in bear
 regimes, the book bleeds; watching that live is the point).
 
-Schedule it daily with cron/launchd (see the roadmap issue) — each `tradefabe run` marks
-all books and retargets whichever are due.
+A launchd agent (`com.dzheng.tradefabe`) runs `tradefabe run` daily at 18:00 local; logs in
+`state/logs/`. Each run marks all books and retargets whichever are due.
+
+## Desktop app
+`~/Applications/tradefabe.app` opens the dashboard in a native window with its own Dock icon
+(auto-starts the Streamlit server if needed; closing the window stops a server it started).
+Entry point: `tradefabe-app` (pywebview). Rebuild the bundle pieces from this README if moved.
+
+> macOS + Python 3.14 gotcha: `site` skips *.pth files carrying the `hidden` flag, which some
+> sandboxed installers set. If `import tradefabe` fails after a reinstall:
+> `chflags nohidden .venv/lib/python*/site-packages/*.pth`
 
 ## Principles
 - Strategies are deterministic; **no LLM in the trade loop** (LLMs are for research,

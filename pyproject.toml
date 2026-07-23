@@ -17,8 +17,12 @@ dependencies = [
     "lxml",
 ]
 
+[project.optional-dependencies]
+desktop = ["pywebview"]
+
 [project.scripts]
 tradefabe = "tradefabe.cli:main"
+tradefabe-app = "tradefabe.desktop:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
