@@ -22,6 +22,47 @@ DIV = ["#2a78d6", "#f0efec", "#e34948"]          # diverging blue <-> red, gray 
 
 st.set_page_config(page_title="tradefabe lab", page_icon="📉", layout="wide")
 
+# ---- lab-protocol visual identity (works with Streamlit, not against it) ----
+LAB_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+:root{
+  --paper:#f7f8f7; --card:#fdfdfc; --ink:#14171a; --ink2:#4d5560; --mut:#8a929c;
+  --rule:#e3e6e2; --accent:#2a5db0; --dead:#b3402e; --alive:#1e7d43;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,monospace;
+  --disp:'Space Grotesk',system-ui,sans-serif;
+}
+[data-testid="stAppViewContainer"]{background:var(--paper);}
+[data-testid="stHeader"]{background:transparent;}
+[data-testid="stToolbar"],#MainMenu,footer{visibility:hidden;}
+h1,h2,h3{font-family:var(--disp)!important;color:var(--ink)!important;}
+h3{font-size:0.95rem!important;font-weight:600!important;text-transform:uppercase;
+   letter-spacing:.07em;border-bottom:1px solid var(--rule);padding-bottom:.45rem!important;
+   margin-top:1.4rem!important;}
+.lab-eyebrow{font-family:var(--mono);font-size:.70rem;letter-spacing:.22em;color:var(--mut);
+   text-transform:uppercase;margin-bottom:.35rem;}
+.lab-spec{font-family:var(--mono);font-size:.72rem;color:var(--ink2);
+   border-bottom:1px solid var(--rule);padding-bottom:.9rem;margin-bottom:.4rem;}
+.lab-spec b{color:var(--ink);font-weight:600;}
+[data-testid="stMetric"]{background:var(--card);border:1px solid var(--rule);border-radius:6px;
+   padding:.7rem .9rem .6rem;}
+[data-testid="stMetricLabel"] p{font-family:var(--mono)!important;font-size:.66rem!important;
+   letter-spacing:.12em;text-transform:uppercase;color:var(--mut)!important;}
+[data-testid="stMetricValue"]{font-family:var(--mono)!important;font-weight:600;
+   font-size:1.55rem!important;color:var(--ink)!important;}
+[data-testid="stMetricDelta"]{font-family:var(--mono)!important;font-size:.78rem!important;}
+[data-testid="stCaptionContainer"] p{font-family:var(--mono)!important;font-size:.70rem!important;
+   color:var(--mut)!important;}
+[data-testid="stDataFrame"]{font-variant-numeric:tabular-nums;}
+[data-testid="stSidebar"]{background:#f1f3f1;border-right:1px solid var(--rule);}
+[data-testid="stSidebar"] p,[data-testid="stSidebar"] li{font-size:.80rem;color:var(--ink2);}
+hr{border-color:var(--rule)!important;}
+a{color:var(--accent);}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+</style>
+"""
+st.markdown(LAB_CSS, unsafe_allow_html=True)
+
 
 @st.cache_data
 def load():
@@ -72,7 +113,9 @@ gy_last = gy.drop_duplicates("strategy", keep="last").set_index("strategy")
 
 # ---------------- sidebar ----------------
 with st.sidebar:
-    st.title("📉 tradefabe lab")
+    st.markdown('<div class="lab-eyebrow">tradefabe</div>'
+                '<h1 style="font-size:1.3rem;margin:0 0 .4rem">evaluation lab</h1>',
+                unsafe_allow_html=True)
     st.caption("An honest lab for killing bad trading strategies. **Paper/backtest only.**")
     st.markdown(
         f"**Data** {meta['source']} · {meta['start']} → {meta['end']} · {meta['n_assets']} assets\n\n"
@@ -87,16 +130,24 @@ with st.sidebar:
         "3. MaxDD ≤ 1.5× the benchmark's\n\n"
         "No tuning to rescue a DEAD strategy.")
 
+# ---------------- lab header ----------------
+st.markdown(
+    f"""<div class="lab-eyebrow">tradefabe · strategy evaluation lab · paper only</div>
+<div class="lab-spec">DATA <b>{meta['source']}</b> {meta['start']} → {meta['end']} ·
+OOS FROM <b>{meta['oos_start']}</b> · {meta['n_assets']} ASSETS ·
+DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>""",
+    unsafe_allow_html=True)
+
 # ---------------- header tiles ----------------
 n_tested = gy_last.shape[0]
 n_alive  = int((gy_last["verdict"] == "ALIVE").sum())
 best     = gy_last["oos_sharpe"].astype(float).idxmax()
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Strategies tested", n_tested)
+c1.metric("Tested", n_tested)
 c2.metric("Alive", n_alive)
 c3.metric("Dead", n_tested - n_alive)
-c4.metric("Luck floor (M) p95 Sharpe", f"{meta['null_bars'].get('M', float('nan')):.2f}")
-c5.metric(f"Best OOS Sharpe — {best}", f"{float(gy_last.loc[best, 'oos_sharpe']):.2f}")
+c4.metric("Luck floor p95", f"{meta['null_bars'].get('M', float('nan')):.2f}")
+c5.metric(f"Best · {best}", f"{float(gy_last.loc[best, 'oos_sharpe']):.2f}")
 st.caption(f"60/40 benchmark OOS Sharpe: **{float(gy_last['bench_sharpe'].iloc[0]):.2f}** — the honest bar for gate 2.")
 
 # ---------------- equity curves ----------------
