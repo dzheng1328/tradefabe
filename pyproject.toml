@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradefabe"
+version = "0.1.0"
+description = "Doctrine-governed strategy lab and paper-trading engine (paper only, no live trading)"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas",
+    "numpy",
+    "yfinance",
+    "matplotlib",
+    "streamlit",
+    "requests",
+    "lxml",
+]
+
+[project.scripts]
+tradefabe = "tradefabe.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

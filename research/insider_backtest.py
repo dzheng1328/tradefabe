@@ -15,7 +15,7 @@ import io, time, os, json, datetime
 import numpy as np, pandas as pd, requests
 import yfinance as yf
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # scripts live in research/, artifacts at repo root
 UA   = {"User-Agent": "Mozilla/5.0 tradefabe-research"}
 HOLD_DAYS = 21          # research: insider-buy edge is front-loaded in ~days 5-21
 COST_BPS  = 20.0        # per-side; small-caps are pricey — deliberately pessimistic

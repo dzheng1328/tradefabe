@@ -11,7 +11,7 @@ from __future__ import annotations
 import time, os, json, datetime
 import requests, numpy as np, pandas as pd
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # scripts live in research/, artifacts at repo root
 H = {"User-Agent": "Mozilla/5.0 tradefabe-research"}
 SYMBOLS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
 PERIODS_YEAR = 3 * 365          # funding every 8h

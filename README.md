@@ -1,26 +1,54 @@
 # tradefabe
 
-An honest lab for testing algorithmic trading strategies in **paper only** — built to *kill*
-bad strategies fast, not to flatter them.
+A doctrine-governed lab for testing trading strategies honestly, plus a **paper-trading
+engine** that runs the survivors as autonomous simulated books. **Paper only — no real
+money is connected, and nothing here is investment advice.**
 
-## Why
-Most retail trading bots get backtested until they look good, then lose money live. This
-project inverts that: the goal is a "verdict machine" that refuses to lie to you. The
-evaluation rules are locked in [DOCTRINE.md](DOCTRINE.md).
+## What this project learned (the short version)
+12+ retail strategies tested against pre-registered kill rules: every predictive/copy-based
+approach (price patterns, congress-copying, insider-following, thematic picking, candlestick
+wicks) came out dead or overfit. Two things survived scrutiny: **diversified buy-and-hold**
+and **delta-neutral crypto funding carry** (~12%/yr in the 2023-26 window, paid for bearing
+real crypto-infrastructure tail risk). Receipts in `graveyard.csv`, verdicts in
+[STRATEGIES.md](STRATEGIES.md), rules in [DOCTRINE.md](DOCTRINE.md).
 
 ## Layout
-- `tsmom_backtest.py` — first-slice standalone backtest (cross-asset 12-month time-series momentum).
-- `harness.py` — reusable evaluator enforcing the doctrine (data-derived noise floor, fair 60/40 benchmark, kill rule, graveyard log).
-- `DOCTRINE.md` — the frozen, pre-registered evaluation rules.
-- `graveyard.csv` — ledger of every strategy tested + its verdict (generated).
-
-## Run
-```sh
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python harness.py
+```
+src/tradefabe/     the installable engine (signals, paper ledgers, live carry, CLI)
+app.py             Streamlit dashboard (research results + live paper books)
+harness.py         research evaluator: doctrine gates, noise floors, graveyard
+tsmom_backtest.py  shared research core (data cache, stats)  [extraction → src/ on roadmap]
+combine.py         blending / piggyback experiments
+research/          one-off studies (insider, congressional, carry, thematic, day-trading)
+artifacts/         generated research outputs (gitignored)
+state/paper/       paper-book ledgers written by the runner (gitignored)
 ```
 
+## Quickstart
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -e .
+
+.venv/bin/tradefabe run       # one daily paper cycle: 5 books (4 equity + live carry)
+.venv/bin/tradefabe status    # current book equities
+.venv/bin/streamlit run app.py  # dashboard at localhost:8501
+
+.venv/bin/python harness.py   # re-run the research evaluation (writes artifacts/)
+```
+
+The 5 paper books: `tsmom_12m`, `tsmom_ensemble`, `green_line_200d`, `turn_of_month`
+(local simulated fills at close, pessimistic costs) and `carry_btc_eth` (accrues **real
+Hyperliquid funding** on a delta-neutral notional — when funding goes negative in bear
+regimes, the book bleeds; watching that live is the point).
+
+Schedule it daily with cron/launchd (see the roadmap issue) — each `tradefabe run` marks
+all books and retargets whichever are due.
+
 ## Principles
-- Strategies are **deterministic**; the LLM is for research/monitoring/reporting, never live entries.
-- Verdicts are **out-of-sample only**; costs charged pessimistically; **no tuning to pass**.
-- Every result — alive or dead — is logged. One death is data, not failure.
+- Strategies are deterministic; **no LLM in the trade loop** (LLMs are for research,
+  reporting, and auditing — a nondeterministic trader can't be honestly evaluated).
+- Verdicts are out-of-sample, cost-pessimistic, pre-registered; dead strategies stay dead.
+- Every strategy ever tested is logged in `graveyard.csv` — the multiple-testing record.
+
+## Roadmap
+Tracked as GitHub issues on this repo (milestone **Engine v1**).

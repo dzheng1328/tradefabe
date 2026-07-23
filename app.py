@@ -209,6 +209,22 @@ if sleeve_sel:
         st.caption("Reminder: a sleeve usually LOWERS raw dollars while smoothing the ride — "
                    "Sharpe up ≠ more profit.")
 
+# ---------------- live paper books ----------------
+_state = os.path.join(BASE, "state", "paper")
+if os.path.exists(os.path.join(_state, "summary.csv")):
+    st.subheader("Paper books — live (simulated fills + real Hyperliquid funding)")
+    psum = pd.read_csv(os.path.join(_state, "summary.csv"))
+    phist = pd.read_csv(os.path.join(_state, "history.csv"), parse_dates=["date"])
+    cols = st.columns(len(psum))
+    for col, (_, r) in zip(cols, psum.iterrows()):
+        col.metric(r["book"], f"${r['equity']:,.0f}", f"{r['return']:+.2%}")
+    wide = phist.pivot_table(index="date", columns="book", values="equity")
+    if len(wide) > 1:
+        st.line_chart(wide / 100_000.0,
+                      color=[SLOTS[i % len(SLOTS)] for i in range(wide.shape[1])], height=260)
+    st.caption(f"Books start at $100k. Last run: {psum['last_run'].max()} · "
+               "run `.venv/bin/tradefabe run` daily (or via cron) to advance.")
+
 st.divider()
 st.caption("tradefabe · doctrine-governed strategy lab · backtests & paper only — nothing here is "
            "investment advice, and no real money is connected.")

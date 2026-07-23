@@ -11,7 +11,7 @@ import time, os, json, datetime
 import requests, numpy as np, pandas as pd
 import yfinance as yf
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # scripts live in research/, artifacts at repo root
 COINS = ["BTC", "ETH", "SOL"]
 FEE_DRAG_YR = 0.015
 ANN_D = 365
