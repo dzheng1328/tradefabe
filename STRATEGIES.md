@@ -37,7 +37,7 @@ multiple-testing record. Pipeline for every strategy, no exceptions:
 ### E. Carry / structural (edge: get PAID a flow, no prediction needed)
 | strategy | spec | freq | status |
 |---|---|---|---|
-| crypto funding/basis carry | long spot + short perp, collect funding | D | QUEUED — needs perp data + separate engine. **Top candidate for the raw-profit goal.** |
+| crypto funding/basis carry | long spot + short perp, collect funding | D | **REAL — the only survivor.** Hyperliquid 2023-26: ~12%/yr net, market-neutral, +1.3% through a −53% BTC crash, funding+ 88% of days. Caveats: backtest CANNOT see the fat tail (FTX-style counterparty collapse, stablecoin depeg); window excludes 2022/FTX; the yield is pay for bearing crypto-infra risk. See `carry_hl.py` |
 | FX carry | long high-yield ccy ETFs vs low | M | QUEUED — needs rate data |
 
 ### F. Volatility risk premium (edge: implied > realized on average)
