@@ -45,6 +45,17 @@ multiple-testing record. Pipeline for every strategy, no exceptions:
 |---|---|---|---|
 | VRP via defined-risk structures | short vol with hard caps | W | QUEUED — tail-risk design required first; -800% tail events documented |
 
+### G. Information / signal-following (edge: copy legally-disclosed informed traders)
+| strategy | spec | freq | status |
+|---|---|---|---|
+| `congress_copy` | mirror congressional purchases after 45-day disclosure | — | **DEAD** — NANC proxy alpha −0.4%/yr after SPY+QQQ beta (pure tech beta); Ziobrowski's +12% is pre-STOCK-Act; raw trade data locked (403) |
+| `insider_buying` | buy on Form-4 open-market purchases (≥$100k), hold 21d | D | **DEAD** — trade-level backtest on 83k purchases: 3.2% CAGR / Sharpe 0.48, *below* the random-ticker luck floor (0.70) and far below SPY (0.84) |
+
+Both DEAD. Congressional "outperformance" is stale + now just tech beta. Insider-buying's real
+edge lives in illiquid microcaps where spreads/impact eat it; the tradeable slice has no edge and
+lost to random stock-picking from the same pool. Backtests: `insider_backtest.py`, NANC/KRUZ/KNOW
+regression above. Survivorship (145 delisted names dropped) biased insider results UP, and it still died.
+
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
 2. One verdict per spec. Tweaks = a NEW row and a NEW graveyard entry.
