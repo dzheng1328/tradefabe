@@ -99,26 +99,47 @@ a precise p-value:
     SR / SE(T) ≥ 2  ⟹  sqrt(T) ≥ 2  ⟹  T ≥ 4 years
 
 A weaker true edge takes proportionally longer: for a book's backtest OOS Sharpe
-`SR_bt`, **T_required = (2 / SR_bt)² years**. This is a rough argument (assumes iid
-returns, ignores the skew/kurtosis/autocorrelation corrections a formal Sharpe-ratio
-test would apply) — precise enough to set expectations, not precise enough to substitute
-for the interval-based rules below.
+`SR_bt`, **T_required = max(2 years, (2 / SR_bt)² years)**. This is a rough argument
+(assumes iid returns, ignores the skew/kurtosis/autocorrelation corrections a formal
+Sharpe-ratio test would apply) — precise enough to set expectations, not precise enough
+to substitute for the interval-based rules below.
+
+**Formula-validity caveat (found by stress-testing this amendment against real data
+before merge, not a hypothetical):** the iid assumption breaks badly for a return stream
+that isn't noisy sampling around a stable mean. `carry_btc_eth`'s own backtest equity
+curve (`artifacts/carry_hl_curve.csv`) gives a *daily* Sharpe of **10.85** — funding
+accrues smoothly with almost no day-to-day noise, so the naive formula would compute
+`T_required ≈ 12 days`, which is absurd: it would let the confirm gate fire before the
+book had even survived one funding-regime cycle, exactly contradicting `STRATEGIES.md`'s
+own caveat that carry's backtest "CANNOT see the fat tail." The floor above
+(`max(2 years, ...)`) exists specifically to stop a low-noise, regime-driven return
+stream from formula-gaming its way to an early confirm. For carry-type books, `T_required`
+in practice IS the 2-year floor, not the formula — treat the formula as binding only for
+strategies whose apparent Sharpe is in the normal 0.3-1.5 range (trend/reversal/calendar),
+where it was actually checked against a Monte Carlo simulation (empirical SE within 3% of
+`sqrt(1/T)` at T = 1/2/4/8 years, SR=1).
 
 ### Time-gated verdict tiers
 | paper-testing age | what's in scope |
 |---|---|
 | 0-3 months | **Plumbing only.** No performance verdict, confirm or kill. Check: did it run without crashing, do fills/costs/ledger math check out, does the position actually taken match what the signal should have produced against that day's data. Failures here are bugs — logged and fixed, not doctrine verdicts. |
-| 3-12 months | **Kill-eligible, confirm-ineligible.** The kill criteria below can fire. Nothing here can promote a book to `paper-confirmed` — there isn't enough data for a Sharpe estimate to mean anything yet. |
-| 12 months - T_required | **Kill-eligible; provisional-confirm only.** "Behaving as expected, nothing's wrong" is a valid status (`provisional`) but is explicitly not `paper-confirmed` — a good 18 months doesn't get read as proof. |
+| 3-24 months | **Kill-eligible, confirm-ineligible.** The kill criteria below can fire. Nothing here can promote a book to `paper-confirmed` — 24 months is the hard floor below which no book, however low-noise its returns look, gets a confirm verdict of any kind (see the formula-validity caveat above). |
+| 24 months - T_required | **Kill-eligible; provisional-confirm only** (only reachable by books whose formula `T_required` exceeds the 2-year floor, i.e. `SR_bt` < 1.0). "Behaving as expected, nothing's wrong" is a valid status (`provisional`) but is explicitly not `paper-confirmed` — a good 18 months doesn't get read as proof. |
 | ≥ T_required (book-specific, see formula) | **Statistical window.** The earliest point a genuine `paper-confirmed` verdict is legitimate. |
 
 ### Kill criteria (can fire any time after month 3)
-1. **Divergence kill** — live paper returns diverge from what the backtest would have
-   produced on the *same realized market data* by more than a tracking-error bound for 2
-   consecutive months, and the gap isn't explained by a logged, known difference (real
-   fill timing vs backtest assumption, live cost slippage, etc). Signals a live
-   implementation bug or an edge that doesn't survive contact with real execution —
-   either way, kill and re-diagnose before any re-paper-test.
+1. **Divergence kill** — cumulative live-paper return minus backtest-implied return
+   (the backtest strategy re-run on the *same realized market dates*, exactly what the
+   dashboard's splice chart already plots) over the trailing 2 months exceeds
+   `2 * sigma_m * sqrt(2)`, where `sigma_m` is that book's own frozen OOS-backtest
+   monthly-return standard deviation, recorded at time of promotion (same source data as
+   `T_required` above — e.g. `tsmom_12m` sigma_m=0.0134, `turn_of_month` sigma_m=0.0100,
+   `carry_btc_eth` sigma_m=0.0136, computed from each book's actual OOS return series).
+   A 2-sigma bound on a 2-month cumulative difference under the null "live matches
+   backtest," not a round-number guess. If the gap isn't explained by a logged, known
+   difference (real fill timing vs backtest assumption, live cost slippage, etc), it
+   signals a live implementation bug or an edge that doesn't survive contact with real
+   execution — either way, kill and re-diagnose before any re-paper-test.
 2. **Statistical kill** (valid only once >= 12 months in) — the paper Sharpe's
    one-sided 95% upper bound (`SR + 1.645*SE(T)`) is <= 0. Requires the *entire*
    confidence interval to exclude any edge, not just a negative point estimate — with
@@ -127,17 +148,24 @@ for the interval-based rules below.
 3. **Drawdown kill** — live drawdown breaches the same 1.5x-benchmark bound as backtest
    gate 3, realized in actual dollars. Immediate, no waiting period — a risk control, not
    a statistical judgment.
+4. **Tail-risk kill** (carry-type books only) — an unresolved `high_risk_alert` from
+   `carry_risk.py`'s live monitor (funding-flip or liquidation-distance breach, #6)
+   sustained for more than 30 days without the operator posture being reduced. The
+   Sharpe-based rules above are blind to exactly the tail risk carry's backtest can't
+   see; this rule makes the existing risk monitor part of the verdict, not a side panel.
 
 ### Confirm criteria
 A book is **paper-confirmed** only when ALL of:
-- paper-testing age >= `T_required = (2 / SR_backtest)²` years, using the frozen
-  backtest OOS Sharpe recorded in `graveyard.csv` / `STRATEGIES.md` at time of
+- paper-testing age >= `T_required` (formula above, floored at 2 years), using the
+  frozen backtest OOS Sharpe recorded in `graveyard.csv` / `STRATEGIES.md` at time of
   promotion — not a re-fit, **and**
 - the realized paper Sharpe's one-sided 95% lower bound (`SR - 1.645*SE(T)`) is > 0,
   **and**
 - the realized paper Sharpe is statistically compatible with the backtest OOS Sharpe
   (within +/- 2*SE(T) of it) — paper trading has to confirm the *same* edge the backtest
-  found, not merely land on some other positive number.
+  found, not merely land on some other positive number, **and**
+- for carry-type books: no unresolved `carry_risk.py` `high_risk_alert` at the moment of
+  the verdict (a confirm is a point-in-time claim; it can't be issued mid-alert).
 
 Confirmed books stay on the roster as live strategies exactly as before; this gate only
 governs what claim can honestly be made about them.
