@@ -84,6 +84,17 @@ def load_backtest():
 
 
 @st.cache_data
+def load_piggyback_backtest():
+    """Backtest OOS returns for the 4 piggyback constructions (research/piggyback_backtest.py),
+    same shape as full_returns.csv's columns but kept separate since it's a different study
+    (constructions, not bare strategies) that can be rerun independently. None if not yet run."""
+    path = os.path.join(ART, "piggyback_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+@st.cache_data
 def load_carry_backtest():
     """The carry book's backtest lives outside harness.py's artifacts (separate study,
     research/carry_hl.py) — different universe, different date range (since 2023-05, not
@@ -182,11 +193,12 @@ def themed_layout(**overrides):
 
 
 # ==================================================================== per-book normalization
-def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date):
+def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, piggy=None):
     """Normalize a live paper book into one shape the panel can render, regardless of
     whether it's an equity-signal book (backtest in full_returns.csv, real ticker
-    positions) or the carry book (backtest in a separate study, funding-accrual, no
-    ticker positions)."""
+    positions), a piggyback construction (backtest in piggyback_returns.csv, same
+    positions shape as an equity book), or the carry book (backtest in a separate study,
+    funding-accrual, no ticker positions)."""
     live_hist = (phist[phist["book"] == name]
                  .drop_duplicates("date", keep="last")
                  .set_index("date")["equity"].sort_index())
@@ -195,7 +207,7 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date):
 
     if kind == "equity":
         oos_start = pd.Timestamp(meta["oos_start"])
-        bt_returns = full[name]
+        bt_returns = piggy[name] if piggy is not None and name in piggy.columns else full[name]
         bt_curve = (1 + bt_returns.fillna(0)).cumprod()
         bt_curve = bt_curve[bt_curve.index >= oos_start]
         stats = ann_stats(bt_returns[bt_returns.index >= oos_start])
@@ -365,7 +377,8 @@ def render_paper_books(psum, phist, full, meta, gy_last):
     pick = st.selectbox("Strategy", names)
 
     price_now, price_date = load_price_snapshot()
-    data = book_panel_data(pick, phist, full, meta, gy_last, price_now, price_date)
+    piggy = load_piggyback_backtest()
+    data = book_panel_data(pick, phist, full, meta, gy_last, price_now, price_date, piggy)
     render_strategy_panel(pick, data, color_of[pick])
 
 

@@ -21,7 +21,7 @@ import datetime
 import numpy as np
 import pandas as pd
 from tradefabe.engine import (load_prices, stats, ANN, VOL_WINDOW, TARGET_VOL,
-                              MAX_LEG, MAX_GROSS, COST_BPS, LOOKBACK, BASE,
+                              MAX_LEG, MAX_GROSS, COST_BPS, LOOKBACK, BASE, BENCH_W,
                               realized_vol, _reb_mask, size_and_rebalance,
                               net_returns, calmar)
 from tradefabe.signals import (sig_tsmom_12m as sig_tsmom, sig_tsmom_ensemble,
@@ -33,7 +33,6 @@ from tradefabe.signals import (sig_tsmom_12m as sig_tsmom, sig_tsmom_ensemble,
 OOS_START   = pd.Timestamp("2018-01-01")
 NULL_TRIALS = 500
 NULL_PCTILE = 95
-BENCH_W     = {"SPY": 0.60, "IEF": 0.40}
 CORR_DIV    = 0.30
 DD_MULT     = 1.5
 GRAVEYARD   = os.path.join(BASE, "graveyard.csv")
