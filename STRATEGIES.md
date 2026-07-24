@@ -56,6 +56,32 @@ edge lives in illiquid microcaps where spreads/impact eat it; the tradeable slic
 lost to random stock-picking from the same pool. Backtests: `insider_backtest.py`, NANC/KRUZ/KNOW
 regression above. Survivorship (145 delisted names dropped) biased insider results UP, and it still died.
 
+### H. Piggyback / combined constructions (edge: a standalone-DEAD strategy can still earn
+its place as a diversifying sleeve on the passive core — see `combine.py`, doctrine's
+"earns its place" gate 2 applied to a construction rather than a bare bet)
+
+Fixed **30% sleeve** (`SLEEVE`, pre-committed, not optimized) of an equal-weight blend of
+the named legs, on top of a **70% 60/40 core**, monthly rebalance. All 4 legs drawn from
+Families A/C/D's already-DEAD strategies (#7). Sleeve composition chosen from a full
+`itertools.combinations` search over all 7 DEAD equity candidates at depths 2/3/4,
+ranked by piggyback Sharpe/Calmar and checked against a matched-blend luck floor per
+depth — the search and its output are the pre-registration record for *why* these 4 and
+not some other 4, per graphify session 2026-07-23. Frozen before the formal doctrine
+verdict in `research/piggyback_backtest.py` / `graveyard.csv` was run.
+
+| strategy | spec | freq | status |
+|---|---|---|---|
+| `piggyback_2a` | 70% 60/40 + 30% (`tsmom_12m` + `low_vol_xsec`) | M | **ALIVE** — Sharpe 0.89 vs matched depth-2 luck floor 0.87; Calmar 0.50 vs 60/40's 0.45; MaxDD −14.3% |
+| `piggyback_2b` | 70% 60/40 + 30% (`low_vol_xsec` + `turn_of_month`) | M | **DEAD** — Sharpe 0.87 essentially ties the matched luck floor (0.87); a random depth-2 sleeve does about as well, because `turn_of_month`'s edge is mostly the 0.85-correlation-to-benchmark beta it already carries, not something extra |
+| `piggyback_3` | 70% 60/40 + 30% (`tsmom_12m` + `green_line_200d` + `low_vol_xsec`) | M | **ALIVE** — Sharpe 0.88 vs floor 0.87; best Calmar of all 4 (0.52) |
+| `piggyback_4` | 70% 60/40 + 30% (`tsmom_12m` + `xsec_momentum` + `green_line_200d` + `low_vol_xsec`) | M | **ALIVE** — Sharpe 0.88 vs floor 0.86; Calmar 0.51, essentially unchanged from `piggyback_3` — the 4th leg (`xsec_momentum`) doesn't materially help or hurt |
+
+`low_vol_xsec` appears in every pick above despite being DEAD standalone (Sharpe −0.03) —
+its correlation to nearly everything else in the roster is negative (−0.48 to the
+benchmark, −0.09 to −0.44 to the other candidates), making it the single best diversifier
+found in the search, independent of how many other legs are stacked around it. Verdicts:
+`graveyard.csv`, run via `research/piggyback_backtest.py`.
+
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
 2. One verdict per spec. Tweaks = a NEW row and a NEW graveyard entry.
