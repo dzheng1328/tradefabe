@@ -6,6 +6,7 @@ import pandas as pd
 import yfinance as yf
 from . import books, signals
 from .carry_live import run_carry
+from .carry_risk import check_carry_risk
 from .paths import STATE_DIR
 
 EQUITY_BOOKS = list(signals.REGISTRY)
@@ -38,6 +39,7 @@ def run_daily(verbose: bool = True) -> pd.DataFrame:
     carry = run_carry()
     if verbose:
         print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
+    check_carry_risk()   # writes state/paper/carry_risk.json; never raises, dashboard-only surface
     return write_summary(last)
 
 
