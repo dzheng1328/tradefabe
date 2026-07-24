@@ -9,6 +9,10 @@ and the harness judges it out-of-sample against:
   3. the pre-registered kill rule.
 Every verdict — alive or dead — is appended to graveyard.csv, and render-ready
 artifacts are written to artifacts/ for the dashboard (app.py).
+
+Engine core (data, sizing, returns, stats) and signal functions now live in the
+installed package (tradefabe.engine / tradefabe.signals); this file keeps only the
+doctrine: the noise floor, the fair benchmark, and the three-gate verdict.
 """
 from __future__ import annotations
 import os
@@ -16,8 +20,14 @@ import json
 import datetime
 import numpy as np
 import pandas as pd
-from tsmom_backtest import (load_prices, stats, ANN, VOL_WINDOW, TARGET_VOL,
-                            MAX_LEG, MAX_GROSS, COST_BPS, LOOKBACK, BASE)
+from tradefabe.engine import (load_prices, stats, ANN, VOL_WINDOW, TARGET_VOL,
+                              MAX_LEG, MAX_GROSS, COST_BPS, LOOKBACK, BASE,
+                              realized_vol, _reb_mask, size_and_rebalance,
+                              net_returns, calmar)
+from tradefabe.signals import (sig_tsmom_12m as sig_tsmom, sig_tsmom_ensemble,
+                               sig_xsec_momentum, sig_green_line_200d as sig_green_line,
+                               sig_str_reversal, sig_low_vol,
+                               sig_turn_of_month_research as sig_turn_of_month, sig_random)
 
 # ---- frozen doctrine parameters (see DOCTRINE.md) ----
 OOS_START   = pd.Timestamp("2018-01-01")
@@ -30,102 +40,9 @@ GRAVEYARD   = os.path.join(BASE, "graveyard.csv")
 ART         = os.path.join(BASE, "artifacts")
 
 
-# ---------- shared sizing + engine (identical for every strategy, incl. the null) ----------
-def _reb_mask(index, freq):
-    """True on days the book may change: 'D' daily, 'W' weekly, 'M' monthly."""
-    if freq == "D":
-        return pd.Series(True, index=index)
-    per = pd.Series(index.to_period(freq), index=index)
-    return per.ne(per.shift(1))
-
-
-def realized_vol(prices):
-    return prices.pct_change().rolling(VOL_WINDOW).std() * np.sqrt(ANN)
-
-
-def size_and_rebalance(prices, signal, freq="M", rv=None):
-    if rv is None:
-        rv = realized_vol(prices)
-    raw   = (signal * (TARGET_VOL / rv)).clip(-MAX_LEG, MAX_LEG)
-    w     = raw / prices.shape[1]
-    gross = w.abs().sum(axis=1)
-    scale = (MAX_GROSS / gross).clip(upper=1.0).replace([np.inf, -np.inf], 1.0)
-    w = w.mul(scale, axis=0)
-    m = _reb_mask(prices.index, freq)
-    mask = pd.DataFrame(np.tile(m.values.reshape(-1, 1), (1, w.shape[1])),
-                        index=w.index, columns=w.columns)
-    return w.where(mask).ffill().fillna(0.0)
-
-
-def net_returns(prices, w):
-    rets   = prices.pct_change()
-    w_exec = w.shift(1)                        # execute next day: no lookahead
-    gross  = (w_exec * rets).sum(axis=1)
-    cost   = w_exec.diff().abs().sum(axis=1) * (COST_BPS / 1e4)
-    return (gross - cost).dropna()
-
-
-def calmar(s):
-    m = s["MaxDD"]
-    return s["CAGR"] / abs(m) if (m and np.isfinite(m) and m != 0) else np.nan
-
-
-# ---------- strategies: prices -> signal matrix ----------
-def sig_tsmom(prices):
-    """Trend: long if the trailing 12-month return is positive, else short."""
-    return np.sign(prices / prices.shift(LOOKBACK) - 1)
-
-
-def sig_tsmom_ensemble(prices):
-    """Trend: blend of 3/6/12-month time-series momentum."""
-    sigs = [np.sign(prices / prices.shift(lb) - 1) for lb in (63, 126, 252)]
-    return sum(sigs) / len(sigs)
-
-
-def sig_xsec_momentum(prices):
-    """Trend (relative): long the 12-month winners, short the losers."""
-    r12 = prices / prices.shift(252) - 1
-    pr  = r12.rank(axis=1, pct=True)
-    return np.sign(pr - 0.5)
-
-
-def sig_green_line(prices):
-    """Trend: the Instagram-reel rule — long above the 200-day MA, short below."""
-    ma = prices.rolling(200).mean()
-    return np.sign(prices - ma)
-
-
-def sig_str_reversal(prices):
-    """Mean reversion: fade the trailing 5-day move (weekly rebalance)."""
-    return -np.sign(prices / prices.shift(5) - 1)
-
-
-def sig_low_vol(prices):
-    """Defensive anomaly (BAB-lite): long the calmer half of the universe, short the wilder half."""
-    vol = prices.pct_change().rolling(60).std()
-    pr  = vol.rank(axis=1, pct=True)
-    return np.sign(0.5 - pr)
-
-
-def sig_turn_of_month(prices):
-    """Calendar: long everything during the turn-of-month window (last 4 + first 3 trading days)."""
-    df = pd.DataFrame(index=prices.index)
-    df["g"]   = prices.index.to_period("M")
-    df["one"] = 1
-    pos      = df.groupby("g").cumcount() + 1
-    tot      = df.groupby("g")["one"].transform("size")
-    in_tom   = (pos <= 3) | ((tot - pos) < 4)
-    sig = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
-    sig.loc[in_tom.values, :] = 1.0
-    return sig
-
-
-def sig_random(prices, rng):
-    return pd.DataFrame(rng.choice([-1.0, 1.0], size=prices.shape),
-                        index=prices.index, columns=prices.columns)
-
-
 # name -> (signal_fn, rebalance freq). Freq is part of the strategy spec, pre-registered.
+# turn_of_month uses the research (trading-day) variant; the live paper book uses the
+# calendar variant — see tradefabe.signals for why they differ.
 STRATEGIES = {
     "tsmom_12m":       (sig_tsmom,          "M"),
     "tsmom_ensemble":  (sig_tsmom_ensemble, "M"),

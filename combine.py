@@ -11,9 +11,10 @@ Two honest tests, same doctrine ethos:
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from harness import (load_prices, size_and_rebalance, net_returns, benchmark_returns,
-                     sig_green_line, sig_tsmom, sig_tsmom_ensemble, sig_xsec_momentum,
-                     sig_random, stats, calmar, OOS_START, NULL_PCTILE)
+from tradefabe.engine import load_prices, size_and_rebalance, net_returns, stats, calmar
+from tradefabe.signals import (sig_green_line_200d, sig_tsmom_12m, sig_tsmom_ensemble,
+                               sig_xsec_momentum, sig_random)
+from harness import benchmark_returns, OOS_START, NULL_PCTILE  # doctrine-specific pieces
 
 SLEEVE      = 0.30     # fixed piggyback weight on a 0.70 core (pre-committed, NOT optimized)
 NULL_BLEND_TRIALS = 200
@@ -35,7 +36,7 @@ def main():
     prices, source = load_prices()
     print(f"data: {source} | OOS from {OOS_START.date()}\n")
 
-    strat = {"green_line_200d": sig_green_line, "tsmom_12m": sig_tsmom,
+    strat = {"green_line_200d": sig_green_line_200d, "tsmom_12m": sig_tsmom_12m,
              "tsmom_ensemble": sig_tsmom_ensemble, "xsec_momentum": sig_xsec_momentum}
     R = pd.DataFrame({k: sret(prices, fn) for k, fn in strat.items()}).dropna()
     bench = benchmark_returns(prices)
