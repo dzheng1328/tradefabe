@@ -3,9 +3,18 @@
 Single source of truth for the 4 constructions pre-registered in STRATEGIES.md family H
 and backtest-verdicted by research/piggyback_backtest.py (which imports LEGS/SPECS from
 here rather than redefining them). SPECS holds all 4 as backtested; REGISTRY is the
-subset actually wired into the live paper engine -- only the backtest-ALIVE ones
-(graveyard.csv, 2026-07-24). piggyback_2b is DEAD (tied its own matched luck floor) and
-stays backtest-only, same as any other DEAD strategy: no live paper book, no promotion.
+subset actually wired into the live paper engine.
+
+Status as of DOCTRINE v1.3 (2026-07-24, Bonferroni correction): piggyback_2a/3/4
+originally verdicted ALIVE under a flat p95 bar, then flipped to DEAD once judged against
+the honest multiple-testing-corrected bar at their real n_tested (9-12) -- see
+graveyard.csv (both the original and corrected rows are kept, append-only) and
+DOCTRINE.md's v1.3 amendment for why. Dave's call (2026-07-24): keep all 3 running live,
+same status DOCTRINE v1.2 already gives the backtest-DEAD trend books (tsmom_12m etc) --
+paper-tracked for monitoring/dashboard value, explicitly NOT eligible for a
+paper-confirmed verdict. REGISTRY is therefore "live for monitoring," not "live because
+ALIVE" -- don't read membership here as a doctrine verdict. piggyback_2b was DEAD before
+AND after the correction and was never wired live.
 """
 from __future__ import annotations
 import pandas as pd
@@ -35,10 +44,11 @@ SPECS = {
     "piggyback_4":  (("tsmom_12m", "xsec_momentum", "green_line_200d", "low_vol_xsec"), "M"),
 }
 
-# The live paper engine only runs backtest-ALIVE constructions (graveyard.csv,
-# 2026-07-24: 2a/3/4 ALIVE, 2b DEAD -- tied its own matched luck floor almost exactly).
-_ALIVE = {"piggyback_2a", "piggyback_3", "piggyback_4"}
-REGISTRY = {name: spec for name, spec in SPECS.items() if name in _ALIVE}
+# Live-for-monitoring subset (see module docstring -- corrected-DEAD as of v1.3, kept
+# running by Dave's explicit decision, not a doctrine ALIVE verdict). piggyback_2b was
+# excluded from the start (DEAD both before and after the Bonferroni correction).
+_LIVE_MONITORED = {"piggyback_2a", "piggyback_3", "piggyback_4"}
+REGISTRY = {name: spec for name, spec in SPECS.items() if name in _LIVE_MONITORED}
 
 
 def target_weights(prices: pd.DataFrame, name: str) -> pd.Series:
