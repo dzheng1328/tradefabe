@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 desktop = ["pywebview"]
+dev = ["pytest"]
 
 [project.scripts]
 tradefabe = "tradefabe.cli:main"
