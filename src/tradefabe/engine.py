@@ -28,6 +28,7 @@ MAX_GROSS  = 3.0        # cap total gross exposure
 COST_BPS   = 5.0        # per-side slippage in bps, charged on turnover (pessimistic)
 LONG_SHORT = True       # canonical TSMOM is long/short
 SPLIT_DATE = "2018-01-01"   # everything on/after this date is OUT-OF-SAMPLE
+BENCH_W    = {"SPY": 0.60, "IEF": 0.40}     # the fair 60/40 benchmark's own weights
 BENCH      = "SPY"
 ANN        = 252
 

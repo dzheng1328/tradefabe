@@ -21,32 +21,18 @@ import datetime
 import os
 import numpy as np
 import pandas as pd
-from tradefabe.engine import load_prices, size_and_rebalance, net_returns, stats, calmar
-from tradefabe.signals import (sig_tsmom_12m, sig_tsmom_ensemble, sig_xsec_momentum,
-                               sig_green_line_200d, sig_low_vol,
-                               sig_turn_of_month_research, sig_random)
+from tradefabe.engine import load_prices, size_and_rebalance, net_returns, stats, calmar, BASE
+from tradefabe.signals import sig_random
+from tradefabe.piggyback import LEGS, SPECS, SLEEVE
 from harness import benchmark_returns, OOS_START, NULL_PCTILE, CORR_DIV, DD_MULT, GRAVEYARD
 
-SLEEVE = 0.30           # fixed piggyback weight on a 0.70 60/40 core (pre-committed, combine.py)
 NULL_TRIALS = 150
 FREQ = "M"
+ART = os.path.join(BASE, "artifacts")
 
-LEGS = {
-    "tsmom_12m":       sig_tsmom_12m,
-    "tsmom_ensemble":  sig_tsmom_ensemble,
-    "xsec_momentum":   sig_xsec_momentum,
-    "green_line_200d": sig_green_line_200d,
-    "low_vol_xsec":    sig_low_vol,
-    "turn_of_month":   sig_turn_of_month_research,
-}
-
-# name -> tuple of legs. Pre-registered in STRATEGIES.md family H before this ran.
-PIGGYBACK_SPECS = {
-    "piggyback_2a": ("tsmom_12m", "low_vol_xsec"),
-    "piggyback_2b": ("low_vol_xsec", "turn_of_month"),
-    "piggyback_3":  ("tsmom_12m", "green_line_200d", "low_vol_xsec"),
-    "piggyback_4":  ("tsmom_12m", "xsec_momentum", "green_line_200d", "low_vol_xsec"),
-}
+# name -> tuple of legs, from tradefabe.piggyback's SPECS (the single source of truth,
+# pre-registered in STRATEGIES.md family H before this script was run).
+PIGGYBACK_SPECS = {name: legs for name, (legs, _freq) in SPECS.items()}
 
 
 def sret(prices, fn):
@@ -111,12 +97,18 @@ def main():
         print(f"\ncomputing depth-{k} matched luck floor ({NULL_TRIALS} random constructions)...")
         nulls[k] = matched_null(prices, bench, k, NULL_TRIALS, rng)
 
+    combo_returns = {}
     for name, legs in PIGGYBACK_SPECS.items():
         sleeve = pd.DataFrame({leg: leg_returns[leg] for leg in legs}).dropna().mean(axis=1)
         combo = (1 - SLEEVE) * bench.reindex(sleeve.index) + SLEEVE * sleeve
-        evaluate(name, combo.dropna(), bench, nulls[len(legs)], len(legs), legs)
+        combo = combo.dropna()
+        combo_returns[name] = combo
+        evaluate(name, combo, bench, nulls[len(legs)], len(legs), legs)
 
-    print("\nappended 4 verdicts to graveyard.csv")
+    os.makedirs(ART, exist_ok=True)
+    pd.DataFrame(combo_returns).to_csv(os.path.join(ART, "piggyback_returns.csv"))
+    print(f"\nappended 4 verdicts to graveyard.csv, wrote artifacts/piggyback_returns.csv "
+          f"(dashboard backtest-curve source for the ALIVE constructions)")
 
 
 if __name__ == "__main__":
