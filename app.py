@@ -225,19 +225,33 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
         handoff = bt_curve.iloc[-1] if len(bt_curve) else 1.0
 
     positions_df = None
+    deployment = None
     if kind == "equity":
         book = load_book_json(name)
+        cash = float((book or {}).get("cash", 0.0))
         rows = []
         for t, sh in sorted((book or {}).get("positions", {}).items(), key=lambda kv: -abs(kv[1])):
             p = float(price_now.get(t)) if price_now is not None and t in price_now.index else np.nan
             rows.append({"ticker": t, "units": sh, "last_price": p, "value": sh * p if pd.notna(p) else np.nan})
         positions_df = pd.DataFrame(rows)
-        if len(positions_df) and positions_df["value"].notna().any():
-            positions_df["weight"] = positions_df["value"] / positions_df["value"].sum()
+        # equity = cash + net position value (books.equity()'s own formula) -- the
+        # denominator for "weight" must be TOTAL equity, not sum of position values, or
+        # the weight column always sums to 100% and silently hides how much is in cash.
+        priced_val = positions_df["value"].sum() if len(positions_df) else 0.0
+        equity = cash + (priced_val if pd.notna(priced_val) else 0.0)
+        if len(positions_df) and positions_df["value"].notna().any() and equity:
+            positions_df["weight"] = positions_df["value"] / equity
+        gross = float(positions_df["value"].abs().sum()) if len(positions_df) else 0.0
+        net = float(priced_val) if pd.notna(priced_val) else 0.0
+        deployment = dict(cash=cash, equity=equity, gross=gross, net=net,
+                          cash_pct=(cash / equity if equity else np.nan),
+                          gross_pct=(gross / equity if equity else np.nan),
+                          net_pct=(net / equity if equity else np.nan))
 
     return dict(kind=kind, bt_curve=bt_curve, live_start=live_start,
                 handoff=handoff, live_hist=live_hist, stats=stats, positions_df=positions_df,
-                positions_asof=price_date, book_json=load_book_json(name), **extra)
+                deployment=deployment, positions_asof=price_date,
+                book_json=load_book_json(name), **extra)
 
 
 # ==================================================================== chart builders
@@ -430,6 +444,18 @@ def render_strategy_panel(name, data, color):
 
     st.divider()
     if data["kind"] == "equity":
+        st.markdown("**Capital deployed**")
+        dep = data["deployment"]
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Cash (undeployed)", f"${dep['cash']:,.0f}", fmt(dep["cash_pct"], "pct") + " of equity")
+        d2.metric("Gross exposure", f"${dep['gross']:,.0f}", fmt(dep["gross_pct"], "pct") + " of equity")
+        d3.metric("Net exposure", f"${dep['net']:,.0f}", fmt(dep["net_pct"], "pct") + " of equity")
+        d4.metric("Total equity", f"${dep['equity']:,.0f}")
+        st.caption("Gross = sum of |position value| (both legs of a long/short book); net = "
+                   "long minus short (directional tilt). Vol-targeted sizing deliberately "
+                   "leaves room in cash rather than forcing 100% deployment — that's a "
+                   "feature of the sizing (see `engine.py`'s `sized_weights`), not a bug.")
+
         st.markdown("**Current positions**")
         pdf = data["positions_df"]
         if pdf is None or pdf.empty:
@@ -440,11 +466,12 @@ def render_strategy_panel(name, data, color):
                 "units": st.column_config.NumberColumn("Units", format="%.2f"),
                 "last_price": st.column_config.NumberColumn("Last price", format="$%.2f"),
                 "value": st.column_config.NumberColumn("Value", format="$%.0f"),
-                "weight": st.column_config.NumberColumn("Weight", format="percent"),
+                "weight": st.column_config.NumberColumn("Weight (% of equity)", format="percent"),
             })
             asof = data["positions_asof"]
             st.caption(f"Priced as of the cached data date ({asof.date() if asof is not None else 'unknown'}), "
-                       "not a live quote.")
+                       "not a live quote. Weight is % of TOTAL equity (cash + positions), "
+                       "not % of invested value — it no longer always sums to 100%.")
     else:
         bj = data["book_json"] or {}
         st.markdown("**Book state**")
