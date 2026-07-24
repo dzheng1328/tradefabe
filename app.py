@@ -107,6 +107,17 @@ def load_paper_state():
     return psum, phist
 
 
+def load_carry_risk():
+    """Deliberately uncached, same reasoning as load_paper_state — this is the report
+    check_carry_risk() writes once per `tradefabe run` cycle, never fetched live from the
+    dashboard itself."""
+    path = os.path.join(BASE, "state", "paper", "carry_risk.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as fh:
+        return json.load(fh)
+
+
 @st.cache_data
 def load_price_snapshot():
     """Last cached close per ticker, for pricing open paper positions in the UI. Not a
@@ -373,6 +384,55 @@ def render_strategy_panel(name, data, color):
         st.markdown("**Book state**")
         st.write(f"Equity **${bj.get('equity', float('nan')):,.2f}** · "
                  f"last run **{bj.get('last_run', '—')}**")
+
+        st.divider()
+        st.markdown("**Risk monitor** — funding-flip alert + short-leg liquidation distance")
+        render_carry_risk_panel()
+
+
+def render_carry_risk_panel():
+    risk = load_carry_risk()
+    if risk is None:
+        st.caption("No risk report yet — generated automatically by `.venv/bin/tradefabe run`.")
+        return
+
+    st.caption(f"As of **{risk['generated_at']}** · trailing **{risk['funding_window_days']}d** funding")
+    rc1, rc2 = st.columns(2)
+    for col, coin in zip((rc1, rc2), ("BTC", "ETH")):
+        c = risk["coins"][coin]
+        f7 = c["funding_7d"]
+        flip = c["funding_flip_alert"]
+        val = f"{'⚠️ ' if flip else ''}{f7:+.2%}" if f7 is not None else "—"
+        col.metric(f"{coin} 7d funding", val)
+    if risk["blended_funding_flip_alert"]:
+        st.warning("Blended 7d funding has turned negative — bear-regime bleed. The book "
+                   "loses money net of the fee drag until this flips back.")
+
+    rows = []
+    for coin in ("BTC", "ETH"):
+        c = risk["coins"][coin]
+        for frac_label, p in c["postures"].items():
+            rows.append({"posture": frac_label, "coin": coin, "leverage": p["leverage"],
+                        "liq_distance": p["liq_distance"]})
+    if rows:
+        pdf = pd.DataFrame(rows).pivot(index="posture", columns="coin", values=["leverage", "liq_distance"])
+        pdf = pdf.reindex([f"{f:.0%}" for f in [0.10, 0.25, 0.50, 1.00]])
+        pdf.columns = [f"{coin} {metric.replace('_', ' ')}" for metric, coin in pdf.columns]
+        st.dataframe(pdf.style.format({c: ("{:.1f}x" if "leverage" in c else "{:+.1%}") for c in pdf.columns}),
+                    width="stretch")
+        hl = risk["headline_leverage_fraction"]
+        flagged = [c for c, v in risk["high_risk_alert"].items() if v]
+        if flagged:
+            st.error(f"High risk: at {hl:.0%} of Hyperliquid's live max leverage, "
+                     f"**{', '.join(flagged)}** liquidation distance is under the "
+                     f"{risk['liq_distance_warn']:.0%} pump-cushion threshold.")
+    else:
+        st.caption("Leverage tiers unavailable this run (Hyperliquid unreachable) — funding "
+                   "alert above still reflects the last successful fetch.")
+    st.caption("Postures are % of Hyperliquid's **live** max leverage per coin (fetched fresh "
+               "each `tradefabe run`), not what this paper book actually holds — the book models "
+               "pure funding yield with no leverage. This is a what-if overlay: if an operator ran "
+               "the short leg at that leverage, how far could price pump before liquidation.")
 
 
 # ==================================================================== Research Lab view
