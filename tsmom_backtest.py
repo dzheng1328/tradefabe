@@ -11,119 +11,42 @@ Discipline baked in on purpose:
   * In-sample / out-of-sample split with a KILL RULE written before results are seen.
   * Benchmarked against just-buy-SPY, the honest bar to beat.
 
+The data cache, config, sizing and returns math now live in the installed package
+(tradefabe.engine); this script is the standalone TSMOM study + plotting on top of it.
+The engine names are re-exported below so existing `from tsmom_backtest import ...`
+callers keep working.
+
 Run:    python tsmom_backtest.py
 Output: prints a metrics table + writes equity_curve.png and results.csv (next to this file).
 """
 
 from __future__ import annotations
 import os
-import sys
 import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# ------------------------------------------------------------------ CONFIG
-UNIVERSE   = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "IEF", "LQD", "HYG",
-              "GLD", "SLV", "DBC", "USO", "VNQ", "UUP"]  # ~15 markets for real breadth
-START      = "2007-01-01"
-LOOKBACK   = 252        # ~12 months, the canonical TSMOM signal (do NOT tune this)
-VOL_WINDOW = 60         # trailing window for volatility targeting
-TARGET_VOL = 0.10       # annualized vol budget per sleeve
-MAX_LEG    = 2.0        # cap per-asset leverage
-MAX_GROSS  = 3.0        # cap total gross exposure
-COST_BPS   = 5.0        # per-side slippage in bps, charged on turnover (pessimistic)
-LONG_SHORT = True       # canonical TSMOM is long/short
-SPLIT_DATE = "2018-01-01"   # everything on/after this date is OUT-OF-SAMPLE
-BENCH      = "SPY"
+# Engine core (single source of truth). Re-exported so `from tsmom_backtest import stats`
+# etc. still resolves for any notebook/script that relied on this module.
+from tradefabe.engine import (  # noqa: F401
+    UNIVERSE, START, LOOKBACK, VOL_WINDOW, TARGET_VOL, MAX_LEG, MAX_GROSS,
+    COST_BPS, LONG_SHORT, SPLIT_DATE, BENCH, ANN, BASE, DATA_CACHE,
+    load_prices, stats, size_and_rebalance, net_returns)
+from tradefabe.signals import sig_tsmom_12m
 
 # KILL RULE — written before results are seen:
 #   The strategy is DEAD unless, out-of-sample and after costs, it delivers
 #   Sharpe >= 1.0 AND beats buy-&-hold SPY on Sharpe. No tweaking to rescue it.
 KILL_OOS_SHARPE = 1.0
 
-ANN  = 252
-BASE = os.path.dirname(os.path.abspath(__file__))
-DATA_CACHE = os.path.join(BASE, "data", "prices.csv")
-
-
-def load_prices():
-    """cache -> yfinance -> synthetic fallback. Returns (prices, source_label)."""
-    os.makedirs(os.path.dirname(DATA_CACHE), exist_ok=True)
-    if os.path.exists(DATA_CACHE):
-        px = pd.read_csv(DATA_CACHE, index_col=0, parse_dates=True)
-        return px.dropna(how="all"), "cache"
-    try:
-        import yfinance as yf
-        raw = yf.download(UNIVERSE, start=START, auto_adjust=True, progress=False, threads=False)
-        px = raw["Close"]
-        px = px[[c for c in UNIVERSE if c in px.columns]]
-        px = px.dropna(axis=1, how="all")          # drop tickers that failed to download...
-        dropped = [t for t in UNIVERSE if t not in px.columns]
-        if dropped:                                # ...loudly, so N is sized to real data
-            print(f"[warn] no data for {dropped}; proceeding with {list(px.columns)}", file=sys.stderr)
-        px = px.dropna(how="all")
-        if px.shape[0] < 500 or px.shape[1] < 4:
-            raise RuntimeError("insufficient data returned from yfinance")
-        px.to_csv(DATA_CACHE)
-        return px, "yfinance"
-    except Exception as e:  # offline / sandbox fallback so the pipeline still runs end-to-end
-        print(f"[warn] live data unavailable ({e}); generating SYNTHETIC data.", file=sys.stderr)
-        return _synthetic_prices(), "SYNTHETIC (do not trust the numbers)"
-
-
-def _synthetic_prices():
-    """Correlated GBM so the machinery can be smoke-tested with no network."""
-    rng = np.random.default_rng(42)
-    idx = pd.bdate_range(START, periods=ANN * 17)
-    n = len(UNIVERSE)
-    drift = rng.uniform(0.02, 0.09, n) / ANN
-    vol   = rng.uniform(0.10, 0.25, n) / np.sqrt(ANN)
-    mkt   = rng.normal(0, 1, len(idx))            # shared factor -> realistic correlation
-    beta  = rng.uniform(0.2, 1.0, n)
-    rets  = np.zeros((len(idx), n))
-    for i in range(n):
-        idio = rng.normal(0, 1, len(idx))
-        rets[:, i] = drift[i] + vol[i] * (beta[i] * mkt + np.sqrt(max(1 - beta[i] ** 2, 0)) * idio)
-    return pd.DataFrame(100 * np.exp(np.cumsum(rets, axis=0)), index=idx, columns=UNIVERSE)
-
-
-def stats(r):
-    r = r.dropna()
-    if len(r) < 30:
-        return {k: np.nan for k in ["CAGR", "Vol", "Sharpe", "Sortino", "MaxDD"]}
-    eq = (1 + r).cumprod()
-    cagr    = eq.iloc[-1] ** (ANN / len(r)) - 1
-    vol     = r.std() * np.sqrt(ANN)
-    sharpe  = r.mean() / r.std() * np.sqrt(ANN) if r.std() > 0 else np.nan
-    dn      = r[r < 0].std()
-    sortino = r.mean() / dn * np.sqrt(ANN) if dn > 0 else np.nan
-    maxdd   = (eq / eq.cummax() - 1).min()
-    return {"CAGR": cagr, "Vol": vol, "Sharpe": sharpe, "Sortino": sortino, "MaxDD": maxdd}
-
 
 def build_weights(prices):
-    rets = prices.pct_change()
-    # --- signal: sign of trailing 12-month return (canonical TSMOM) ---
-    trailing = prices / prices.shift(LOOKBACK) - 1
-    signal = np.sign(trailing)
-    if not LONG_SHORT:
-        signal = signal.clip(lower=0)
-    # --- volatility targeting per sleeve ---
-    rv  = rets.rolling(VOL_WINDOW).std() * np.sqrt(ANN)
-    raw = (signal * (TARGET_VOL / rv)).clip(-MAX_LEG, MAX_LEG)
-    w   = raw / prices.shape[1]                      # equal-weight the sleeves
-    # --- cap total gross exposure ---
-    gross = w.abs().sum(axis=1)
-    scale = (MAX_GROSS / gross).clip(upper=1.0).replace([np.inf, -np.inf], 1.0)
-    w = w.mul(scale, axis=0)
-    # --- monthly rebalance: only change weights on the first trading day of a month ---
-    per      = pd.Series(prices.index.to_period("M"), index=prices.index)
-    reb_mask = per.ne(per.shift(1))
-    mask = pd.DataFrame(np.tile(reb_mask.values.reshape(-1, 1), (1, w.shape[1])),
-                        index=w.index, columns=w.columns)
-    return w.where(mask).ffill().fillna(0.0)
+    """Canonical long/short TSMOM weights: sign(trailing 12-mo) sized to target vol,
+    gross-capped, monthly-rebalanced. Now just the shared sizing applied to the
+    12-month trend signal (identical math to the pre-extraction inline version)."""
+    return size_and_rebalance(prices, sig_tsmom_12m(prices), "M")
 
 
 def main():
@@ -131,10 +54,7 @@ def main():
     print(f"data source: {source}  |  {prices.index.min().date()} -> {prices.index.max().date()}  |  {prices.shape[1]} assets")
     rets   = prices.pct_change()
     w      = build_weights(prices)
-    w_exec = w.shift(1)                                    # execute next day: no lookahead
-    gross  = (w_exec * rets).sum(axis=1)
-    cost   = w_exec.diff().abs().sum(axis=1) * (COST_BPS / 1e4)
-    net    = (gross - cost).dropna()
+    net    = net_returns(prices, w)                       # execute next day: no lookahead
     bench  = rets[BENCH].reindex(net.index)
 
     split = pd.Timestamp(SPLIT_DATE)
