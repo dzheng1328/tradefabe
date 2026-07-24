@@ -1,12 +1,20 @@
 """app.py — tradefabe lab dashboard.   Run:  .venv/bin/streamlit run app.py
-Renders artifacts produced by harness.py (run that first). Paper/backtest only — no live trading.
+
+Two views, picked from the sidebar:
+  Paper Books   — the live forward-paper books (state/paper/), home view. Per-strategy
+                  drill-down: stats, positions/funding context, and a backtest -> live
+                  spliced equity chart. Landing view.
+  Research Lab  — the backtest summary produced by harness.py (run that first if
+                  artifacts/ is empty): verdicts, luck floor, correlation, piggyback lab.
+
+Paper/backtest only — no live trading.
 """
 import json
 import os
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 ART  = os.path.join(BASE, "artifacts")
@@ -64,8 +72,9 @@ a{color:var(--accent);}
 st.markdown(LAB_CSS, unsafe_allow_html=True)
 
 
+# ==================================================================== data loading
 @st.cache_data
-def load():
+def load_backtest():
     full = pd.read_csv(os.path.join(ART, "full_returns.csv"), index_col=0, parse_dates=True)
     with open(os.path.join(ART, "meta.json")) as fh:
         meta = json.load(fh)
@@ -74,207 +83,460 @@ def load():
     return full, meta, nulls, gy
 
 
+@st.cache_data
+def load_carry_backtest():
+    """The carry book's backtest lives outside harness.py's artifacts (separate study,
+    research/carry_hl.py) — different universe, different date range (since 2023-05, not
+    2018 OOS), different stat shape (yield-based, not Sharpe-framed)."""
+    curve = pd.read_csv(os.path.join(ART, "carry_hl_curve.csv"), index_col=0, parse_dates=True)
+    with open(os.path.join(ART, "carry_hl_meta.json")) as fh:
+        meta = json.load(fh)
+    return curve.iloc[:, 0].rename("carry_net"), meta
+
+
+def load_paper_state():
+    """Deliberately uncached (small files, changes daily) so a page refresh always shows
+    the latest `tradefabe run` cycle."""
+    p = os.path.join(BASE, "state", "paper")
+    summ = os.path.join(p, "summary.csv")
+    hist = os.path.join(p, "history.csv")
+    if not (os.path.exists(summ) and os.path.exists(hist)):
+        return None, None
+    psum = pd.read_csv(summ)
+    phist = pd.read_csv(hist, parse_dates=["date"])
+    return psum, phist
+
+
+@st.cache_data
+def load_price_snapshot():
+    """Last cached close per ticker, for pricing open paper positions in the UI. Not a
+    live quote — the caption on the positions table says so."""
+    path = os.path.join(BASE, "data", "prices.csv")
+    if not os.path.exists(path):
+        return None, None
+    px = pd.read_csv(path, index_col=0, parse_dates=True)
+    return px.iloc[-1], px.index[-1]
+
+
+def load_book_json(name):
+    path = os.path.join(BASE, "state", "paper", f"{name}.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as fh:
+        return json.load(fh)
+
+
+# ==================================================================== stats
 def ann_stats(r):
-    r = r.dropna()
+    r = pd.Series(r).dropna()
     if len(r) < 30:
-        return dict(Sharpe=np.nan, CAGR=np.nan, MaxDD=np.nan, Calmar=np.nan)
+        return dict(Sharpe=np.nan, Sortino=np.nan, CAGR=np.nan, Vol=np.nan, MaxDD=np.nan, Calmar=np.nan)
     eq = (1 + r).cumprod()
     cagr = eq.iloc[-1] ** (ANN / len(r)) - 1
-    sd = r.std()
-    sharpe = r.mean() / sd * np.sqrt(ANN) if sd > 0 else np.nan
+    vol = r.std() * np.sqrt(ANN)
+    sharpe = r.mean() / r.std() * np.sqrt(ANN) if r.std() > 0 else np.nan
+    dn = r[r < 0].std()
+    sortino = r.mean() / dn * np.sqrt(ANN) if dn > 0 else np.nan
     dd = (eq / eq.cummax() - 1).min()
-    return dict(Sharpe=sharpe, CAGR=cagr, MaxDD=dd, Calmar=(cagr / abs(dd) if dd else np.nan))
+    return dict(Sharpe=sharpe, Sortino=sortino, CAGR=cagr, Vol=vol, MaxDD=dd,
+                Calmar=(cagr / abs(dd) if dd else np.nan))
 
 
-def styled_fig(w=9.5, h=3.4):
-    fig, ax = plt.subplots(figsize=(w, h))
-    fig.patch.set_facecolor(SURF)
-    ax.set_facecolor(SURF)
-    for s in ("top", "right"):
-        ax.spines[s].set_visible(False)
-    for s in ("left", "bottom"):
-        ax.spines[s].set_color(GRID)
-    ax.tick_params(colors=MUTED, labelsize=8)
-    ax.grid(alpha=.6, color=GRID, linewidth=.6)
-    return fig, ax
+def fmt(v, kind="ratio"):
+    if v is None or (isinstance(v, float) and not np.isfinite(v)):
+        return "—"
+    return f"{v:.2f}" if kind == "ratio" else f"{v:.1%}"
 
 
+# ==================================================================== plotly theming
+def _rgba(hex_color, alpha):
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def themed_layout(**overrides):
+    base = dict(
+        paper_bgcolor=SURF, plot_bgcolor=SURF,
+        font=dict(family="IBM Plex Mono, monospace", size=11, color=INK2),
+        margin=dict(l=44, r=20, t=28, b=40),
+        xaxis=dict(gridcolor=GRID, zeroline=False, showline=True, linecolor=GRID),
+        yaxis=dict(gridcolor=GRID, zeroline=False, showline=True, linecolor=GRID),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        hovermode="x unified",
+        height=340,
+    )
+    base.update(overrides)
+    return base
+
+
+# ==================================================================== per-book normalization
+def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date):
+    """Normalize a live paper book into one shape the panel can render, regardless of
+    whether it's an equity-signal book (backtest in full_returns.csv, real ticker
+    positions) or the carry book (backtest in a separate study, funding-accrual, no
+    ticker positions)."""
+    live_hist = (phist[phist["book"] == name]
+                 .drop_duplicates("date", keep="last")
+                 .set_index("date")["equity"].sort_index())
+    live_start = live_hist.index.min()
+    kind = "carry" if name == "carry_btc_eth" else "equity"
+
+    if kind == "equity":
+        oos_start = pd.Timestamp(meta["oos_start"])
+        bt_returns = full[name]
+        bt_curve = (1 + bt_returns.fillna(0)).cumprod()
+        bt_curve = bt_curve[bt_curve.index >= oos_start]
+        stats = ann_stats(bt_returns[bt_returns.index >= oos_start])
+        row = gy_last.loc[name]
+        extra = {"verdict": row["verdict"], "corr_bench": float(row["corr_bench"]),
+                 "null_p95": float(row["null_p95"]), "freq": row["freq"]}
+    else:
+        carry_curve, carry_meta = load_carry_backtest()
+        bt_curve = carry_curve
+        stats = ann_stats(carry_curve.pct_change())
+        extra = {"carry_meta": carry_meta}
+
+    handoff = bt_curve.asof(live_start)
+    if pd.isna(handoff):
+        handoff = bt_curve.iloc[-1] if len(bt_curve) else 1.0
+    live_growth = live_hist / live_hist.iloc[0]
+    spliced_live = live_growth * handoff
+
+    positions_df = None
+    if kind == "equity":
+        book = load_book_json(name)
+        rows = []
+        for t, sh in sorted((book or {}).get("positions", {}).items(), key=lambda kv: -abs(kv[1])):
+            p = float(price_now.get(t)) if price_now is not None and t in price_now.index else np.nan
+            rows.append({"ticker": t, "units": sh, "last_price": p, "value": sh * p if pd.notna(p) else np.nan})
+        positions_df = pd.DataFrame(rows)
+        if len(positions_df) and positions_df["value"].notna().any():
+            positions_df["weight"] = positions_df["value"] / positions_df["value"].sum()
+
+    return dict(kind=kind, bt_curve=bt_curve, live_start=live_start, spliced_live=spliced_live,
+                live_hist=live_hist, stats=stats, positions_df=positions_df,
+                positions_asof=price_date, book_json=load_book_json(name), **extra)
+
+
+# ==================================================================== chart builders
+def splice_chart(data, color):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=data["bt_curve"].index, y=data["bt_curve"].values,
+                             name="Backtest (formula, incl. post-live)", mode="lines",
+                             line=dict(color=INK2, width=1.4, dash="dash")))
+    fig.add_trace(go.Scatter(x=data["spliced_live"].index, y=data["spliced_live"].values,
+                             name="Live paper (real fills)", mode="lines+markers",
+                             line=dict(color=color, width=2.4),
+                             marker=dict(size=5 if len(data["spliced_live"]) < 5 else 3)))
+    fig.add_vline(x=data["live_start"], line_dash="dot", line_color=INK,
+                 annotation_text=f"live start {data['live_start'].date()}",
+                 annotation_position="top left",
+                 annotation_font=dict(size=9, color=INK))
+    fig.update_layout(**themed_layout(height=380, yaxis_title="growth of $1"))
+    return fig
+
+
+def luck_floor_chart(arr, freq_label, marks, color_of):
+    bar = float(np.percentile(arr, 95))
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=arr, nbinsx=40, marker_color="#86b6ef",
+                               marker_line_color=SURF, marker_line_width=0.5,
+                               name="random strategies"))
+    fig.add_vline(x=bar, line_dash="dash", line_color=INK,
+                 annotation_text=f"p95 luck = {bar:.2f}", annotation_position="top",
+                 annotation_font=dict(size=9, color=INK))
+    for s_name, v in marks:
+        c = color_of.get(s_name, INK2)
+        fig.add_vline(x=v, line_color=c, line_width=2,
+                     annotation_text=f"{s_name} {v:.2f}", annotation_position="top",
+                     annotation_font=dict(size=8, color=c), annotation_textangle=-90)
+    fig.update_layout(**themed_layout(
+        xaxis_title=f"OOS Sharpe of {len(arr)} random strategies ({freq_label.lower()})",
+        showlegend=False))
+    return fig
+
+
+def drawdown_chart(dd, color):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=dd.index, y=dd.values, mode="lines", line=dict(color=color, width=1.4),
+                             fill="tozeroy", fillcolor=_rgba(color, 0.30), name="drawdown"))
+    fig.update_layout(**themed_layout(yaxis_title="drawdown", yaxis_tickformat=".0%", showlegend=False))
+    return fig
+
+
+def correlation_heatmap(cm):
+    colorscale = [[0.0, DIV[0]], [0.5, DIV[1]], [1.0, DIV[2]]]
+    fig = go.Figure(go.Heatmap(
+        z=cm.values, x=list(cm.columns), y=list(cm.columns), zmin=-1, zmax=1,
+        colorscale=colorscale, colorbar=dict(title=""),
+        text=cm.round(2).values, texttemplate="%{text}",
+        textfont=dict(size=10, color=INK),
+        hovertemplate="%{y} vs %{x}: %{z:.2f}<extra></extra>"))
+    fig.update_layout(**themed_layout(height=440, xaxis=dict(gridcolor=GRID, tickangle=-40),
+                                      yaxis=dict(gridcolor=GRID, autorange="reversed")))
+    return fig
+
+
+def growth_chart(show, colors):
+    fig = go.Figure()
+    for col, c in zip(show.columns, colors):
+        fig.add_trace(go.Scatter(x=show.index, y=show[col], mode="lines", name=col,
+                                 line=dict(color=c, width=1.6)))
+    fig.update_layout(**themed_layout(height=340, yaxis_title="growth of $1"))
+    return fig
+
+
+# ==================================================================== Paper Books view
+def render_paper_books(psum, phist, full, meta, gy_last):
+    st.markdown(
+        '<div class="lab-eyebrow">tradefabe · live paper books · paper only</div>',
+        unsafe_allow_html=True)
+
+    if psum is None or psum.empty:
+        st.info("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.")
+        return
+
+    st.subheader("Book status")
+    cols = st.columns(len(psum))
+    for col, (_, r) in zip(cols, psum.iterrows()):
+        col.metric(r["book"], f"${r['equity']:,.0f}", f"{r['return']:+.2%}")
+    st.caption(f"Books start at $100k paper capital. Last run: **{psum['last_run'].max()}** · "
+               "run `.venv/bin/tradefabe run` daily (or via cron) to advance.")
+
+    st.divider()
+    names = psum["book"].tolist()
+    color_of = {n: SLOTS[i % len(SLOTS)] for i, n in enumerate(names)}
+    pick = st.selectbox("Strategy", names)
+
+    price_now, price_date = load_price_snapshot()
+    data = book_panel_data(pick, phist, full, meta, gy_last, price_now, price_date)
+    render_strategy_panel(pick, data, color_of[pick])
+
+
+def render_strategy_panel(name, data, color):
+    st.markdown(f"### {name}")
+    s = data["stats"]
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Sharpe", fmt(s["Sharpe"]))
+    c2.metric("Sortino", fmt(s["Sortino"]))
+    c3.metric("Calmar", fmt(s["Calmar"]))
+    c4.metric("Max Drawdown", fmt(s["MaxDD"], "pct"))
+    c5.metric("CAGR", fmt(s["CAGR"], "pct"))
+    c6.metric("Vol (ann.)", fmt(s["Vol"], "pct"))
+    st.caption("Stats computed on the out-of-sample backtest — the paper track alone is "
+               "too young (< 30 days) for its own Sharpe/Sortino/etc. to mean anything yet.")
+
+    if data["kind"] == "equity":
+        verdict = "✅ ALIVE" if data["verdict"] == "ALIVE" else "💀 DEAD"
+        st.caption(f"Backtest verdict: **{verdict}** · corr to 60/40: **{data['corr_bench']:.2f}** · "
+                   f"noise floor p95: **{data['null_p95']:.2f}** · rebalance **{data['freq']}**")
+    else:
+        cm = data["carry_meta"]
+        st.caption("Delta-neutral funding carry (BTC + ETH perps, Hyperliquid) — price risk hedged "
+                   "out by construction; the book earns funding minus a 1.5%/yr fee drag.")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Net yield (since 2023-05)", f"{cm['net_yield']:.1%}")
+        m2.metric("% days positive", f"{cm['pct_days_positive']:.0%}")
+        m3.metric("Carried through BTC crash", f"{cm['carry_through_crash']:+.1%}",
+                  f"BTC drawdown {cm['btc_worst_dd']:.0%}")
+
+    st.divider()
+    st.markdown("**Value of $1 invested — backtest → live paper**")
+    st.plotly_chart(splice_chart(data, color), width="stretch")
+    st.caption(
+        f"Dashed = backtest simulation, continuing through today. Solid = real live paper "
+        f"equity since **{data['live_start'].date()}** — rescaled only so the two lines meet "
+        f"visually at the live-start marker; **the live paper ledger itself (`state/paper/"
+        f"{name}.json`) is never modified.** Where dashed and solid diverge after the marker "
+        f"is live tracking error vs. the backtest formula.")
+
+    st.divider()
+    if data["kind"] == "equity":
+        st.markdown("**Current positions**")
+        pdf = data["positions_df"]
+        if pdf is None or pdf.empty:
+            st.caption("No open positions (book hasn't rebalanced yet).")
+        else:
+            st.dataframe(pdf, width="stretch", hide_index=True, column_config={
+                "ticker": st.column_config.TextColumn("Ticker"),
+                "units": st.column_config.NumberColumn("Units", format="%.2f"),
+                "last_price": st.column_config.NumberColumn("Last price", format="$%.2f"),
+                "value": st.column_config.NumberColumn("Value", format="$%.0f"),
+                "weight": st.column_config.NumberColumn("Weight", format="percent"),
+            })
+            asof = data["positions_asof"]
+            st.caption(f"Priced as of the cached data date ({asof.date() if asof is not None else 'unknown'}), "
+                       "not a live quote.")
+    else:
+        bj = data["book_json"] or {}
+        st.markdown("**Book state**")
+        st.write(f"Equity **${bj.get('equity', float('nan')):,.2f}** · "
+                 f"last run **{bj.get('last_run', '—')}**")
+
+
+# ==================================================================== Research Lab view
+def render_research_lab(full, meta, nulls, gy):
+    OOS = pd.Timestamp(meta["oos_start"])
+    strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
+    color_of = {s: SLOTS[i % len(SLOTS)] for i, s in enumerate(strats)}
+    oos = full[full.index >= OOS]
+    gy_last = gy.drop_duplicates("strategy", keep="last").set_index("strategy")
+
+    st.markdown(
+        f"""<div class="lab-eyebrow">tradefabe · strategy evaluation lab · paper only</div>
+<div class="lab-spec">DATA <b>{meta['source']}</b> {meta['start']} → {meta['end']} ·
+OOS FROM <b>{meta['oos_start']}</b> · {meta['n_assets']} ASSETS ·
+DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>""",
+        unsafe_allow_html=True)
+
+    n_tested = gy_last.shape[0]
+    n_alive = int((gy_last["verdict"] == "ALIVE").sum())
+    best = gy_last["oos_sharpe"].astype(float).idxmax()
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Tested", n_tested)
+    c2.metric("Alive", n_alive)
+    c3.metric("Dead", n_tested - n_alive)
+    c4.metric("Luck floor p95", f"{meta['null_bars'].get('M', float('nan')):.2f}")
+    c5.metric(f"Best · {best}", f"{float(gy_last.loc[best, 'oos_sharpe']):.2f}")
+    st.caption(f"60/40 benchmark OOS Sharpe: **{float(gy_last['bench_sharpe'].iloc[0]):.2f}** — the honest bar for gate 2.")
+
+    st.subheader("Growth of $1 — out-of-sample")
+    sel = st.multiselect("Strategies", strats, default=strats, label_visibility="collapsed")
+    show = pd.DataFrame(index=oos.index)
+    colors = []
+    for s in sel:
+        show[s] = (1 + oos[s].fillna(0)).cumprod()
+        colors.append(color_of[s])
+    show["60/40"] = (1 + oos["bench_6040"].fillna(0)).cumprod()
+    colors.append(BENCH_C)
+    show["SPY"] = (1 + oos["spy"].fillna(0)).cumprod()
+    colors.append(SPY_C)
+    st.plotly_chart(growth_chart(show, colors), width="stretch")
+    st.caption("Strategies run at a ~10% vol target; 60/40 and SPY are the passive context lines. "
+               "Sharpe/Calmar (below) are the fair comparison — raw growth favors whoever took more risk.")
+
+    st.subheader("Verdicts — the graveyard ledger")
+    tbl = gy_last.reset_index()[["strategy", "freq", "oos_sharpe", "oos_sortino", "oos_calmar",
+                                 "oos_maxdd", "corr_bench", "null_p95", "verdict"]].copy()
+    tbl["verdict"] = tbl["verdict"].map(lambda v: ("✅ " if v == "ALIVE" else "💀 ") + v)
+    st.dataframe(
+        tbl.style.map(lambda v: f"color: {GOOD}; font-weight: 600" if "ALIVE" in str(v)
+                      else (f"color: {CRIT}; font-weight: 600" if "DEAD" in str(v) else ""),
+                      subset=["verdict"]),
+        width="stretch", hide_index=True)
+
+    st.subheader("The luck floor — is anything distinguishable from random?")
+    freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
+    present = [f for f in ("M", "W", "D") if f in nulls]
+    tabs = st.tabs([freq_names[f] for f in present])
+    for tab, f in zip(tabs, present):
+        with tab:
+            arr = nulls[f]
+            marks = [(s_name, float(gy_last.loc[s_name, "oos_sharpe"]))
+                     for s_name, s_freq in meta["strategy_freq"].items()
+                     if s_freq == f and s_name in gy_last.index]
+            st.plotly_chart(luck_floor_chart(arr, freq_names[f], marks, color_of), width="stretch")
+
+    st.subheader("Underwater — drawdown from peak")
+    pick = st.selectbox("Strategy", strats + ["60/40", "SPY"])
+    col = {"60/40": "bench_6040", "SPY": "spy"}.get(pick, pick)
+    r = oos[col].fillna(0)
+    eq = (1 + r).cumprod()
+    dd = eq / eq.cummax() - 1
+    c = color_of.get(pick, BENCH_C if pick == "60/40" else SPY_C)
+    st.plotly_chart(drawdown_chart(dd, c), width="stretch")
+    st.caption(f"Max drawdown: **{dd.min():.1%}**")
+
+    st.subheader("Correlation — different bets, or the same bet in disguise?")
+    cm = oos[strats + ["bench_6040"]].rename(columns={"bench_6040": "60/40"}).corr()
+    st.plotly_chart(correlation_heatmap(cm), width="content")
+    with st.expander("Table view"):
+        st.dataframe(cm.round(2), width="stretch")
+
+    st.subheader("Piggyback lab — sleeve on the 60/40 core")
+    st.caption("A DEAD-standalone strategy can still earn a seat as a diversifier. "
+               "Blend a sleeve into the passive core and see what happens to the combined book.")
+    lc, rc = st.columns([1, 2])
+    with lc:
+        sleeve_pct = st.slider("Sleeve weight (%)", 0, 50, 30, 5)
+        sleeve_sel = st.multiselect("Sleeve strategies (equal-weighted)", strats,
+                                    default=["xsec_momentum", "tsmom_12m"])
+    if sleeve_sel:
+        sleeve = oos[sleeve_sel].mean(axis=1)
+        w = sleeve_pct / 100
+        combo = (1 - w) * oos["bench_6040"].fillna(0) + w * sleeve.fillna(0)
+        sb, sc_ = ann_stats(oos["bench_6040"]), ann_stats(combo)
+        with rc:
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Sharpe", f"{sc_['Sharpe']:.2f}", f"{sc_['Sharpe'] - sb['Sharpe']:+.2f} vs 60/40")
+            m2.metric("Calmar", f"{sc_['Calmar']:.2f}", f"{sc_['Calmar'] - sb['Calmar']:+.2f} vs 60/40")
+            m3.metric("Max drawdown", f"{sc_['MaxDD']:.1%}", f"{(sc_['MaxDD'] - sb['MaxDD']) * 100:+.1f} pts vs 60/40")
+            cmp_show = pd.DataFrame({"60/40 + sleeve": (1 + combo).cumprod(),
+                                     "60/40 alone": (1 + oos["bench_6040"].fillna(0)).cumprod()})
+            st.plotly_chart(growth_chart(cmp_show, ["#2a78d6", BENCH_C]), width="stretch")
+            st.caption("Reminder: a sleeve usually LOWERS raw dollars while smoothing the ride — "
+                       "Sharpe up ≠ more profit.")
+
+
+# ==================================================================== entry point
+psum, phist = load_paper_state()
 try:
-    full, meta, nulls, gy = load()
+    full, meta, nulls, gy = load_backtest()
+    gy_last = gy.drop_duplicates("strategy", keep="last").set_index("strategy")
+    backtest_ok = True
 except FileNotFoundError:
-    st.error("No artifacts found — run `.venv/bin/python harness.py` first.")
-    st.stop()
+    full = meta = nulls = gy = gy_last = None
+    backtest_ok = False
 
-OOS    = pd.Timestamp(meta["oos_start"])
-strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
-color_of = {s: SLOTS[i % len(SLOTS)] for i, s in enumerate(strats)}
-oos    = full[full.index >= OOS]
-gy_last = gy.drop_duplicates("strategy", keep="last").set_index("strategy")
-
-# ---------------- sidebar ----------------
 with st.sidebar:
     st.markdown('<div class="lab-eyebrow">tradefabe</div>'
                 '<h1 style="font-size:1.3rem;margin:0 0 .4rem">evaluation lab</h1>',
                 unsafe_allow_html=True)
     st.caption("An honest lab for killing bad trading strategies. **Paper/backtest only.**")
-    st.markdown(
-        f"**Data** {meta['source']} · {meta['start']} → {meta['end']} · {meta['n_assets']} assets\n\n"
-        f"**Out-of-sample** from {meta['oos_start']}\n\n"
-        f"**Universe** {', '.join(meta['universe'])}\n\n"
-        f"*Artifacts generated {meta['generated_at']}*")
+    view = st.radio("View", ["Paper Books", "Research Lab"], label_visibility="collapsed")
     st.divider()
-    st.markdown(
-        "**Doctrine gates (all must pass)**\n"
-        "1. Beat the p95 of random strategies (same rebalance freq, same costs)\n"
-        "2. Beat 60/40 on Calmar, or genuinely diversify\n"
-        "3. MaxDD ≤ 1.5× the benchmark's\n\n"
-        "No tuning to rescue a DEAD strategy.")
+    if view == "Paper Books":
+        if psum is not None:
+            st.markdown(f"**{len(psum)} books live** · last run {psum['last_run'].max()[:10]}\n\n"
+                        "Each book trades a doctrine-tested signal forward with simulated fills "
+                        "(equity books) or real accrued funding (carry). Run "
+                        "`.venv/bin/tradefabe run` daily to advance.")
+        else:
+            st.markdown("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.")
+    elif backtest_ok:
+        st.markdown(
+            f"**Data** {meta['source']} · {meta['start']} → {meta['end']} · {meta['n_assets']} assets\n\n"
+            f"**Out-of-sample** from {meta['oos_start']}\n\n"
+            f"**Universe** {', '.join(meta['universe'])}\n\n"
+            f"*Artifacts generated {meta['generated_at']}*")
+        st.divider()
+        st.markdown(
+            "**Doctrine gates (all must pass)**\n"
+            "1. Beat the p95 of random strategies (same rebalance freq, same costs)\n"
+            "2. Beat 60/40 on Calmar, or genuinely diversify\n"
+            "3. MaxDD ≤ 1.5× the benchmark's\n\n"
+            "No tuning to rescue a DEAD strategy.")
 
-# ---------------- lab header ----------------
-st.markdown(
-    f"""<div class="lab-eyebrow">tradefabe · strategy evaluation lab · paper only</div>
-<div class="lab-spec">DATA <b>{meta['source']}</b> {meta['start']} → {meta['end']} ·
-OOS FROM <b>{meta['oos_start']}</b> · {meta['n_assets']} ASSETS ·
-DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>""",
-    unsafe_allow_html=True)
-
-# ---------------- header tiles ----------------
-n_tested = gy_last.shape[0]
-n_alive  = int((gy_last["verdict"] == "ALIVE").sum())
-best     = gy_last["oos_sharpe"].astype(float).idxmax()
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Tested", n_tested)
-c2.metric("Alive", n_alive)
-c3.metric("Dead", n_tested - n_alive)
-c4.metric("Luck floor p95", f"{meta['null_bars'].get('M', float('nan')):.2f}")
-c5.metric(f"Best · {best}", f"{float(gy_last.loc[best, 'oos_sharpe']):.2f}")
-st.caption(f"60/40 benchmark OOS Sharpe: **{float(gy_last['bench_sharpe'].iloc[0]):.2f}** — the honest bar for gate 2.")
-
-# ---------------- equity curves ----------------
-st.subheader("Growth of $1 — out-of-sample")
-sel = st.multiselect("Strategies", strats, default=strats, label_visibility="collapsed")
-cols, colors = [], []
-show = pd.DataFrame(index=oos.index)
-for s in sel:
-    show[s] = (1 + oos[s].fillna(0)).cumprod()
-    colors.append(color_of[s])
-show["60/40"] = (1 + oos["bench_6040"].fillna(0)).cumprod()
-colors.append(BENCH_C)
-show["SPY"] = (1 + oos["spy"].fillna(0)).cumprod()
-colors.append(SPY_C)
-st.line_chart(show, color=colors, height=340)
-st.caption("Strategies run at a ~10% vol target; 60/40 and SPY are the passive context lines. "
-           "Sharpe/Calmar (below) are the fair comparison — raw growth favors whoever took more risk.")
-
-# ---------------- verdict table ----------------
-st.subheader("Verdicts — the graveyard ledger")
-tbl = gy_last.reset_index()[["strategy", "freq", "oos_sharpe", "oos_sortino", "oos_calmar",
-                             "oos_maxdd", "corr_bench", "null_p95", "verdict"]].copy()
-tbl["verdict"] = tbl["verdict"].map(lambda v: ("✅ " if v == "ALIVE" else "💀 ") + v)
-st.dataframe(
-    tbl.style.map(lambda v: f"color: {GOOD}; font-weight: 600" if "ALIVE" in str(v)
-                  else (f"color: {CRIT}; font-weight: 600" if "DEAD" in str(v) else ""),
-                  subset=["verdict"]),
-    use_container_width=True, hide_index=True)
-
-# ---------------- luck floor ----------------
-st.subheader("The luck floor — is anything distinguishable from random?")
-freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
-present = [f for f in ("M", "W", "D") if f in nulls]
-tabs = st.tabs([freq_names[f] for f in present])
-for tab, f in zip(tabs, present):
-    with tab:
-        arr = nulls[f]
-        bar = float(np.percentile(arr, 95))
-        fig, ax = styled_fig()
-        ax.hist(arr, bins=40, color="#86b6ef", edgecolor=SURF, linewidth=.5)
-        ax.axvline(bar, color=INK, ls="--", lw=1.2)
-        ax.text(bar, ax.get_ylim()[1] * .95, f"  p95 luck = {bar:.2f}", color=INK, fontsize=9, va="top")
-        for s_name, s_freq in meta["strategy_freq"].items():
-            if s_freq == f and s_name in gy_last.index:
-                v = float(gy_last.loc[s_name, "oos_sharpe"])
-                ax.axvline(v, color=color_of.get(s_name, INK2), lw=2)
-                ax.text(v, ax.get_ylim()[1] * .82, f" {s_name} {v:.2f}",
-                        color=color_of.get(s_name, INK2), fontsize=8, rotation=90, va="top")
-        ax.set_xlabel(f"OOS Sharpe of {len(arr)} random strategies ({freq_names[f].lower()})",
-                      color=INK2, fontsize=9)
-        st.pyplot(fig, use_container_width=True)
-
-# ---------------- drawdown ----------------
-st.subheader("Underwater — drawdown from peak")
-pick = st.selectbox("Strategy", strats + ["60/40", "SPY"])
-col = {"60/40": "bench_6040", "SPY": "spy"}.get(pick, pick)
-r = oos[col].fillna(0)
-eq = (1 + r).cumprod()
-dd = eq / eq.cummax() - 1
-c = color_of.get(pick, BENCH_C if pick == "60/40" else SPY_C)
-fig, ax = styled_fig()
-ax.fill_between(dd.index, dd, 0, color=c, alpha=.30)
-ax.plot(dd.index, dd, color=c, lw=1.2)
-ax.set_ylabel("drawdown", color=INK2, fontsize=9)
-st.pyplot(fig, use_container_width=True)
-st.caption(f"Max drawdown: **{dd.min():.1%}**")
-
-# ---------------- correlation ----------------
-st.subheader("Correlation — different bets, or the same bet in disguise?")
-cm = oos[strats + ["bench_6040"]].rename(columns={"bench_6040": "60/40"}).corr()
-from matplotlib.colors import LinearSegmentedColormap
-cmap = LinearSegmentedColormap.from_list("div", DIV)
-fig, ax = styled_fig(8, 5.4)
-im = ax.imshow(cm.values, cmap=cmap, vmin=-1, vmax=1)
-ax.set_xticks(range(len(cm))); ax.set_yticks(range(len(cm)))
-ax.set_xticklabels(cm.columns, rotation=40, ha="right", fontsize=8)
-ax.set_yticklabels(cm.columns, fontsize=8)
-ax.grid(False)
-for i in range(len(cm)):
-    for j in range(len(cm)):
-        v = cm.values[i, j]
-        ax.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=7.5,
-                color="#ffffff" if abs(v) > .6 else INK)
-st.pyplot(fig, use_container_width=False)
-with st.expander("Table view"):
-    st.dataframe(cm.round(2), use_container_width=True)
-
-# ---------------- piggyback lab ----------------
-st.subheader("Piggyback lab — sleeve on the 60/40 core")
-st.caption("A DEAD-standalone strategy can still earn a seat as a diversifier. "
-           "Blend a sleeve into the passive core and see what happens to the combined book.")
-lc, rc = st.columns([1, 2])
-with lc:
-    sleeve_pct = st.slider("Sleeve weight (%)", 0, 50, 30, 5)
-    sleeve_sel = st.multiselect("Sleeve strategies (equal-weighted)", strats,
-                                default=["xsec_momentum", "tsmom_12m"])
-if sleeve_sel:
-    sleeve = oos[sleeve_sel].mean(axis=1)
-    w = sleeve_pct / 100
-    combo = (1 - w) * oos["bench_6040"].fillna(0) + w * sleeve.fillna(0)
-    sb, sc_ = ann_stats(oos["bench_6040"]), ann_stats(combo)
-    with rc:
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Sharpe", f"{sc_['Sharpe']:.2f}", f"{sc_['Sharpe'] - sb['Sharpe']:+.2f} vs 60/40")
-        m2.metric("Calmar", f"{sc_['Calmar']:.2f}", f"{sc_['Calmar'] - sb['Calmar']:+.2f} vs 60/40")
-        m3.metric("Max drawdown", f"{sc_['MaxDD']:.1%}", f"{(sc_['MaxDD'] - sb['MaxDD']) * 100:+.1f} pts vs 60/40")
-        cmp_df = pd.DataFrame({"60/40 + sleeve": (1 + combo).cumprod(),
-                               "60/40 alone": (1 + oos["bench_6040"].fillna(0)).cumprod()})
-        st.line_chart(cmp_df, color=["#2a78d6", BENCH_C], height=240)
-        st.caption("Reminder: a sleeve usually LOWERS raw dollars while smoothing the ride — "
-                   "Sharpe up ≠ more profit.")
-
-# ---------------- live paper books ----------------
-_state = os.path.join(BASE, "state", "paper")
-if os.path.exists(os.path.join(_state, "summary.csv")):
-    st.subheader("Paper books — live (simulated fills + real Hyperliquid funding)")
-    psum = pd.read_csv(os.path.join(_state, "summary.csv"))
-    phist = pd.read_csv(os.path.join(_state, "history.csv"), parse_dates=["date"])
-    cols = st.columns(len(psum))
-    for col, (_, r) in zip(cols, psum.iterrows()):
-        col.metric(r["book"], f"${r['equity']:,.0f}", f"{r['return']:+.2%}")
-    wide = phist.pivot_table(index="date", columns="book", values="equity")
-    if len(wide) > 1:
-        st.line_chart(wide / 100_000.0,
-                      color=[SLOTS[i % len(SLOTS)] for i in range(wide.shape[1])], height=260)
-    st.caption(f"Books start at $100k. Last run: {psum['last_run'].max()} · "
-               "run `.venv/bin/tradefabe run` daily (or via cron) to advance.")
+if view == "Paper Books":
+    if not backtest_ok:
+        st.warning("Backtest artifacts not found — per-strategy stats need `.venv/bin/python harness.py` "
+                   "run at least once. Book status still shows below.")
+        psum2, phist2 = psum, phist
+        if psum2 is not None:
+            st.subheader("Book status")
+            cols = st.columns(len(psum2))
+            for col, (_, r) in zip(cols, psum2.iterrows()):
+                col.metric(r["book"], f"${r['equity']:,.0f}", f"{r['return']:+.2%}")
+        else:
+            st.info("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.")
+    else:
+        render_paper_books(psum, phist, full, meta, gy_last)
+else:
+    if not backtest_ok:
+        st.error("No artifacts found — run `.venv/bin/python harness.py` first.")
+        st.stop()
+    render_research_lab(full, meta, nulls, gy)
 
 st.divider()
 st.caption("tradefabe · doctrine-governed strategy lab · backtests & paper only — nothing here is "
