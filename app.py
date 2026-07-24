@@ -211,8 +211,6 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date):
     handoff = bt_curve.asof(live_start)
     if pd.isna(handoff):
         handoff = bt_curve.iloc[-1] if len(bt_curve) else 1.0
-    live_growth = live_hist / live_hist.iloc[0]
-    spliced_live = live_growth * handoff
 
     positions_df = None
     if kind == "equity":
@@ -225,27 +223,73 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date):
         if len(positions_df) and positions_df["value"].notna().any():
             positions_df["weight"] = positions_df["value"] / positions_df["value"].sum()
 
-    return dict(kind=kind, bt_curve=bt_curve, live_start=live_start, spliced_live=spliced_live,
-                live_hist=live_hist, stats=stats, positions_df=positions_df,
+    return dict(kind=kind, bt_curve=bt_curve, live_start=live_start,
+                handoff=handoff, live_hist=live_hist, stats=stats, positions_df=positions_df,
                 positions_asof=price_date, book_json=load_book_json(name), **extra)
 
 
 # ==================================================================== chart builders
-def splice_chart(data, color):
+RANGE_WINDOWS = {"1D": 1, "1W": 7, "1M": 30, "3M": 90, "1Y": 365}
+
+
+def live_equity_chart(live_hist, color, window_label):
+    """Primary panel chart: the real paper ledger's own dollar equity, on its own time
+    axis, filtered to the selected range — decoupled from the backtest curve entirely so
+    ~2 days of live history is no longer an invisible sliver next to years of backtest."""
+    if window_label != "ALL" and window_label in RANGE_WINDOWS:
+        cutoff = live_hist.index[-1] - pd.Timedelta(days=RANGE_WINDOWS[window_label])
+        live_hist = live_hist[live_hist.index >= cutoff]
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data["bt_curve"].index, y=data["bt_curve"].values,
-                             name="Backtest (formula, incl. post-live)", mode="lines",
-                             line=dict(color=INK2, width=1.4, dash="dash")))
-    fig.add_trace(go.Scatter(x=data["spliced_live"].index, y=data["spliced_live"].values,
-                             name="Live paper (real fills)", mode="lines+markers",
-                             line=dict(color=color, width=2.4),
-                             marker=dict(size=5 if len(data["spliced_live"]) < 5 else 3)))
-    fig.add_vline(x=data["live_start"], line_dash="dot", line_color=INK,
-                 annotation_text=f"live start {data['live_start'].date()}",
-                 annotation_position="top left",
-                 annotation_font=dict(size=9, color=INK))
-    fig.update_layout(**themed_layout(height=380, yaxis_title="growth of $1"))
+    fig.add_trace(go.Scatter(x=live_hist.index, y=live_hist.values, name="Live paper equity",
+                             mode="lines+markers", line=dict(color=color, width=2.6),
+                             marker=dict(size=6 if len(live_hist) < 10 else 3),
+                             fill="tozeroy", fillcolor=_rgba(color, 0.08)))
+    fig.update_layout(**themed_layout(height=340, yaxis_title="equity ($)",
+                                      yaxis_tickformat="$,.0f", showlegend=False))
     return fig
+
+
+def backtest_chart(bt_curve, color):
+    """Secondary/context chart: the full-history backtest, on its OWN natural time axis
+    (not rescaled or spliced to the live series) — lives in a collapsed expander since it
+    tells one multi-year story, not something to re-read every day."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=bt_curve.index, y=bt_curve.values, name="Backtest (formula)",
+                             mode="lines", line=dict(color=color, width=1.6, dash="dash")))
+    fig.update_layout(**themed_layout(height=280, yaxis_title="growth of $1", showlegend=False))
+    return fig
+
+
+def divergence_status(data):
+    """DOCTRINE.md v1.2 kill-rule-1, made real: trailing (up to) 2-month cumulative
+    live-minus-backtest-implied return against a 2*sigma_m*sqrt(2) band, sigma_m = that
+    book's own frozen backtest monthly-return std. Returns (state, detail) with state in
+    {"insufficient", "ok", "diverging"} — "insufficient" below 60 days live, matching the
+    doctrine's own 0-3-month plumbing-only tier (no verdict is legitimate that early)."""
+    live_hist = data["live_hist"]
+    elapsed_days = (live_hist.index[-1] - live_hist.index[0]).days
+    if elapsed_days < 60 or len(live_hist) < 2:
+        return "insufficient", (f"Only {elapsed_days}d of live history — doctrine v1.2 needs "
+                                 f"≥60d before a divergence read means anything.")
+
+    bt_at_live_dates = data["bt_curve"].reindex(live_hist.index, method="ffill")
+    live_cum = live_hist / live_hist.iloc[0] - 1
+    bt_cum = bt_at_live_dates / data["handoff"] - 1
+    diff = live_cum - bt_cum
+    window_start = diff.index[-1] - pd.Timedelta(days=min(60, elapsed_days))
+    base = diff.loc[:window_start]
+    divergence = diff.iloc[-1] - (base.iloc[-1] if len(base) else 0.0)
+
+    monthly = data["bt_curve"].resample("ME").last().pct_change().dropna()
+    sigma_m = monthly.std()
+    threshold = 2 * sigma_m * np.sqrt(2)
+
+    if abs(divergence) > threshold:
+        return "diverging", (f"Live diverged {divergence:+.1%} from backtest-implied over the "
+                              f"trailing ~2mo — outside the ±{threshold:.1%} expected band "
+                              f"(doctrine kill-rule 1).")
+    return "ok", (f"Live is tracking backtest within the expected ±{threshold:.1%} noise "
+                  f"band (trailing ~2mo divergence {divergence:+.1%}).")
 
 
 def luck_floor_chart(arr, freq_label, marks, color_of):
@@ -353,14 +397,23 @@ def render_strategy_panel(name, data, color):
                   f"BTC drawdown {cm['btc_worst_dd']:.0%}")
 
     st.divider()
-    st.markdown("**Value of $1 invested — backtest → live paper**")
-    st.plotly_chart(splice_chart(data, color), width="stretch")
-    st.caption(
-        f"Dashed = backtest simulation, continuing through today. Solid = real live paper "
-        f"equity since **{data['live_start'].date()}** — rescaled only so the two lines meet "
-        f"visually at the live-start marker; **the live paper ledger itself (`state/paper/"
-        f"{name}.json`) is never modified.** Where dashed and solid diverge after the marker "
-        f"is live tracking error vs. the backtest formula.")
+    st.markdown("**Live paper equity**")
+    live_hist = data["live_hist"]
+    span_days = (live_hist.index[-1] - live_hist.index[0]).days
+    options = [w for w in ("1D", "1W", "1M", "3M", "1Y", "ALL")
+               if w == "ALL" or span_days >= RANGE_WINDOWS[w]]
+    choice = st.segmented_control("Range", options, default="ALL", required=True,
+                                  key=f"range_{name}", label_visibility="collapsed")
+    st.plotly_chart(live_equity_chart(live_hist, color, choice), width="stretch")
+    st.caption(f"Real paper fills since **{data['live_start'].date()}** (start "
+               f"${live_hist.iloc[0]:,.0f}). The ledger (`state/paper/{name}.json`) is "
+               f"never modified by this display.")
+
+    with st.expander("Backtest history (2018 → present) & live tracking check"):
+        st.plotly_chart(backtest_chart(data["bt_curve"], INK2), width="stretch")
+        state, detail = divergence_status(data)
+        icon = {"insufficient": "⏳", "ok": "✅", "diverging": "⚠️"}[state]
+        (st.warning if state == "diverging" else st.caption)(f"{icon} {detail}")
 
     st.divider()
     if data["kind"] == "equity":
