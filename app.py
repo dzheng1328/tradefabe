@@ -55,9 +55,11 @@ h3{font-size:0.95rem!important;font-weight:600!important;text-transform:uppercas
 [data-testid="stMetric"]{background:var(--card);border:1px solid var(--rule);border-radius:6px;
    padding:.7rem .9rem .6rem;}
 [data-testid="stMetricLabel"] p{font-family:var(--mono)!important;font-size:.66rem!important;
-   letter-spacing:.12em;text-transform:uppercase;color:var(--mut)!important;}
+   letter-spacing:.12em;text-transform:uppercase;color:var(--mut)!important;
+   white-space:normal!important;overflow-wrap:break-word;line-height:1.3;}
 [data-testid="stMetricValue"]{font-family:var(--mono)!important;font-weight:600;
-   font-size:1.55rem!important;color:var(--ink)!important;}
+   font-size:1.55rem!important;color:var(--ink)!important;
+   white-space:normal!important;overflow-wrap:break-word;}
 [data-testid="stMetricDelta"]{font-family:var(--mono)!important;font-size:.78rem!important;}
 [data-testid="stCaptionContainer"] p{font-family:var(--mono)!important;font-size:.70rem!important;
    color:var(--mut)!important;}
@@ -368,6 +370,27 @@ def growth_chart(show, colors):
     return fig
 
 
+def fmt_compact_dollars(v):
+    """Abbreviated $ for tight metric cards (e.g. $99,664 -> $99.7K) -- full precision
+    stays in the positions table / deployed-capital metrics, this is display-only."""
+    sign = "-" if v < 0 else ""
+    v = abs(v)
+    return f"{sign}${v/1000:,.1f}K" if v >= 1000 else f"{sign}${v:,.0f}"
+
+
+def render_book_status(psum):
+    """Book-status metric row, wrapped at 4 per row so cards stay wide enough to not
+    truncate -- with 8+ live books, a single st.columns(len(psum)) row makes each card so
+    narrow that Streamlit ellipsis-truncates BOTH the book name and the dollar figure."""
+    st.subheader("Book status")
+    rows = list(psum.iterrows())
+    PER_ROW = 4
+    for i in range(0, len(rows), PER_ROW):
+        cols = st.columns(PER_ROW)
+        for col, (_, r) in zip(cols, rows[i:i + PER_ROW]):
+            col.metric(r["book"], fmt_compact_dollars(r["equity"]), f"{r['return']:+.2%}")
+
+
 # ==================================================================== Paper Books view
 def render_paper_books(psum, phist, full, meta, gy_last):
     st.markdown(
@@ -378,10 +401,7 @@ def render_paper_books(psum, phist, full, meta, gy_last):
         st.info("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.")
         return
 
-    st.subheader("Book status")
-    cols = st.columns(len(psum))
-    for col, (_, r) in zip(cols, psum.iterrows()):
-        col.metric(r["book"], f"${r['equity']:,.0f}", f"{r['return']:+.2%}")
+    render_book_status(psum)
     st.caption(f"Books start at $100k paper capital. Last run: **{psum['last_run'].max()}** · "
                "run `.venv/bin/tradefabe run` daily (or via cron) to advance.")
 
@@ -678,10 +698,7 @@ if view == "Paper Books":
                    "run at least once. Book status still shows below.")
         psum2, phist2 = psum, phist
         if psum2 is not None:
-            st.subheader("Book status")
-            cols = st.columns(len(psum2))
-            for col, (_, r) in zip(cols, psum2.iterrows()):
-                col.metric(r["book"], f"${r['equity']:,.0f}", f"{r['return']:+.2%}")
+            render_book_status(psum2)
         else:
             st.info("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.")
     else:
