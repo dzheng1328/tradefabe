@@ -66,6 +66,31 @@ the null bar, and the verdict. The graveyard *is* the multiple-testing record.
 - **v1.2 (2026-07-23).** Defines the promote/kill criteria for paper-testing (Stage 2 —
   the "real, slow gate" the kill rule above promotes ALIVE strategies to, previously
   undefined). See "Paper-testing verdicts" below. Does not touch gates 1-3.
+- **v1.3 (2026-07-24).** Makes the Bonferroni correction v1.0's noise-floor section
+  already logged as a future obligation ("the count is logged so it can be tightened
+  later") the ACTIVE bar for gate 1, instead of a flat `p95`. Per-test significance is
+  `alpha=0.05` divided by `n_tested` (every distinct strategy ever logged to
+  `graveyard.csv`, unioned with whatever's being evaluated right now —
+  `harness.family_n_tested()`). The empirical null sample can only resolve percentiles to
+  roughly `1 - 1/len(null)`; once the corrected percentile needs finer resolution than
+  that, the bar falls back to a normal approximation fit to the null's own mean/std
+  (`harness.bonferroni_bar()`, stdlib `statistics.NormalDist`, no new dependency).
+  Every graveyard row now logs `n_tested`, `bar_method`, `bar_pctile` alongside the bar
+  value itself (still called `null_p95` in the CSV for backward compatibility, though
+  past `n_tested≈12` it is no longer literally the 95th percentile).
+
+  **Triggered by, and immediately validated against, a real result:** re-running the 4
+  piggyback constructions (family H) under this bar at their actual `n_tested` (9-12)
+  flips `piggyback_2a`, `_3`, `_4` from ALIVE to **DEAD** — none of the three were
+  formula artifacts of too few null trials (checked: the matched-null distributions have
+  skew < 0.25, a normal fit is reasonable) but a structural consequence of the
+  construction itself: every piggyback already holds 70% of the benchmark by build, so
+  its random-sleeve null Sharpe clusters tightly around the benchmark's own 0.85
+  (std ≈ 0.03) — there's very little room between "random sleeve" and "real sleeve" for
+  THIS construction shape to clear a corrected bar, no matter how the sleeve is chosen.
+  This is exactly what v1.0's "no knob-tuning to resurrect" rule 1 anticipates: the
+  correction was already owed, applying it retroactively is not moving the goalposts on
+  these 3 specifically, it's finishing gate 1 the way it was always specified to work.
 
 ## Paper-testing verdicts (v1.2)
 
