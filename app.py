@@ -412,7 +412,8 @@ def render_strategy_panel(name, data, color):
     if data["kind"] == "equity":
         verdict = "✅ ALIVE" if data["verdict"] == "ALIVE" else "💀 DEAD"
         st.caption(f"Backtest verdict: **{verdict}** · corr to 60/40: **{data['corr_bench']:.2f}** · "
-                   f"noise floor p95: **{data['null_p95']:.2f}** · rebalance **{data['freq']}**")
+                   f"noise floor bar: **{data['null_p95']:.2f}** (Bonferroni-adjusted, DOCTRINE v1.3) · "
+                   f"rebalance **{data['freq']}**")
     else:
         cm = data["carry_meta"]
         st.caption("Delta-neutral funding carry (BTC + ETH perps, Hyperliquid) — price risk hedged "

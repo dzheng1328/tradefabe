@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import json
 import datetime
+from statistics import NormalDist
 import numpy as np
 import pandas as pd
 from tradefabe.engine import (load_prices, stats, ANN, VOL_WINDOW, TARGET_VOL,
@@ -32,11 +33,46 @@ from tradefabe.signals import (sig_tsmom_12m as sig_tsmom, sig_tsmom_ensemble,
 # ---- frozen doctrine parameters (see DOCTRINE.md) ----
 OOS_START   = pd.Timestamp("2018-01-01")
 NULL_TRIALS = 500
-NULL_PCTILE = 95
+NULL_PCTILE = 95        # legacy default; evaluate() now uses bonferroni_bar() (DOCTRINE v1.3)
+BONFERRONI_ALPHA = 0.05  # family-wise false-positive rate target across EVERY strategy ever tested
 CORR_DIV    = 0.30
 DD_MULT     = 1.5
 GRAVEYARD   = os.path.join(BASE, "graveyard.csv")
 ART         = os.path.join(BASE, "artifacts")
+
+
+# ---------- multiple-testing correction (DOCTRINE v1.3) ----------
+def graveyard_strategy_names():
+    if not os.path.exists(GRAVEYARD):
+        return set()
+    return set(pd.read_csv(GRAVEYARD)["strategy"].unique())
+
+
+def family_n_tested(candidate_names):
+    """Size of the multiple-testing family a Bonferroni correction should be judged
+    against: every strategy ever logged to graveyard.csv, unioned with the names about
+    to be evaluated in this run (so a strategy's FIRST run counts itself, and a re-run of
+    an already-logged strategy doesn't double-count)."""
+    return len(graveyard_strategy_names() | set(candidate_names))
+
+
+def bonferroni_bar(null, n_tested, alpha=BONFERRONI_ALPHA):
+    """The kill rule's luck bar, corrected for how many strategies have been tested
+    (graveyard.csv's own count -- DOCTRINE.md v1.0.1 logged this as a future tightening;
+    v1.3 makes it the active bar). Standard Bonferroni: per-test significance alpha /
+    n_tested. `null`'s own empirical distribution can only resolve percentiles down to
+    roughly 1-in-len(null) trials; once the corrected percentile needs finer resolution
+    than that, falls back to a normal approximation fit to the null's own mean/std
+    (stdlib statistics.NormalDist's exact inverse-CDF -- no new dependency). Returns
+    (bar, method, pctile_used) so the verdict can log exactly which regime applied."""
+    n_tested = max(int(n_tested), 1)
+    pctile = 100 * (1 - alpha / n_tested)
+    finest = 100 * (1 - 1 / len(null))
+    if pctile <= finest:
+        return float(np.percentile(null, pctile)), "empirical", pctile
+    mu, sigma = float(np.mean(null)), float(np.std(null, ddof=1))
+    z = NormalDist().inv_cdf(1 - alpha / n_tested)
+    return mu + z * sigma, "normal-approx", pctile
 
 
 # name -> (signal_fn, rebalance freq). Freq is part of the strategy spec, pre-registered.
@@ -82,13 +118,18 @@ def noise_floor(prices, freq, trials=NULL_TRIALS, rv=None):
 
 
 # ---------- doctrine verdict ----------
-def evaluate(name, r_full, bench_full, null, freq):
+def evaluate(name, r_full, bench_full, null, freq, n_tested=None):
+    """n_tested: size of the multiple-testing family for the Bonferroni correction
+    (DOCTRINE v1.3). Defaults to family_n_tested([name]) -- graveyard's count unioned
+    with just this one candidate -- for callers evaluating one strategy at a time."""
+    if n_tested is None:
+        n_tested = family_n_tested([name])
     r_oos = r_full[r_full.index >= OOS_START]
     b_oos = bench_full[bench_full.index >= OOS_START]
     s, b  = stats(r_oos), stats(b_oos)
     both  = pd.concat([r_oos, b_oos], axis=1).dropna()
     corr  = both.iloc[:, 0].corr(both.iloc[:, 1])
-    null_bar = float(np.percentile(null, NULL_PCTILE))
+    null_bar, bar_method, bar_pctile = bonferroni_bar(null, n_tested)
 
     beats_luck = s["Sharpe"] > null_bar
     earns      = (calmar(s) > calmar(b)) or (abs(corr) < CORR_DIV and s["Sharpe"] >= b["Sharpe"])
@@ -98,7 +139,7 @@ def evaluate(name, r_full, bench_full, null, freq):
     print(f"\n=== DOCTRINE verdict: {name} (reb {freq}) ===")
     print(f"  strategy  Sharpe {s['Sharpe']:.2f} | Sortino {s['Sortino']:.2f} | Calmar {calmar(s):.2f} | MaxDD {s['MaxDD']:.1%} | corr->bench {corr:.2f}")
     print(f"  benchmark Sharpe {b['Sharpe']:.2f} | Calmar {calmar(b):.2f} | MaxDD {b['MaxDD']:.1%}   (60/40)")
-    print(f"  noise floor ({freq}-rebalanced random): p{NULL_PCTILE} Sharpe = {null_bar:.2f}")
+    print(f"  noise floor ({freq}-rebalanced random, n_tested={n_tested}, {bar_method} p{bar_pctile:.2f}): Sharpe = {null_bar:.2f}")
     print(f"  gate 1  beats luck  : {beats_luck}   ({s['Sharpe']:.2f} > {null_bar:.2f})")
     print(f"  gate 2  earns place : {earns}   (Calmar {calmar(s):.2f} vs {calmar(b):.2f}; |corr| {abs(corr):.2f})")
     print(f"  gate 3  not painful : {dd_ok}   (MaxDD {s['MaxDD']:.1%} vs limit {DD_MULT * b['MaxDD']:.1%})")
@@ -109,7 +150,8 @@ def evaluate(name, r_full, bench_full, null, freq):
            "oos_sortino": round(s["Sortino"], 3), "oos_calmar": round(calmar(s), 3),
            "oos_maxdd": round(s["MaxDD"], 3), "corr_bench": round(corr, 3),
            "null_p95": round(null_bar, 3), "bench_sharpe": round(b["Sharpe"], 3),
-           "bench_calmar": round(calmar(b), 3), "verdict": "ALIVE" if alive else "DEAD"}
+           "bench_calmar": round(calmar(b), 3), "verdict": "ALIVE" if alive else "DEAD",
+           "n_tested": n_tested, "bar_method": bar_method, "bar_pctile": round(bar_pctile, 3)}
     pd.DataFrame([row]).to_csv(GRAVEYARD, mode="a", header=not os.path.exists(GRAVEYARD), index=False)
     return s
 
@@ -126,11 +168,12 @@ def main():
         print(f"computing {f}-rebalanced noise floor ({NULL_TRIALS} random strategies)...")
         nulls[f] = noise_floor(prices, f, NULL_TRIALS, rv)
 
+    n_tested = family_n_tested(STRATEGIES.keys())
     returns_full = {}
     for name, (fn, freq) in STRATEGIES.items():
         r = net_returns(prices, size_and_rebalance(prices, fn(prices), freq, rv))
         returns_full[name] = r
-        evaluate(name, r, bench, nulls[freq], freq)
+        evaluate(name, r, bench, nulls[freq], freq, n_tested)
 
     # ---- artifacts for the dashboard ----
     os.makedirs(ART, exist_ok=True)

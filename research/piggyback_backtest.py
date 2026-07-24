@@ -24,7 +24,8 @@ import pandas as pd
 from tradefabe.engine import load_prices, size_and_rebalance, net_returns, stats, calmar, BASE
 from tradefabe.signals import sig_random
 from tradefabe.piggyback import LEGS, SPECS, SLEEVE
-from harness import benchmark_returns, OOS_START, NULL_PCTILE, CORR_DIV, DD_MULT, GRAVEYARD
+from harness import (benchmark_returns, OOS_START, CORR_DIV, DD_MULT, GRAVEYARD,
+                     bonferroni_bar, family_n_tested)
 
 NULL_TRIALS = 150
 FREQ = "M"
@@ -54,11 +55,11 @@ def matched_null(prices, bench, k, trials, rng):
     return np.array(out)
 
 
-def evaluate(name, combo, bench, null, k, legs):
+def evaluate(name, combo, bench, null, k, legs, n_tested):
     s, b = stats(combo), stats(bench.reindex(combo.index).dropna())
     both = pd.concat([combo, bench], axis=1).dropna()
     corr = both.iloc[:, 0].corr(both.iloc[:, 1])
-    null_bar = float(np.percentile(null, NULL_PCTILE))
+    null_bar, bar_method, bar_pctile = bonferroni_bar(null, n_tested)
 
     beats_luck = s["Sharpe"] > null_bar
     earns = (calmar(s) > calmar(b)) or (abs(corr) < CORR_DIV and s["Sharpe"] >= b["Sharpe"])
@@ -68,7 +69,7 @@ def evaluate(name, combo, bench, null, k, legs):
     print(f"\n=== DOCTRINE verdict: {name}  (sleeve: {' + '.join(legs)}) ===")
     print(f"  combo     Sharpe {s['Sharpe']:.2f} | Sortino {s['Sortino']:.2f} | Calmar {calmar(s):.2f} | MaxDD {s['MaxDD']:.1%} | corr->bench {corr:.2f}")
     print(f"  benchmark Sharpe {b['Sharpe']:.2f} | Calmar {calmar(b):.2f} | MaxDD {b['MaxDD']:.1%}   (60/40)")
-    print(f"  matched luck floor (depth-{k} construction, {NULL_TRIALS} trials): p{NULL_PCTILE} Sharpe = {null_bar:.2f}")
+    print(f"  matched luck floor (depth-{k} construction, {NULL_TRIALS} trials, n_tested={n_tested}, {bar_method} p{bar_pctile:.2f}): Sharpe = {null_bar:.2f}")
     print(f"  gate 1  beats luck  : {beats_luck}   ({s['Sharpe']:.2f} > {null_bar:.2f})")
     print(f"  gate 2  earns place : {earns}   (Calmar {calmar(s):.2f} vs {calmar(b):.2f}; |corr| {abs(corr):.2f} -- structurally high, informational only)")
     print(f"  gate 3  not painful : {dd_ok}   (MaxDD {s['MaxDD']:.1%} vs limit {DD_MULT * b['MaxDD']:.1%})")
@@ -79,7 +80,8 @@ def evaluate(name, combo, bench, null, k, legs):
            "oos_sortino": round(s["Sortino"], 3), "oos_calmar": round(calmar(s), 3),
            "oos_maxdd": round(s["MaxDD"], 3), "corr_bench": round(corr, 3),
            "null_p95": round(null_bar, 3), "bench_sharpe": round(b["Sharpe"], 3),
-           "bench_calmar": round(calmar(b), 3), "verdict": "ALIVE" if alive else "DEAD"}
+           "bench_calmar": round(calmar(b), 3), "verdict": "ALIVE" if alive else "DEAD",
+           "n_tested": n_tested, "bar_method": bar_method, "bar_pctile": round(bar_pctile, 3)}
     pd.DataFrame([row]).to_csv(GRAVEYARD, mode="a", header=not os.path.exists(GRAVEYARD), index=False)
 
 
@@ -97,13 +99,14 @@ def main():
         print(f"\ncomputing depth-{k} matched luck floor ({NULL_TRIALS} random constructions)...")
         nulls[k] = matched_null(prices, bench, k, NULL_TRIALS, rng)
 
+    n_tested = family_n_tested(PIGGYBACK_SPECS.keys())
     combo_returns = {}
     for name, legs in PIGGYBACK_SPECS.items():
         sleeve = pd.DataFrame({leg: leg_returns[leg] for leg in legs}).dropna().mean(axis=1)
         combo = (1 - SLEEVE) * bench.reindex(sleeve.index) + SLEEVE * sleeve
         combo = combo.dropna()
         combo_returns[name] = combo
-        evaluate(name, combo, bench, nulls[len(legs)], len(legs), legs)
+        evaluate(name, combo, bench, nulls[len(legs)], len(legs), legs, n_tested)
 
     os.makedirs(ART, exist_ok=True)
     pd.DataFrame(combo_returns).to_csv(os.path.join(ART, "piggyback_returns.csv"))

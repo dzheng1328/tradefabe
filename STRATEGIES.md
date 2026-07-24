@@ -71,16 +71,23 @@ verdict in `research/piggyback_backtest.py` / `graveyard.csv` was run.
 
 | strategy | spec | freq | status |
 |---|---|---|---|
-| `piggyback_2a` | 70% 60/40 + 30% (`tsmom_12m` + `low_vol_xsec`) | M | **ALIVE** — Sharpe 0.89 vs matched depth-2 luck floor 0.87; Calmar 0.50 vs 60/40's 0.45; MaxDD −14.3% |
-| `piggyback_2b` | 70% 60/40 + 30% (`low_vol_xsec` + `turn_of_month`) | M | **DEAD** — Sharpe 0.87 essentially ties the matched luck floor (0.87); a random depth-2 sleeve does about as well, because `turn_of_month`'s edge is mostly the 0.85-correlation-to-benchmark beta it already carries, not something extra |
-| `piggyback_3` | 70% 60/40 + 30% (`tsmom_12m` + `green_line_200d` + `low_vol_xsec`) | M | **ALIVE** — Sharpe 0.88 vs floor 0.87; best Calmar of all 4 (0.52) |
-| `piggyback_4` | 70% 60/40 + 30% (`tsmom_12m` + `xsec_momentum` + `green_line_200d` + `low_vol_xsec`) | M | **ALIVE** — Sharpe 0.88 vs floor 0.86; Calmar 0.51, essentially unchanged from `piggyback_3` — the 4th leg (`xsec_momentum`) doesn't materially help or hurt |
+| `piggyback_2a` | 70% 60/40 + 30% (`tsmom_12m` + `low_vol_xsec`) | M | **DEAD (corrected, v1.3)** — was ALIVE vs the uncorrected p95 matched floor (Sharpe 0.89 > 0.87); at the honest Bonferroni bar for N=12 (normal-approx, p99.58 → 0.90) it no longer clears gate 1 |
+| `piggyback_2b` | 70% 60/40 + 30% (`low_vol_xsec` + `turn_of_month`) | M | **DEAD** — DEAD even before correction (tied the uncorrected floor); stays DEAD, corrected bar only widens the gap |
+| `piggyback_3` | 70% 60/40 + 30% (`tsmom_12m` + `green_line_200d` + `low_vol_xsec`) | M | **DEAD (corrected, v1.3)** — was ALIVE (best Calmar of all 4, 0.52); corrected bar (0.89) exceeds its Sharpe (0.885) |
+| `piggyback_4` | 70% 60/40 + 30% (`tsmom_12m` + `xsec_momentum` + `green_line_200d` + `low_vol_xsec`) | M | **DEAD (corrected, v1.3)** — was ALIVE; corrected bar (0.89) exceeds its Sharpe (0.881) |
 
-`low_vol_xsec` appears in every pick above despite being DEAD standalone (Sharpe −0.03) —
-its correlation to nearly everything else in the roster is negative (−0.48 to the
-benchmark, −0.09 to −0.44 to the other candidates), making it the single best diversifier
-found in the search, independent of how many other legs are stacked around it. Verdicts:
-`graveyard.csv`, run via `research/piggyback_backtest.py`.
+**Why the correction bites so hard here, structurally, not just numerically:** every
+piggyback already holds 70% of the benchmark by construction, so a RANDOM sleeve's
+matched-null Sharpe clusters tightly around the benchmark's own 0.85 (std ≈ 0.03 across
+150 trials, skew < 0.25 — a normal-approximation fallback is justified, not a fluke of
+too few trials). There's very little room between "random sleeve" and "real sleeve" for
+this construction shape to clear a properly corrected bar, regardless of which legs are
+picked. `low_vol_xsec` still appears in every top-Sharpe pick from the original search
+(DEAD standalone, Sharpe −0.03, but negatively correlated with nearly everything else in
+the roster) — that correlation-structure finding stands; what changed is whether ANY
+piggyback construction can statistically prove it beats a random one once multiple
+testing is honestly priced in. Verdicts: `graveyard.csv` (original + corrected rows,
+both kept — append-only ledger), `research/piggyback_backtest.py`.
 
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
