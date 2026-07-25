@@ -91,6 +91,50 @@ the null bar, and the verdict. The graveyard *is* the multiple-testing record.
   This is exactly what v1.0's "no knob-tuning to resurrect" rule 1 anticipates: the
   correction was already owed, applying it retroactively is not moving the goalposts on
   these 3 specifically, it's finishing gate 1 the way it was always specified to work.
+- **v1.4 (2026-07-25).** Replaces Bonferroni as gate 1's ACTIVE decision with the
+  **Deflated Sharpe Ratio** (Bailey & López de Prado, 2014, *"The Deflated Sharpe Ratio:
+  Correcting for Selection Bias, Backtest Overfitting and Non-Normality,"* SSRN 2460551),
+  combined with **Combinatorial Purged Cross-Validation** (López de Prado, 2017) —
+  motivated by scaling strategy testing from a few dozen hand-picked candidates over
+  weeks to a continuously-running automated search generating many candidates/day
+  (issue #28). At that volume, Bonferroni's flat `alpha/n_tested` division gets
+  crushingly strict *and* mathematically crude — it ignores how correlated/dispersed the
+  null actually is, and a single fixed 2018+ OOS window is one draw from history that
+  some candidates will beat by chance alone as search volume grows.
+
+  **DSR** (`harness.deflated_sharpe_ratio()`) tests a candidate's Sharpe against the
+  *expected maximum* Sharpe you'd see by pure luck as the best of `n_tested` random
+  draws from this project's own empirical noise floor (`harness.expected_max_sharpe()`,
+  an extreme-value approximation using the null's own mean/std — the SAME `null` and
+  `n_tested` Bonferroni already used) — correcting for the null's actual spread, not
+  just its count, and for the candidate's own return skew/kurtosis
+  (`harness.probabilistic_sharpe_ratio()`, the underlying PSR test). **CPCV**
+  (`harness.cpcv_splits()` / `cpcv_oos_sharpes()`) replaces the single fixed-window OOS
+  Sharpe with the mean of several purged, embargoed, resampled test paths drawn from the
+  same OOS history — a candidate has to hold up across multiple slices, not just the one
+  the doctrine happens to use. A candidate clears gate 1 when `dsr > 0.95` (same p95
+  convention v1.0 started with). `bonferroni_bar()` stays in the code and the ledger,
+  logged only, same as v1.0's flat p95 stayed visible after v1.3 stopped deciding with
+  it. No new dependency — both are closed-form/resampling, computed via stdlib
+  `statistics.NormalDist`, exactly like `bonferroni_bar()` already was.
+
+  Applies graveyard-wide, to every evaluation going forward (bare strategies via
+  `harness.evaluate()`, constructions via `piggyback_backtest.py`'s `evaluate()` — both
+  now call the same shared `harness.dsr_gate1()`, which previously would have meant two
+  copies of this logic silently drifting apart) — one standard, not two tiers of rigor
+  in one ledger, same principle v1.3 applied retroactively. `graveyard.csv` gained 5
+  columns (`dsr`, `dsr_sr_star`, `cpcv_n_paths`, `cpcv_sharpe_mean`, `cpcv_sharpe_std`);
+  existing rows were migrated with these blank, not backfilled — v1.4 wasn't applied
+  retroactively to historical verdicts, only from this point forward.
+
+  **Validated against a real result:** re-running the full roster (7 bare strategies +
+  4 piggyback constructions) under v1.4 changes no verdicts — everything that was DEAD
+  stays DEAD (piggybacks' DSR ≈ 0.52-0.53, well below the 0.95 bar, consistent with
+  v1.3's structural explanation above: there's little room between "random sleeve" and
+  "real sleeve" for this construction shape under ANY properly corrected bar), and
+  `turn_of_month` (the one bare strategy whose raw Sharpe already cleared the old
+  Bonferroni bar) still clears gate 1 under DSR too, still dies on gate 2 (Calmar/
+  diversification) exactly as before — no regression in either direction.
 
 ## Paper-testing verdicts (v1.2)
 

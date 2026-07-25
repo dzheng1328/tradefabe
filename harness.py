@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import json
 import datetime
+from itertools import combinations
 from statistics import NormalDist
 import numpy as np
 import pandas as pd
@@ -64,7 +65,10 @@ def bonferroni_bar(null, n_tested, alpha=BONFERRONI_ALPHA):
     roughly 1-in-len(null) trials; once the corrected percentile needs finer resolution
     than that, falls back to a normal approximation fit to the null's own mean/std
     (stdlib statistics.NormalDist's exact inverse-CDF -- no new dependency). Returns
-    (bar, method, pctile_used) so the verdict can log exactly which regime applied."""
+    (bar, method, pctile_used) so the verdict can log exactly which regime applied.
+    Superseded as the active gate-1 decision by `deflated_sharpe_ratio()` under DOCTRINE
+    v1.4 -- kept and still logged for continuity/comparison, same as v1.0's flat p95
+    stayed visible in the ledger after v1.3 stopped using it to decide."""
     n_tested = max(int(n_tested), 1)
     pctile = 100 * (1 - alpha / n_tested)
     finest = 100 * (1 - 1 / len(null))
@@ -73,6 +77,141 @@ def bonferroni_bar(null, n_tested, alpha=BONFERRONI_ALPHA):
     mu, sigma = float(np.mean(null)), float(np.std(null, ddof=1))
     z = NormalDist().inv_cdf(1 - alpha / n_tested)
     return mu + z * sigma, "normal-approx", pctile
+
+
+# ---------- DOCTRINE v1.4: Deflated Sharpe Ratio + Combinatorial Purged CV ----------
+# Replaces Bonferroni as the active gate-1 decision (bonferroni_bar() above stays, logged
+# for continuity). Motivation (issue #27): Bonferroni's flat alpha/n_tested division gets
+# crushingly strict and mathematically crude at the trial counts a high-volume automated
+# strategy search implies, and a single fixed 2018+ OOS window is one draw from history --
+# some candidates will beat that one slice by chance alone as search volume grows. Both
+# fixed by the same paper lineage (Bailey & Lopez de Prado) already implicit in this
+# project's empirical-then-normal-approx bar.
+EULER_MASCHERONI = 0.5772156649015329
+
+
+def _moments(r):
+    """Population skewness/kurtosis of a return series, in the convention the PSR formula
+    below expects: kurtosis == 3 for a Normal distribution (NOT excess/Fisher kurtosis,
+    where Normal == 0). Computed directly from central moments -- no scipy dependency.
+    Falls back to Normal moments (0, 3) if there's too little data or zero variance to
+    estimate higher moments meaningfully."""
+    r = np.asarray(r, dtype=float)
+    r = r[np.isfinite(r)]
+    if len(r) < 3:
+        return 0.0, 3.0
+    mu, sigma = r.mean(), r.std(ddof=0)
+    if sigma == 0:
+        return 0.0, 3.0
+    z = (r - mu) / sigma
+    return float(np.mean(z ** 3)), float(np.mean(z ** 4))
+
+
+def probabilistic_sharpe_ratio(sr_observed, sr_benchmark, n_obs, skew=0.0, kurtosis=3.0):
+    """PSR(SR*) -- Bailey & Lopez de Prado (2012), "The Sharpe Ratio Efficient Frontier."
+    Probability the TRUE Sharpe ratio exceeds `sr_benchmark`, given an estimate
+    `sr_observed` from `n_obs` observations, correcting for non-Normal skew/kurtosis in
+    the return series the Sharpe was estimated from. `sr_observed` and `sr_benchmark` must
+    be on the SAME scale as each other and as whatever periodicity `n_obs` counts (e.g.
+    both daily-scale Sharpes with n_obs = number of daily returns) -- this project's
+    `stats()` reports ANNUALIZED Sharpe; callers must divide by sqrt(ANN) before calling
+    this (annualized/sqrt(ANN) recovers the exact native-frequency Sharpe, since that's
+    precisely how `stats()` built it in the first place -- not an approximation).
+    Returns a probability in [0, 1]; n_obs < 2 returns 0.5 (no information either way)."""
+    if n_obs < 2:
+        return 0.5
+    denom = max(1 - skew * sr_observed + (kurtosis - 1) / 4 * sr_observed ** 2, 1e-12)
+    z = (sr_observed - sr_benchmark) * np.sqrt(n_obs - 1) / np.sqrt(denom)
+    return NormalDist().cdf(z)
+
+
+def expected_max_sharpe(trial_mean, trial_std, n_trials):
+    """E[max(SR_hat_n)] under n_trials independent draws from a Normal(trial_mean,
+    trial_std) null -- Bailey & Lopez de Prado (2014), "The Deflated Sharpe Ratio,"
+    extreme-value approximation. `trial_mean`/`trial_std` here are the mean/std of this
+    project's own data-derived noise floor (`null` -- the SAME input `bonferroni_bar()`
+    already uses), `n_trials` is `family_n_tested()` -- the SAME N Bonferroni corrects for.
+    This is the "what's the best Sharpe you'd see by pure luck, drawing n_trials random
+    strategies from this exact noise floor" bar a real candidate has to beat. Requires
+    n_trials >= 2 (there's no "expected max" of one draw); below that, returns
+    `trial_mean` unadjusted -- no multiple-testing correction to apply yet, same
+    convention as `bonferroni_bar`'s n_tested<1 clamp."""
+    if n_trials < 2:
+        return float(trial_mean)
+    nd = NormalDist()
+    term1 = nd.inv_cdf(1 - 1.0 / n_trials)
+    term2 = nd.inv_cdf(1 - 1.0 / (n_trials * np.e))
+    return float(trial_mean + trial_std * ((1 - EULER_MASCHERONI) * term1 + EULER_MASCHERONI * term2))
+
+
+def deflated_sharpe_ratio(sr_observed, null, n_tested, n_obs, skew=0.0, kurtosis=3.0):
+    """DOCTRINE v1.4's active gate-1 test. Deflates `sr_observed` (this candidate's own
+    OOS Sharpe -- see `cpcv_oos_sharpes()` for a resampled, more robust estimate of it)
+    against the Sharpe you'd expect to see by PURE LUCK as the BEST of `n_tested` random
+    draws from this project's own empirical noise floor (`null`) -- replacing
+    Bonferroni's flat per-test-alpha division with an extreme-value correction that
+    accounts for the null's actual spread, not just its count. All Sharpe-scale inputs
+    (`sr_observed`, `null`) must be native-frequency (not annualized) -- see
+    `probabilistic_sharpe_ratio`'s docstring. Returns (dsr, sr_star): dsr is the
+    probability [0, 1] the candidate's true Sharpe exceeds sr_star; a candidate clears
+    gate 1 when dsr > 0.95 (same p95 convention DOCTRINE v1.0 started with)."""
+    null = np.asarray(null, dtype=float)
+    sr_star = expected_max_sharpe(float(np.mean(null)), float(np.std(null, ddof=1)), n_tested)
+    dsr = probabilistic_sharpe_ratio(sr_observed, sr_star, n_obs, skew, kurtosis)
+    return dsr, sr_star
+
+
+def cpcv_splits(n_obs, n_groups=6, n_test_groups=2, embargo=5):
+    """Combinatorial Purged CV split indices -- Lopez de Prado (2017). Splits `n_obs`
+    sequential observations into `n_groups` contiguous blocks and enumerates every
+    combination of `n_test_groups` blocks held out as one test path (C(n_groups,
+    n_test_groups) combinations total) -- a resampled distribution of OOS windows drawn
+    from the SAME history, instead of trusting the one fixed 2018+ window. EMBARGOES
+    `embargo` observations at the start of every test block that immediately follows a
+    train block, dropping them from the test path: a lookback-window signal (this
+    project's strategies use trailing windows up to 252 days) computed near a train/test
+    boundary can leak train-period information into the first few test observations
+    otherwise. Returns a list of 1-D numpy index arrays (test indices only -- every
+    strategy in this project is a frozen, pre-registered formula with nothing to fit on a
+    train fold, so only the test path is needed for a resampled OOS Sharpe; the train
+    fold exists in the split boundaries here for future callers that DO fit parameters,
+    e.g. the strategy factory, #28)."""
+    groups = np.array_split(np.arange(n_obs), n_groups)
+    paths = []
+    for test_ids in combinations(range(n_groups), n_test_groups):
+        test_ids = set(test_ids)
+        idx = []
+        for i, g in enumerate(groups):
+            if i not in test_ids:
+                continue
+            if (i - 1) not in test_ids and i > 0:
+                g = g[embargo:]
+            idx.append(g)
+        if idx:
+            concatenated = np.concatenate(idx)
+            if len(concatenated):
+                paths.append(concatenated)
+    return paths
+
+
+def cpcv_oos_sharpes(r, n_groups=6, n_test_groups=2, embargo=5):
+    """Apply cpcv_splits() to a return series and compute the NATIVE-FREQUENCY (not
+    annualized) Sharpe of each resampled test path -- a real empirical distribution of
+    "how sensitive is this candidate's apparent edge to which slice of history we
+    happened to look at," rather than the single point estimate `evaluate()` used to
+    rely on alone. Returns a numpy array, one Sharpe per combinatorial path (skips paths
+    with too few observations or zero variance rather than filling them with a fake 0)."""
+    r = pd.Series(r).dropna().reset_index(drop=True)
+    n = len(r)
+    if n < n_groups * 2:
+        return np.array([])
+    out = []
+    for idx in cpcv_splits(n, n_groups, n_test_groups, embargo):
+        path = r.iloc[idx]
+        if len(path) < 30 or path.std() == 0:
+            continue
+        out.append(float(path.mean() / path.std()))
+    return np.array(out)
 
 
 # name -> (signal_fn, rebalance freq). Freq is part of the strategy spec, pre-registered.
@@ -118,10 +257,44 @@ def noise_floor(prices, freq, trials=NULL_TRIALS, rv=None):
 
 
 # ---------- doctrine verdict ----------
+def dsr_gate1(r_oos, null, n_tested):
+    """DOCTRINE v1.4's gate-1 decision -- shared by harness.evaluate() (bare strategies)
+    and piggyback_backtest.py's evaluate() (constructions), so the two verdict paths
+    can't silently drift apart the way Bonferroni's decision logic ended up duplicated
+    across both files before this. `r_oos` is the candidate's own OOS return series
+    (native frequency, e.g. daily); `null` is the matching noise-floor Sharpe sample
+    (whatever `stats()`-annualized distribution the caller already has -- a bare
+    strategy's per-frequency noise floor, or a piggyback's depth-matched construction
+    null); `n_tested` is the multiple-testing family size (`family_n_tested()`).
+
+    Returns a dict: beats_luck (bool), dsr, sr_star (annualized, for display),
+    cpcv_n_paths, cpcv_sharpe_mean/std (annualized), skew, kurtosis -- everything a
+    caller needs both to decide gate 1 and to log a full graveyard.csv row."""
+    r_oos = pd.Series(r_oos).dropna()
+    s = stats(r_oos)
+    cpcv_paths = cpcv_oos_sharpes(r_oos)
+    sr_native = float(cpcv_paths.mean()) if len(cpcv_paths) else s["Sharpe"] / np.sqrt(ANN)
+    null_native = np.asarray(null, dtype=float) / np.sqrt(ANN)
+    skew, kurt = _moments(r_oos.values)
+    dsr, sr_star_native = deflated_sharpe_ratio(sr_native, null_native, n_tested, len(r_oos), skew, kurt)
+    return {
+        "beats_luck": dsr > 0.95, "dsr": dsr, "sr_star": sr_star_native * np.sqrt(ANN),
+        "cpcv_n_paths": len(cpcv_paths),
+        "cpcv_sharpe_mean": float(cpcv_paths.mean() * np.sqrt(ANN)) if len(cpcv_paths) else None,
+        "cpcv_sharpe_std": float(cpcv_paths.std(ddof=1) * np.sqrt(ANN)) if len(cpcv_paths) > 1 else None,
+        "skew": skew, "kurtosis": kurt,
+    }
+
+
 def evaluate(name, r_full, bench_full, null, freq, n_tested=None):
     """n_tested: size of the multiple-testing family for the Bonferroni correction
     (DOCTRINE v1.3). Defaults to family_n_tested([name]) -- graveyard's count unioned
-    with just this one candidate -- for callers evaluating one strategy at a time."""
+    with just this one candidate -- for callers evaluating one strategy at a time.
+
+    Gate 1 ("beats luck") is decided by the Deflated Sharpe Ratio (DOCTRINE v1.4,
+    `dsr_gate1()`), not the Bonferroni bar -- `bonferroni_bar()` is still computed and
+    logged to graveyard.csv for continuity/comparison, same as v1.0's flat p95 stayed
+    visible after v1.3 stopped deciding with it."""
     if n_tested is None:
         n_tested = family_n_tested([name])
     r_oos = r_full[r_full.index >= OOS_START]
@@ -130,8 +303,9 @@ def evaluate(name, r_full, bench_full, null, freq, n_tested=None):
     both  = pd.concat([r_oos, b_oos], axis=1).dropna()
     corr  = both.iloc[:, 0].corr(both.iloc[:, 1])
     null_bar, bar_method, bar_pctile = bonferroni_bar(null, n_tested)
+    v14 = dsr_gate1(r_oos, null, n_tested)
 
-    beats_luck = s["Sharpe"] > null_bar
+    beats_luck = v14["beats_luck"]
     earns      = (calmar(s) > calmar(b)) or (abs(corr) < CORR_DIV and s["Sharpe"] >= b["Sharpe"])
     dd_ok      = s["MaxDD"] >= DD_MULT * b["MaxDD"]        # both negative
     alive      = bool(beats_luck and earns and dd_ok)
@@ -139,8 +313,10 @@ def evaluate(name, r_full, bench_full, null, freq, n_tested=None):
     print(f"\n=== DOCTRINE verdict: {name} (reb {freq}) ===")
     print(f"  strategy  Sharpe {s['Sharpe']:.2f} | Sortino {s['Sortino']:.2f} | Calmar {calmar(s):.2f} | MaxDD {s['MaxDD']:.1%} | corr->bench {corr:.2f}")
     print(f"  benchmark Sharpe {b['Sharpe']:.2f} | Calmar {calmar(b):.2f} | MaxDD {b['MaxDD']:.1%}   (60/40)")
-    print(f"  noise floor ({freq}-rebalanced random, n_tested={n_tested}, {bar_method} p{bar_pctile:.2f}): Sharpe = {null_bar:.2f}")
-    print(f"  gate 1  beats luck  : {beats_luck}   ({s['Sharpe']:.2f} > {null_bar:.2f})")
+    print(f"  noise floor ({freq}-rebalanced random, n_tested={n_tested}): Bonferroni {bar_method} p{bar_pctile:.2f} = {null_bar:.2f} (logged only)")
+    print(f"  DSR (v1.4): {v14['dsr']:.3f} vs SR* {v14['sr_star']:.2f} annualized "
+          f"({v14['cpcv_n_paths']} CPCV paths, skew {v14['skew']:.2f}, kurt {v14['kurtosis']:.2f})")
+    print(f"  gate 1  beats luck  : {beats_luck}   (DSR {v14['dsr']:.3f} > 0.95)")
     print(f"  gate 2  earns place : {earns}   (Calmar {calmar(s):.2f} vs {calmar(b):.2f}; |corr| {abs(corr):.2f})")
     print(f"  gate 3  not painful : {dd_ok}   (MaxDD {s['MaxDD']:.1%} vs limit {DD_MULT * b['MaxDD']:.1%})")
     print(f"  VERDICT: {'ALIVE -> promote to forward paper-testing' if alive else 'DEAD -> graveyard, no rescue'}")
@@ -151,7 +327,11 @@ def evaluate(name, r_full, bench_full, null, freq, n_tested=None):
            "oos_maxdd": round(s["MaxDD"], 3), "corr_bench": round(corr, 3),
            "null_p95": round(null_bar, 3), "bench_sharpe": round(b["Sharpe"], 3),
            "bench_calmar": round(calmar(b), 3), "verdict": "ALIVE" if alive else "DEAD",
-           "n_tested": n_tested, "bar_method": bar_method, "bar_pctile": round(bar_pctile, 3)}
+           "n_tested": n_tested, "bar_method": bar_method, "bar_pctile": round(bar_pctile, 3),
+           "dsr": round(v14["dsr"], 4), "dsr_sr_star": round(v14["sr_star"], 3),
+           "cpcv_n_paths": v14["cpcv_n_paths"],
+           "cpcv_sharpe_mean": round(v14["cpcv_sharpe_mean"], 3) if v14["cpcv_sharpe_mean"] is not None else "",
+           "cpcv_sharpe_std": round(v14["cpcv_sharpe_std"], 3) if v14["cpcv_sharpe_std"] is not None else ""}
     pd.DataFrame([row]).to_csv(GRAVEYARD, mode="a", header=not os.path.exists(GRAVEYARD), index=False)
     return s
 
