@@ -40,6 +40,15 @@ def test_book_family_falls_back_to_unmapped_marker_for_anything_else():
     assert app.book_family("some_totally_new_strategy") == "?"
 
 
+def test_book_family_resolves_a_generated_name_via_the_ledger_fallback(monkeypatch):
+    # #28b: a generated candidate's family can't have a static dict entry (the
+    # parameter is drawn fresh each cycle) -- must resolve via generated_templates.csv.
+    monkeypatch.setattr(app, "_load_generated_ledger",
+                        lambda: {"tsmom_gen_147d": {"family": "A", "rationale": "..."}})
+    assert app.book_family("tsmom_gen_147d") == "A"
+    assert app.book_family("some_other_unmapped_name") == "?"   # ledger miss still falls through
+
+
 def test_is_monitor_only_true_for_a_dead_verdict():
     gy = _gy_last({"tsmom_12m": "DEAD"})
     assert app._is_monitor_only("tsmom_12m", gy) is True

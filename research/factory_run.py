@@ -1,63 +1,132 @@
 """
-factory_run.py — the strategy factory's daily driver (#28).
+factory_run.py — the strategy factory's daily driver (#28, #28b).
 
-Draws a bounded, family-diverse sample from tradefabe.factory.TEMPLATES (the
-pre-registered search space -- see that module's docstring for why pre-registration,
-not free-form generation, is the whole point), runs each candidate through the SAME
-doctrine gate every hand-tested strategy goes through (harness.evaluate(), DSR/CPCV-
-gated per DOCTRINE v1.4 -- no lighter bar for being machine-generated), and appends
-every result to graveyard.csv exactly like every other strategy.
+Fills a bounded batch (default 20/day, --n to change) from two sources, in order:
+  1. tradefabe.factory.TEMPLATES -- the pre-registered, hand-reviewed library.
+  2. Once that's exhausted (or from the start, once it always is), LIVE GENERATION --
+     factory.generate_candidate() draws a fresh parameter from a pre-registered RANGE
+     per family (fixed in factory.py, not adjusted based on results) and logs the full
+     spec to factory.GENERATED_LEDGER (git-tracked) at generation time, before its
+     verdict is known. This is the compromise Dave asked for explicitly: templates can
+     be generated at runtime rather than capped at a fixed list, AS LONG AS every one is
+     logged the same way a pre-registered template would be -- no file-drawer problem,
+     just a bigger, runtime-extended version of the same "the count IS the record"
+     principle graveyard.csv already embodies.
 
-After individual templates are evaluated, picks the single least-correlated pair among
-this cycle's candidates (tradefabe.factory.complementary_pairs()) and evaluates ONE
-70/30-on-60/40 construction from it -- reusing piggyback_backtest.py's own matched_null
-(a fair luck floor for a k-legged construction, not a bare-strategy one) rather than
-inventing a new one. "Mix everything" is deliberately not the default; one correlation-
-picked pair per cycle is.
+Every candidate in the batch -- template or generated -- goes through the SAME doctrine
+gate every hand-tested strategy goes through (harness.evaluate(), DSR/CPCV-gated per
+DOCTRINE v1.4 -- no lighter bar for being machine-generated or for being drawn instead
+of hand-picked), and every result is appended to graveyard.csv exactly like every other
+strategy, regardless of verdict.
 
-Any INDIVIDUAL template that comes back ALIVE is auto-promoted (#29) --
-factory.promote() registers it in state/paper/promoted.json, which runner.py reads at
-the start of every future `tradefabe run`/`tradefabe mark`, so the very next paper cycle
-opens it as a real $100k live book with zero special-casing (same books.py/render path
-every hand-picked book already goes through). The correlation-picked COMBO is evaluated
-but not auto-promoted here -- piggyback.py's registry is still a fixed hand-picked dict,
-not yet dynamic the way factory.TEMPLATES is; wiring combo promotion through it is a
-natural follow-up once that generalization exists, not done here to avoid half-wiring it.
+After the whole batch is evaluated, one correlation-picked combo is built from the
+least-correlated pair in the batch (unchanged from #28) -- evaluated and logged, but not
+eligible for promotion (see below).
+
+PROMOTION (#28b, supersedes #29's "promote if ALIVE" rule): the SINGLE best individual
+candidate this cycle, ranked by DSR, is promoted to a live paper book regardless of
+verdict -- Dave's explicit call: "it doesn't have to be a winner... we still note
+whether it's alive or dead but just keep track of it." A promoted DEAD candidate is
+monitor-only, same status DOCTRINE v1.2 already gives backtest-DEAD hand-picked books
+kept live for research value. This accumulates one new book per cycle -- Dave's explicit
+choice over a single rotating "champion" slot. The combo is excluded from this ranking:
+piggyback.py's registry is still a fixed hand-picked dict, not yet dynamic; wiring combo
+promotion through it is a natural follow-up, not half-wired here.
 
 Usage: .venv/bin/python research/factory_run.py [--n N] [--seed SEED]
 """
 from __future__ import annotations
 import argparse
+import os
 import numpy as np
 import pandas as pd
 
 from tradefabe.engine import load_prices, size_and_rebalance, net_returns, realized_vol
 from harness import (benchmark_returns, noise_floor, evaluate as harness_evaluate,
-                     family_n_tested, graveyard_strategy_names, last_verdict,
-                     OOS_START, NULL_TRIALS)
+                     family_n_tested, graveyard_strategy_names, rows_for,
+                     OOS_START, NULL_TRIALS, ART)
 from tradefabe import factory
 from piggyback_backtest import matched_null, evaluate as piggyback_evaluate, SLEEVE
 
-DEFAULT_N = 6           # candidates drawn per cycle -- a config knob, not a fixed trial count
+DEFAULT_N = 20          # candidates drawn per cycle -- a config knob, not a fixed trial count
 COMBO_TRIALS = 150       # matched-null trials for the one cycle-ending combo (same as piggyback_backtest.py)
+MAX_GENERATION_ATTEMPTS_PER_SLOT = 50   # generate_candidate()'s own internal retry cap
+FACTORY_RETURNS_PATH = os.path.join(ART, "factory_returns.csv")
+
+
+def _persist_backtest_curve(name, r_oos):
+    """Persists a PROMOTED candidate's OOS return series to artifacts/factory_returns.csv
+    (git-tracked, same as full_returns.csv/piggyback_returns.csv) -- only called for the
+    single cycle winner, not all `n` tested, so this doesn't grow at 20/day. app.py's
+    book_panel_data() needs this for a promoted book's live-vs-backtest divergence chart;
+    without it, a live book with no entry in full_returns.csv OR piggyback_returns.csv
+    has no backtest curve at all and the dashboard crashes trying to look one up."""
+    if os.path.exists(FACTORY_RETURNS_PATH):
+        existing = pd.read_csv(FACTORY_RETURNS_PATH, index_col=0, parse_dates=True)
+        existing[name] = r_oos
+        existing.to_csv(FACTORY_RETURNS_PATH)
+    else:
+        os.makedirs(ART, exist_ok=True)
+        r_oos.rename(name).to_frame().to_csv(FACTORY_RETURNS_PATH)
+
+
+def _template_candidates(names):
+    out = []
+    for name in names:
+        sig_fn, freq, rationale, family = factory.TEMPLATES[name]
+        out.append({"name": name, "sig_fn": sig_fn, "freq": freq, "rationale": rationale,
+                    "family": family, "source": "template", "params": None})
+    return out
+
+
+def _fill_with_generated(candidates, n, rng, exclude, verbose):
+    """Tops `candidates` up to `n` entries via live generation, round-robining across
+    GENERATION_RANGES' families for the same diversity-by-construction reason
+    select_diverse_sample() already round-robins TEMPLATES. Logs every generated spec
+    immediately (before evaluation) -- see module docstring."""
+    families = list(factory.GENERATION_RANGES)
+    i = 0
+    while len(candidates) < n:
+        family = families[i % len(families)]
+        i += 1
+        spec = factory.generate_candidate(rng, family, exclude_names=exclude)
+        if spec is None:
+            if i > len(families) * MAX_GENERATION_ATTEMPTS_PER_SLOT:
+                break   # every family's range is (near-)exhausted of fresh names; give up
+            continue
+        factory.log_generated(spec)
+        candidates.append(spec)
+        exclude.add(spec["name"])
+        if verbose:
+            print(f"[{family}] {spec['name']} (generated) -- {spec['rationale']}")
+    return candidates
 
 
 def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
-    """Runs one factory cycle: evaluate up to `n` fresh templates, then one
-    correlation-picked combo. Returns the list of newly-evaluated names (individual +
-    combo, if one was built) for the caller to inspect/log. `seed=None` uses OS entropy
-    (so successive daily cycles draw different templates); pass a fixed seed for a
-    reproducible test run."""
+    """Runs one factory cycle: evaluate a batch of up to `n` candidates (templates
+    first, then live-generated to fill the rest), one correlation-picked combo, and
+    promote the single best-DSR individual regardless of verdict. Returns the list of
+    newly-evaluated names (individuals + combo, if one was built). `seed=None` uses OS
+    entropy (so successive daily cycles draw different candidates); pass a fixed seed
+    for a reproducible test run."""
     rng = np.random.default_rng(seed)
     already_tested = graveyard_strategy_names()
-    sample = factory.select_diverse_sample(factory.TEMPLATES, n, rng, exclude=already_tested)
-    if verbose:
-        print(f"drew {len(sample)} candidate(s), families: "
-              f"{[factory.TEMPLATES[s][3] for s in sample]}")
-    if not sample:
+    already_generated = factory.generated_names()
+    exclude = set(already_tested) | already_generated
+
+    template_names = factory.select_diverse_sample(factory.TEMPLATES, n, rng, exclude=exclude)
+    candidates = _template_candidates(template_names)
+    if verbose and candidates:
+        print(f"drew {len(candidates)} template candidate(s), families: "
+              f"{[c['family'] for c in candidates]}")
+    exclude |= {c["name"] for c in candidates}
+    candidates = _fill_with_generated(candidates, n, rng, exclude, verbose)
+
+    if not candidates:
         if verbose:
-            print("template library exhausted (every template already in graveyard.csv) -- "
-                  "nothing new to test this cycle.")
+            print("nothing new to test this cycle -- template library AND generation "
+                  "ranges both exhausted of fresh names (exceedingly unlikely; check "
+                  "GENERATION_RANGES if this actually happens).")
         return []
 
     prices, source = load_prices()
@@ -68,32 +137,24 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
 
     nulls = {}
     returns = {}
-    for name in sample:
-        sig_fn, freq, rationale, family = factory.TEMPLATES[name]
-        if freq not in nulls:
-            nulls[freq] = noise_floor(prices, freq, NULL_TRIALS, rv)
-        r = net_returns(prices, size_and_rebalance(prices, sig_fn(prices), freq, rv))
-        returns[name] = r
-        if verbose:
-            print(f"\n[{family}] {name} -- {rationale}")
+    for c in candidates:
+        if c["freq"] not in nulls:
+            nulls[c["freq"]] = noise_floor(prices, c["freq"], NULL_TRIALS, rv)
+        r = net_returns(prices, size_and_rebalance(prices, c["sig_fn"](prices), c["freq"], rv))
+        returns[c["name"]] = r
+        if verbose and c["source"] == "template":
+            print(f"\n[{c['family']}] {c['name']} -- {c['rationale']}")
 
-    n_tested = family_n_tested(sample)
-    promoted = []
-    for name in sample:
-        _, freq, _, _ = factory.TEMPLATES[name]
-        harness_evaluate(name, returns[name], bench, nulls[freq], freq, n_tested)
-        if last_verdict(name) == "ALIVE":
-            factory.promote(name)
-            promoted.append(name)
-            if verbose:
-                print(f"  -> ALIVE: promoted {name} to a live paper book "
-                      f"(opens at $100k on the next tradefabe run)")
+    names_this_cycle = [c["name"] for c in candidates]
+    n_tested = family_n_tested(names_this_cycle)
+    for c in candidates:
+        harness_evaluate(c["name"], returns[c["name"]], bench, nulls[c["freq"]], c["freq"], n_tested)
 
-    evaluated = list(sample)
+    evaluated = list(names_this_cycle)
     oos_returns = {name: r[r.index >= OOS_START] for name, r in returns.items()}
     oos_frame = pd.DataFrame(oos_returns).dropna(how="all")
-    if len(sample) >= 2:
-        pairs = factory.complementary_pairs(oos_frame, sample, top_k=1)
+    if len(names_this_cycle) >= 2:
+        pairs = factory.complementary_pairs(oos_frame, names_this_cycle, top_k=1)
         if pairs:
             leg_a, leg_b, corr = pairs[0]
             combo_name = f"factory_combo_{leg_a}_{leg_b}"
@@ -109,6 +170,23 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
                 piggyback_evaluate(combo_name, combo, bench_oos, null_k2, 2,
                                    (leg_a, leg_b), combo_n_tested)
                 evaluated.append(combo_name)
+
+    # ---- promote the single best-DSR individual this cycle, regardless of verdict ----
+    rows = rows_for(names_this_cycle)
+    if len(rows):
+        best = rows.loc[rows["dsr"].idxmax()]
+        best_name = best["strategy"]
+        best_candidate = next(c for c in candidates if c["name"] == best_name)
+        if best_candidate["source"] == "template":
+            factory.promote(best_name)
+        else:
+            factory.promote_generated(best_candidate)
+        _persist_backtest_curve(best_name, oos_returns[best_name])
+        if verbose:
+            tag = "monitor-only" if best["verdict"] == "DEAD" else "ALIVE"
+            print(f"\nbest of cycle: {best_name} (DSR {best['dsr']:.3f}, {tag}) -> "
+                  f"promoted to a live paper book (opens at $100k on the next tradefabe run)")
+
     return evaluated
 
 

@@ -3,6 +3,8 @@ math on synthetic prices with known expected output (same style as test_signals.
 plus select_diverse_sample()/complementary_pairs() unit tests. Requires
 pyproject.toml's [tool.pytest.ini_options] pythonpath=["."] so `import harness`-style
 repo-root imports resolve (factory itself lives in the installed tradefabe package)."""
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -219,3 +221,105 @@ def test_load_promoted_empty_when_file_does_not_exist(monkeypatch, tmp_path):
     monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
     monkeypatch.setattr(factory, "PROMOTED_PATH", tmp_path / "does_not_exist.json")
     assert factory.load_promoted() == []
+
+
+# ---------------------------------------------------------------- live generation (#28b)
+def test_generate_candidate_draws_params_within_the_registered_range():
+    rng = np.random.default_rng(0)
+    for family, ranges in factory.GENERATION_RANGES.items():
+        spec = factory.generate_candidate(rng, family)
+        assert spec is not None
+        for key, (lo, hi) in ranges.items():
+            assert lo <= spec["params"][key] <= hi
+        assert spec["family"] == family
+        assert spec["freq"] in ("D", "W", "M")
+        assert callable(spec["sig_fn"])
+        assert spec["source"] == "generated"
+        assert len(spec["rationale"]) > 15
+
+
+def test_generate_candidate_signal_matches_rebuild_signal():
+    # the whole point of persisting family+params is that rebuild_signal() reproduces
+    # the EXACT same signal a fresh process (runner.py) needs for a promoted book.
+    rng = np.random.default_rng(1)
+    spec = factory.generate_candidate(rng, "A")
+    rebuilt = factory.rebuild_signal(spec["family"], spec["params"])
+    px = trend_prices()
+    pd.testing.assert_frame_equal(spec["sig_fn"](px), rebuilt(px))
+
+
+def test_generate_candidate_avoids_excluded_names():
+    rng = np.random.default_rng(2)
+    first = factory.generate_candidate(rng, "I")
+    rng2 = np.random.default_rng(2)   # same seed -> would draw the same params/name...
+    second = factory.generate_candidate(rng2, "I", exclude_names={first["name"]})
+    assert second is not None
+    assert second["name"] != first["name"]   # ...but the exclude forced a retry
+
+
+def test_generate_candidate_returns_none_when_range_is_effectively_exhausted(monkeypatch):
+    # a single-value range leaves exactly one possible name; excluding it must fail
+    monkeypatch.setitem(factory.GENERATION_RANGES, "I", {"window": (20, 20)})
+    rng = np.random.default_rng(0)
+    only_possible_name = factory._generated_name("I", {"window": 20})
+    assert factory.generate_candidate(rng, "I", exclude_names={only_possible_name}) is None
+
+
+def test_log_generated_appends_and_generated_names_reads_back(monkeypatch, tmp_path):
+    ledger = tmp_path / "generated_templates.csv"
+    monkeypatch.setattr(factory, "GENERATED_LEDGER", ledger)
+    assert factory.generated_names() == set()
+
+    rng = np.random.default_rng(3)
+    spec = factory.generate_candidate(rng, "B")
+    factory.log_generated(spec)
+
+    assert factory.generated_names() == {spec["name"]}
+    row = pd.read_csv(ledger).iloc[0]
+    assert row["name"] == spec["name"]
+    assert row["family"] == "B"
+    assert json.loads(row["params"]) == spec["params"]
+
+
+def test_log_generated_never_overwrites_earlier_entries(monkeypatch, tmp_path):
+    ledger = tmp_path / "generated_templates.csv"
+    monkeypatch.setattr(factory, "GENERATED_LEDGER", ledger)
+    rng = np.random.default_rng(0)
+    spec1 = factory.generate_candidate(rng, "A")
+    factory.log_generated(spec1)
+    spec2 = factory.generate_candidate(rng, "B", exclude_names={spec1["name"]})
+    factory.log_generated(spec2)
+    assert factory.generated_names() == {spec1["name"], spec2["name"]}
+
+
+# ---------------------------------------------------------------- promotion registry for generated candidates
+def test_promote_generated_writes_full_spec_and_load_reads_it_back(monkeypatch, tmp_path):
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_GENERATED_PATH", tmp_path / "promoted_generated.json")
+    rng = np.random.default_rng(0)
+    spec = factory.generate_candidate(rng, "A")
+
+    factory.promote_generated(spec)
+    entries = factory.load_promoted_generated()
+    assert len(entries) == 1
+    assert entries[0]["name"] == spec["name"]
+    assert entries[0]["family"] == "A"
+    assert entries[0]["params"] == spec["params"]
+    assert entries[0]["freq"] == spec["freq"]
+    assert "sig_fn" not in entries[0]   # not JSON-serializable -- must not be persisted
+
+
+def test_promote_generated_is_idempotent_by_name(monkeypatch, tmp_path):
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_GENERATED_PATH", tmp_path / "promoted_generated.json")
+    rng = np.random.default_rng(0)
+    spec = factory.generate_candidate(rng, "A")
+    factory.promote_generated(spec)
+    factory.promote_generated(spec)
+    assert len(factory.load_promoted_generated()) == 1
+
+
+def test_load_promoted_generated_empty_when_file_does_not_exist(monkeypatch, tmp_path):
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_GENERATED_PATH", tmp_path / "does_not_exist.json")
+    assert factory.load_promoted_generated() == []

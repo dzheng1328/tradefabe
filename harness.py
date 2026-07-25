@@ -69,6 +69,19 @@ def last_verdict(name):
     return rows.iloc[-1]["verdict"] if len(rows) else None
 
 
+def rows_for(names):
+    """The most recent logged graveyard row for each of `names`, as a DataFrame (one row
+    per name, indexed 0..n-1) -- for callers that need to RANK several just-evaluated
+    candidates against each other at once (e.g. the strategy factory picking a cycle's
+    best-DSR performer regardless of verdict, #28b) without one file read per name.
+    Empty DataFrame if graveyard.csv doesn't exist or none of `names` are in it."""
+    if not os.path.exists(GRAVEYARD):
+        return pd.DataFrame()
+    gy = pd.read_csv(GRAVEYARD)
+    gy = gy[gy["strategy"].isin(names)]
+    return gy.drop_duplicates("strategy", keep="last").reset_index(drop=True)
+
+
 def bonferroni_bar(null, n_tested, alpha=BONFERRONI_ALPHA):
     """The kill rule's luck bar, corrected for how many strategies have been tested
     (graveyard.csv's own count -- DOCTRINE.md v1.0.1 logged this as a future tightening;

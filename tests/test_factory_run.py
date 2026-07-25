@@ -33,6 +33,9 @@ def scratch_graveyard(monkeypatch, tmp_path):
     monkeypatch.setattr(factory_run, "load_prices", lambda: (_synthetic_prices(), "SYNTHETIC (test)"))
     monkeypatch.setattr(factory_run.factory, "STATE_DIR", tmp_path)
     monkeypatch.setattr(factory_run.factory, "PROMOTED_PATH", tmp_path / "promoted.json")
+    monkeypatch.setattr(factory_run.factory, "PROMOTED_GENERATED_PATH", tmp_path / "promoted_generated.json")
+    monkeypatch.setattr(factory_run.factory, "GENERATED_LEDGER", tmp_path / "generated_templates.csv")
+    monkeypatch.setattr(factory_run, "FACTORY_RETURNS_PATH", tmp_path / "factory_returns.csv")
     return gy
 
 
@@ -57,10 +60,18 @@ def test_run_cycle_never_redraws_an_already_tested_template(scratch_graveyard):
     individuals_first = {n for n in first if not n.startswith("factory_combo_")}
     assert individuals_first == set(factory_run.factory.TEMPLATES.keys())   # exhausted the pool
 
+
+def test_run_cycle_falls_back_to_live_generation_once_templates_are_exhausted(scratch_graveyard):
+    # exhaust the whole template pool first (#28's original behavior)...
+    factory_run.run_cycle(n=len(factory_run.factory.TEMPLATES), seed=1, verbose=False)
+
+    # ...a second cycle can no longer draw ANY template, so #28b's fallback kicks in:
+    # every individual this cycle must be a live-generated one, logged to the ledger.
     second = factory_run.run_cycle(n=4, seed=2, verbose=False)
-    # every template already logged -> nothing left to draw; only a combo is impossible
-    # too since complementary_pairs() needs >=2 FRESH candidates in `sample` this cycle.
-    assert second == []
+    assert second != []
+    individuals_second = [n for n in second if not n.startswith("factory_combo_")]
+    assert all(n not in factory_run.factory.TEMPLATES for n in individuals_second)
+    assert set(individuals_second) <= factory_run.factory.generated_names()
 
 
 def test_run_cycle_skips_the_combo_when_fewer_than_two_candidates_drawn(scratch_graveyard):
@@ -69,47 +80,139 @@ def test_run_cycle_skips_the_combo_when_fewer_than_two_candidates_drawn(scratch_
     assert not evaluated[0].startswith("factory_combo_")
 
 
-# ---------------------------------------------------------------- promotion (#29)
-def test_run_cycle_promotes_an_individual_candidate_that_comes_back_alive(scratch_graveyard, monkeypatch):
-    # Real evaluate() outcomes are all DEAD for both real and this synthetic data (same
-    # as the actual project's track record) -- force one specific verdict deterministically
-    # to test the PROMOTION WIRING itself, decoupled from evaluate()'s own statistics
-    # (already covered by test_deflated_sharpe.py).
-    sample_names = factory_run.factory.select_diverse_sample(
-        factory_run.factory.TEMPLATES, 4, np.random.default_rng(42))
-    alive_name = sample_names[0]
+def test_generated_candidates_are_logged_to_the_ledger_before_evaluation(scratch_graveyard):
+    factory_run.run_cycle(n=len(factory_run.factory.TEMPLATES), seed=1, verbose=False)  # exhaust templates
+    factory_run.run_cycle(n=3, seed=2, verbose=False)
+    ledger = pd.read_csv(factory_run.factory.GENERATED_LEDGER)
+    assert len(ledger) >= 3
+    for col in ("timestamp", "name", "family", "freq", "params", "rationale"):
+        assert col in ledger.columns
+    assert ledger["family"].isin(list(factory_run.factory.GENERATION_RANGES)).all()
 
-    real_last_verdict = factory_run.last_verdict
-    monkeypatch.setattr(factory_run, "last_verdict",
-                        lambda name: "ALIVE" if name == alive_name else real_last_verdict(name))
 
+# ---------------------------------------------------------------- promotion (#28b)
+# #28b supersedes #29's "promote only if ALIVE" rule: the single best-DSR candidate
+# this cycle is promoted regardless of verdict (Dave's explicit call). Real evaluate()
+# outcomes are all DEAD for both real and this synthetic data (same as the actual
+# project's track record) -- force a specific candidate's DSR via rows_for() to test the
+# RANKING/PROMOTION WIRING itself, decoupled from evaluate()'s own statistics (already
+# covered by test_deflated_sharpe.py).
+def _force_winner(monkeypatch, winner_holder):
+    real_rows_for = factory_run.rows_for
+
+    def fake_rows_for(names):
+        rows = real_rows_for(names)
+        winner_holder["name"] = names[0]
+        rows = rows.copy()
+        rows.loc[rows["strategy"] == names[0], "dsr"] = 0.999
+        return rows
+    monkeypatch.setattr(factory_run, "rows_for", fake_rows_for)
+
+
+def test_run_cycle_promotes_the_best_dsr_candidate_regardless_of_verdict(scratch_graveyard, monkeypatch):
+    winner = {}
+    _force_winner(monkeypatch, winner)
     factory_run.run_cycle(n=4, seed=42, verbose=False)
-    assert factory_run.factory.load_promoted() == [alive_name]
+
+    promoted_templates = set(factory_run.factory.load_promoted())
+    promoted_generated = {g["name"] for g in factory_run.factory.load_promoted_generated()}
+    assert (promoted_templates | promoted_generated) == {winner["name"]}
 
 
-def test_run_cycle_never_promotes_a_dead_candidate(scratch_graveyard):
+def test_run_cycle_promotes_a_dead_best_candidate_not_just_alive_ones(scratch_graveyard, monkeypatch):
+    winner = {}
+    _force_winner(monkeypatch, winner)
     factory_run.run_cycle(n=4, seed=42, verbose=False)
-    assert factory_run.factory.load_promoted() == []
+
+    gy = pd.read_csv(scratch_graveyard)
+    winner_verdict = gy[gy["strategy"] == winner["name"]].iloc[-1]["verdict"]
+    assert winner_verdict == "DEAD"   # real synthetic data never clears gate 1 -- confirms
+                                      # promotion happened DESPITE a DEAD verdict, not because of ALIVE
+    promoted_names = set(factory_run.factory.load_promoted()) | \
+        {g["name"] for g in factory_run.factory.load_promoted_generated()}
+    assert winner["name"] in promoted_names
+
+
+def test_run_cycle_promotes_a_generated_winner_via_promote_generated_with_full_spec(scratch_graveyard, monkeypatch):
+    factory_run.run_cycle(n=len(factory_run.factory.TEMPLATES), seed=1, verbose=False)  # exhaust templates
+    # that first (unforced) cycle already promoted its own best-of-batch, template-
+    # sourced -- capture it so we can confirm the SECOND cycle doesn't add another one.
+    promoted_before = set(factory_run.factory.load_promoted())
+    assert len(promoted_before) == 1
+
+    winner = {}
+    _force_winner(monkeypatch, winner)
+    factory_run.run_cycle(n=3, seed=2, verbose=False)
+
+    assert factory_run.factory.load_promoted() == list(promoted_before)   # unchanged: this
+                                                                          # cycle's winner was generated, not template-sourced
+    generated_promoted = factory_run.factory.load_promoted_generated()
+    assert len(generated_promoted) == 1
+    entry = generated_promoted[0]
+    assert entry["name"] == winner["name"]
+    assert entry["family"] in factory_run.factory.GENERATION_RANGES
+    assert isinstance(entry["params"], dict) and entry["params"]
 
 
 def test_run_cycle_never_promotes_the_combo(scratch_graveyard, monkeypatch):
-    # force EVERY verdict ALIVE, individuals and the combo alike -- only individuals
-    # should end up promoted (combo promotion needs piggyback.py's registry made
+    # force the COMBO itself to have the highest DSR of everything evaluated -- it must
+    # still never be promoted (combo promotion needs piggyback.py's registry made
     # dynamic first, deliberately out of scope here -- see factory_run.py's docstring).
-    monkeypatch.setattr(factory_run, "last_verdict", lambda name: "ALIVE")
+    real_rows_for = factory_run.rows_for
+
+    def fake_rows_for(names):
+        # rows_for() here is only ever called with names_this_cycle (individuals, no
+        # combo) -- confirm that, then just return real (unmodified) rows: with no
+        # forced winner, whichever real candidate has the highest DSR gets promoted,
+        # which is what we're checking is never the combo (impossible anyway, since
+        # the combo is never in `names` here).
+        assert not any(n.startswith("factory_combo_") for n in names)
+        return real_rows_for(names)
+    monkeypatch.setattr(factory_run, "rows_for", fake_rows_for)
+
     evaluated = factory_run.run_cycle(n=4, seed=42, verbose=False)
     combo_names = [n for n in evaluated if n.startswith("factory_combo_")]
     assert combo_names   # a combo really was built this cycle
+    promoted = set(factory_run.factory.load_promoted()) | \
+        {g["name"] for g in factory_run.factory.load_promoted_generated()}
+    assert promoted.isdisjoint(set(combo_names))
+
+
+def test_run_cycle_promotion_accumulates_across_cycles(scratch_graveyard):
+    factory_run.run_cycle(n=4, seed=1, verbose=False)
+    first_promoted = set(factory_run.factory.load_promoted())
+    assert len(first_promoted) == 1   # exactly one best-of-cycle winner
+
+    # a second cycle draws NEW candidates (already-tested excludes the first batch) --
+    # Dave's explicit choice: promoted books ACCUMULATE, one per cycle, not a single
+    # rotating slot.
+    factory_run.run_cycle(n=4, seed=2, verbose=False)
+    second_promoted = set(factory_run.factory.load_promoted())
+    assert len(second_promoted) == 2
+    assert first_promoted < second_promoted
+
+
+# ---------------------------------------------------------------- backtest curve persistence
+# Regression coverage for a real bug hit while building this: a promoted book with no
+# entry in EITHER full_returns.csv or piggyback_returns.csv crashed app.py's
+# book_panel_data() trying to look up a backtest curve that was never persisted anywhere
+# for factory/generated candidates.
+def test_run_cycle_persists_a_backtest_curve_only_for_the_winner(scratch_graveyard, monkeypatch):
+    winner = {}
+    _force_winner(monkeypatch, winner)
+    factory_run.run_cycle(n=4, seed=42, verbose=False)
+
+    curve = pd.read_csv(factory_run.FACTORY_RETURNS_PATH, index_col=0, parse_dates=True)
+    assert list(curve.columns) == [winner["name"]]   # only the winner, not all 4 candidates
+    assert len(curve) > 0
+    assert curve[winner["name"]].notna().any()
+
+
+def test_run_cycle_persisted_curve_accumulates_columns_across_cycles(scratch_graveyard):
+    factory_run.run_cycle(n=4, seed=1, verbose=False)
+    factory_run.run_cycle(n=4, seed=2, verbose=False)
+    curve = pd.read_csv(factory_run.FACTORY_RETURNS_PATH, index_col=0, parse_dates=True)
+    assert curve.shape[1] == 2   # one column per cycle's winner, not overwritten
+
     promoted = factory_run.factory.load_promoted()
-    assert set(promoted) == set(evaluated) - set(combo_names)
-
-
-def test_run_cycle_promotion_is_idempotent_across_cycles(scratch_graveyard, monkeypatch):
-    monkeypatch.setattr(factory_run, "last_verdict", lambda name: "ALIVE")
-    factory_run.run_cycle(n=2, seed=1, verbose=False)
-    first_promoted = factory_run.factory.load_promoted()
-    # a second cycle draws NEW templates (already_tested excludes the first batch) --
-    # promoted.json should accumulate, not reset.
-    factory_run.run_cycle(n=2, seed=2, verbose=False)
-    second_promoted = factory_run.factory.load_promoted()
-    assert set(first_promoted) < set(second_promoted)
+    assert set(curve.columns) == set(promoted)

@@ -57,3 +57,36 @@ def test_run_book_rebalances_a_factory_template_identically_to_a_hand_picked_one
     assert book["last_rebalance"] == "2024-06-01"     # fresh book -> always rebalances on first run
     assert book["positions"]                          # donchian_20d on a strong uptrend takes a real position
     assert book["history"] == [["2024-06-01", pytest.approx(books.equity(book, px.iloc[-1]), rel=1e-6)]]
+
+
+# ---------------------------------------------------------------- GENERATED_BOOKS (#28b)
+def test_generated_books_reflects_promoted_generated_json_at_import_time(monkeypatch, tmp_path):
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_GENERATED_PATH", tmp_path / "promoted_generated.json")
+    spec = factory.generate_candidate(np.random.default_rng(0), "A")
+    factory.promote_generated(spec)
+
+    reloaded_runner = importlib.reload(runner)
+    try:
+        names = [g["name"] for g in reloaded_runner.GENERATED_BOOKS]
+        assert names == [spec["name"]]
+        assert spec["name"] in reloaded_runner.ALL_BOOKS
+    finally:
+        importlib.reload(runner)
+
+
+def test_run_book_rebalances_a_generated_candidate_via_rebuilt_signal(monkeypatch, tmp_path):
+    """A promoted generated book has no name-keyed static registry (unlike TEMPLATES) --
+    runner.py must reconstruct its signal fn from persisted family+params and still
+    rebalance identically."""
+    monkeypatch.setattr(books, "STATE_DIR", tmp_path)
+    px = _trending_prices()
+    spec = factory.generate_candidate(np.random.default_rng(0), "I")   # breakout family
+
+    sig_fn = factory.rebuild_signal(spec["family"], spec["params"])
+    get_weights = runner._make_generated_get_weights(sig_fn)
+    runner._run_book(spec["name"], spec["freq"], get_weights, px, "2024-06-01", px.iloc[-1], verbose=False)
+
+    book = books.load(spec["name"])
+    assert book["last_rebalance"] == "2024-06-01"
+    assert book["positions"]

@@ -27,13 +27,15 @@ project holds elsewhere. #24 already anticipates this class of blocker for a dif
 reason (data recency); this is the same blocker for a different field.
 """
 from __future__ import annotations
+import datetime
 import json
+import os
 from itertools import combinations
 
 import numpy as np
 import pandas as pd
 
-from .paths import STATE_DIR
+from .paths import STATE_DIR, REPO_ROOT
 from .engine import sized_weights
 
 
@@ -139,6 +141,120 @@ TEMPLATES = {
 FAMILY_LABELS = {"I": "Breakout / channel"}   # new family this module introduces
 
 
+# ---------- live template generation (#28b) ----------
+# TEMPLATES above is a fixed, hand-reviewed list -- it runs dry (15 entries). Rather than
+# generating templates freely at runtime (which would reintroduce exactly the meta-level
+# p-hacking DOCTRINE.md's own opening section warns against: tuning what gets tried
+# based on what you've already seen), the PARAMETER RANGE per family is what's
+# pre-registered here -- fixed once, reviewed like everything else in this file -- and
+# only the SPECIFIC value drawn is randomized at runtime. Every draw is logged to
+# GENERATED_LEDGER (git-tracked, append-only) at generation time, before its verdict is
+# known, so there's no opportunity to selectively keep only favorable-looking generated
+# candidates out of the record -- the same "the count IS the record" principle
+# graveyard.csv already embodies, applied to the generation process itself.
+#
+# Ranges only cover families whose signal needs nothing but Close prices (this project's
+# cache -- see engine.load_prices) and a single integer parameter: A/B/D/I from TEMPLATES
+# above, plus C (two integers). E (carry), F (VRP), G (info) all need external data
+# pipelines this repo doesn't have -- same boundary TEMPLATES itself already draws.
+GENERATION_RANGES = {
+    "A": {"lookback_days": (10, 504)},      # trend: ~2wk to 24mo
+    "B": {"days": (2, 40)},                 # mean reversion: 2-40 day fade window
+    "C": {"first_n": (1, 8), "last_n": (1, 8)},   # calendar: turn-of-month window width
+    "D": {"vol_window": (10, 180)},         # defensive: vol-ranking window
+    "I": {"window": (10, 120)},             # breakout: channel length
+}
+_GENERATION_MAKERS = {
+    "A": _make_tsmom, "B": _make_str_reversal, "C": _make_turn_of_month,
+    "D": _make_low_vol_xsec, "I": _make_donchian_breakout,
+}
+_GENERATION_FREQ = {"A": "M", "B": "W", "C": "D", "D": "M", "I": "D"}
+
+
+def _generated_name(family, params):
+    if family == "A":
+        return f"tsmom_gen_{params['lookback_days']}d"
+    if family == "B":
+        return f"str_reversal_gen_{params['days']}d"
+    if family == "C":
+        return f"turn_of_month_gen_{params['first_n']}_{params['last_n']}"
+    if family == "D":
+        return f"low_vol_xsec_gen_{params['vol_window']}d"
+    if family == "I":
+        return f"donchian_gen_{params['window']}d"
+    raise ValueError(f"no naming rule for family {family!r}")
+
+
+def _generated_rationale(family, params):
+    if family == "A":
+        return f"Trend (generated): sign of the trailing {params['lookback_days']}-day return."
+    if family == "B":
+        return f"Mean reversion (generated): fade the trailing {params['days']}-day move."
+    if family == "C":
+        return (f"Calendar (generated): turn-of-month window, first {params['first_n']} + "
+                f"last {params['last_n']} trading days.")
+    if family == "D":
+        return (f"Defensive anomaly (generated): BAB-lite split using a "
+                f"{params['vol_window']}-day vol-ranking window.")
+    if family == "I":
+        return (f"Breakout (generated): long a new {params['window']}-day high, short a "
+                f"new {params['window']}-day low.")
+    raise ValueError(f"no rationale template for family {family!r}")
+
+
+def generate_candidate(rng, family, exclude_names=()):
+    """Draws a fresh parameter (or pair, for family C) for `family` from
+    GENERATION_RANGES -- the pre-registered valid range, fixed here and not adjusted
+    based on results -- and builds a full candidate spec, same shape as a TEMPLATES
+    entry plus the params needed to reconstruct the signal fn in a later process (see
+    rebuild_signal()). Retries on a name collision with `exclude_names` up to a bounded
+    number of attempts (a fresh integer draw colliding is rare but not impossible);
+    returns None if it can't find a fresh name in that many tries rather than looping
+    forever on a near-exhausted range."""
+    ranges = GENERATION_RANGES[family]
+    maker = _GENERATION_MAKERS[family]
+    for _ in range(50):
+        params = {k: int(rng.integers(lo, hi + 1)) for k, (lo, hi) in ranges.items()}
+        name = _generated_name(family, params)
+        if name in exclude_names:
+            continue
+        return {"name": name, "sig_fn": maker(**params), "freq": _GENERATION_FREQ[family],
+                "rationale": _generated_rationale(family, params), "family": family,
+                "params": params, "source": "generated"}
+    return None
+
+
+def rebuild_signal(family, params):
+    """Reconstructs the exact signal function for a generated candidate from its
+    persisted family+params -- used by runner.py to rebalance a promoted generated book
+    in a FRESH process (generate_candidate()'s own closure doesn't survive across
+    processes; the maker+params fully and deterministically reproduce the same signal)."""
+    return _GENERATION_MAKERS[family](**params)
+
+
+GENERATED_LEDGER = REPO_ROOT / "generated_templates.csv"
+
+
+def generated_names():
+    """Every name ever logged to GENERATED_LEDGER -- so a later cycle doesn't re-generate
+    (and re-log) the same exact spec, mirroring how graveyard_strategy_names() prevents
+    re-testing an already-logged strategy."""
+    if not os.path.exists(GENERATED_LEDGER):
+        return set()
+    return set(pd.read_csv(GENERATED_LEDGER)["name"].unique())
+
+
+def log_generated(spec):
+    """Appends a generated candidate's full spec to the git-tracked audit ledger --
+    called at GENERATION time, before its backtest verdict is known, so every candidate
+    ever generated is on the record whether it lives or dies (no file-drawer problem)."""
+    row = {"timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+           "name": spec["name"], "family": spec["family"], "freq": spec["freq"],
+           "params": json.dumps(spec["params"]), "rationale": spec["rationale"]}
+    pd.DataFrame([row]).to_csv(GENERATED_LEDGER, mode="a",
+                               header=not os.path.exists(GENERATED_LEDGER), index=False)
+
+
 def select_diverse_sample(templates, k, rng, exclude=()):
     """Draw up to `k` template names from `templates`, round-robining across families
     so a single research cycle can't accidentally exhaust one family before ever trying
@@ -230,3 +346,33 @@ def promote(name):
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     with open(PROMOTED_PATH, "w") as fh:
         json.dump(promoted, fh, indent=1)
+
+
+# ---------- promotion registry for GENERATED candidates (#28b) ----------
+# Separate from PROMOTED_PATH above: a generated candidate's signal function doesn't
+# live in any importable module-level dict the way TEMPLATES entries do, so runner.py
+# needs family+params (not just a name) to call rebuild_signal() in a fresh process.
+PROMOTED_GENERATED_PATH = STATE_DIR / "promoted_generated.json"
+
+
+def load_promoted_generated():
+    """Every currently-promoted GENERATED candidate, as full {"name", "family", "freq",
+    "params"} dicts -- unlike load_promoted() (TEMPLATES-name-only), runner.py needs
+    family+params here to reconstruct the exact signal function via rebuild_signal()."""
+    if not PROMOTED_GENERATED_PATH.exists():
+        return []
+    with open(PROMOTED_GENERATED_PATH) as fh:
+        return json.load(fh)
+
+
+def promote_generated(spec):
+    """Registers a generated candidate (a dict shaped like generate_candidate()'s
+    return value) as a live paper book, idempotent by name."""
+    entries = load_promoted_generated()
+    if any(e["name"] == spec["name"] for e in entries):
+        return
+    entries.append({"name": spec["name"], "family": spec["family"],
+                    "freq": spec["freq"], "params": spec["params"]})
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(PROMOTED_GENERATED_PATH, "w") as fh:
+        json.dump(entries, fh, indent=1)
