@@ -192,3 +192,32 @@ def test_last_verdict_returns_the_most_recent_of_multiple_rows_for_the_same_name
                   "2026-02-01T00:00:00,foo,ALIVE\n")
     monkeypatch.setattr(harness, "GRAVEYARD", str(gy))
     assert harness.last_verdict("foo") == "ALIVE"
+
+
+# ---------------------------------------------------------------- rows_for (#28b)
+def test_rows_for_empty_when_graveyard_does_not_exist(monkeypatch, tmp_path):
+    monkeypatch.setattr(harness, "GRAVEYARD", str(tmp_path / "does_not_exist.csv"))
+    assert harness.rows_for(["a", "b"]).empty
+
+
+def test_rows_for_filters_to_requested_names_only(monkeypatch, tmp_path):
+    gy = tmp_path / "graveyard.csv"
+    gy.write_text("timestamp,strategy,verdict,dsr\n"
+                  "2026-01-01T00:00:00,a,DEAD,0.10\n"
+                  "2026-01-01T00:00:00,b,DEAD,0.20\n"
+                  "2026-01-01T00:00:00,c,DEAD,0.30\n")
+    monkeypatch.setattr(harness, "GRAVEYARD", str(gy))
+    rows = harness.rows_for(["a", "c"])
+    assert set(rows["strategy"]) == {"a", "c"}
+
+
+def test_rows_for_keeps_only_the_most_recent_row_per_name(monkeypatch, tmp_path):
+    gy = tmp_path / "graveyard.csv"
+    gy.write_text("timestamp,strategy,verdict,dsr\n"
+                  "2026-01-01T00:00:00,a,DEAD,0.10\n"
+                  "2026-02-01T00:00:00,a,ALIVE,0.99\n")
+    monkeypatch.setattr(harness, "GRAVEYARD", str(gy))
+    rows = harness.rows_for(["a"])
+    assert len(rows) == 1
+    assert rows.iloc[0]["verdict"] == "ALIVE"
+    assert rows.iloc[0]["dsr"] == pytest.approx(0.99)

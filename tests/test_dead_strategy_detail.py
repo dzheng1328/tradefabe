@@ -52,6 +52,13 @@ def test_strategy_description_falls_back_to_the_placeholder_for_anything_else():
     assert app.strategy_description("some_totally_new_strategy").startswith("(no description yet")
 
 
+def test_strategy_description_resolves_a_generated_name_via_the_ledger_fallback(monkeypatch):
+    monkeypatch.setattr(app, "_load_generated_ledger",
+                        lambda: {"tsmom_gen_147d": {"family": "A",
+                                                    "rationale": "Trend (generated): sign of the trailing 147-day return."}})
+    assert app.strategy_description("tsmom_gen_147d") == "Trend (generated): sign of the trailing 147-day return."
+
+
 def test_every_graveyard_strategy_has_a_family_and_description():
     """Regression guard: every strategy actually in graveyard.csv today must resolve to
     a real family (not the "?" -> Other fallback) and a real description (not the

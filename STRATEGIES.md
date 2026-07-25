@@ -11,14 +11,35 @@ multiple-testing record. Pipeline for every strategy, no exceptions:
 Rather than one candidate at a time by hand, `factory.TEMPLATES` is a pre-registered
 library of parametrized signal generators — new lookback/window variants of families
 already below, plus new family I — each with its own one-line economic rationale (same
-bar as the rest of this roster). `factory_run.py` draws a bounded, family-diverse sample
-per cycle, runs every candidate through the identical doctrine gate (DOCTRINE v1.4,
-no lighter bar for being machine-generated), and — since blind full enumeration would
-inflate `n_tested` for no reason — picks the single least-correlated pair among that
-cycle's candidates for one piggyback-style construction, rather than testing every
+bar as the rest of this roster). `factory_run.py` draws a bounded batch per cycle
+(20/day as of #28b), runs every candidate through the identical doctrine gate (DOCTRINE
+v1.4, no lighter bar for being machine-generated), and — since blind full enumeration
+would inflate `n_tested` for no reason — picks the single least-correlated pair among
+that cycle's candidates for one piggyback-style construction, rather than testing every
 subset. The rows below ARE the pre-registration: the template's parameters are frozen in
 `factory.py` before any candidate drawn from it is evaluated, exactly like a hand-picked
 strategy's spec is frozen here before its verdict.
+
+**Live generation (#28b, once `TEMPLATES` runs dry — which it does immediately at 20/day).**
+Rather than cap the factory at a fixed list, `factory.GENERATION_RANGES` pre-registers a
+*parameter range* per family (fixed here, reviewed once — e.g. family A: any trend
+lookback from 10 to 504 days), and the SPECIFIC value is drawn fresh each cycle. This is
+the compromise for "don't limit the search to 15 templates" that doesn't reopen the
+meta-level p-hacking DOCTRINE.md's own opening section warns against: every draw is
+logged to `generated_templates.csv` (git-tracked, append-only) **at generation time,
+before its verdict is known** — the same "the count IS the record" principle
+`graveyard.csv` already embodies, extended to the generation process itself. A generated
+candidate that wins a cycle (see Promotion below) is named `<family>_gen_<params>` in
+`graveyard.csv`/the dashboard, e.g. `tsmom_gen_147d`.
+
+**Promotion (#28b, supersedes an earlier #29 rule).** The single best-DSR candidate each
+cycle is promoted to a live paper book **regardless of verdict** — Dave's explicit call:
+more live paper-tracked data is worth having even when the backtest says DEAD, as long
+as it's honestly labeled. A promoted DEAD candidate is monitor-only, same status
+DOCTRINE v1.2 already gives backtest-DEAD hand-picked books kept live for research
+value. This accumulates one new book per cycle (Dave's explicit choice over a single
+rotating "champion" slot) — expect the live roster to grow steadily, not just on the
+rare cycle that finds a real winner.
 
 ## Families — deliberately different edge sources
 

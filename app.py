@@ -157,6 +157,21 @@ def load_piggyback_backtest():
 
 
 @st.cache_data
+def load_factory_backtest():
+    """Backtest OOS returns for PROMOTED strategy-factory candidates (#28b) --
+    research/factory_run.py persists one column here only for whichever candidate wins a
+    cycle (not all 20/day tested -- a DEAD, never-promoted candidate doesn't need a
+    curve on disk; #31's DEAD-strategy detail view already falls back to summary-stats-
+    only for those). A live book with no entry in full_returns.csv OR piggyback_returns.csv
+    needs this to have a backtest curve at all -- see book_panel_data(). None if no
+    factory candidate has ever been promoted yet."""
+    path = os.path.join(ART, "factory_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+@st.cache_data
 def load_carry_backtest():
     """The carry book's backtest lives outside harness.py's artifacts (separate study,
     research/carry_hl.py) — different universe, different date range (since 2023-05, not
@@ -265,12 +280,14 @@ def themed_layout(**overrides):
 
 
 # ==================================================================== per-book normalization
-def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, piggy=None):
+def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, piggy=None, factory_bt=None):
     """Normalize a live paper book into one shape the panel can render, regardless of
     whether it's an equity-signal book (backtest in full_returns.csv, real ticker
     positions), a piggyback construction (backtest in piggyback_returns.csv, same
-    positions shape as an equity book), or the carry book (backtest in a separate study,
-    funding-accrual, no ticker positions)."""
+    positions shape as an equity book), a promoted strategy-factory candidate (backtest
+    in factory_returns.csv, #28b -- only promoted candidates get a persisted curve, not
+    all 20/day tested), or the carry book (backtest in a separate study, funding-accrual,
+    no ticker positions)."""
     live_hist = (phist[phist["book"] == name]
                  .drop_duplicates("date", keep="last")
                  .set_index("date")["equity"].sort_index())
@@ -279,7 +296,12 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
 
     if kind == "equity":
         oos_start = pd.Timestamp(meta["oos_start"])
-        bt_returns = piggy[name] if piggy is not None and name in piggy.columns else full[name]
+        if piggy is not None and name in piggy.columns:
+            bt_returns = piggy[name]
+        elif factory_bt is not None and name in factory_bt.columns:
+            bt_returns = factory_bt[name]
+        else:
+            bt_returns = full[name]
         bt_curve = (1 + bt_returns.fillna(0)).cumprod()
         bt_curve = bt_curve[bt_curve.index >= oos_start]
         stats = ann_stats(bt_returns[bt_returns.index >= oos_start])
@@ -490,16 +512,37 @@ BOOK_FAMILY = {
 }
 
 
+@st.cache_data
+def _load_generated_ledger():
+    """Cached lookup of every LIVE-GENERATED candidate ever tested (#28b) -- name ->
+    {"family", "rationale"} -- so book_family()/strategy_description() can resolve a
+    generated candidate's name (e.g. "tsmom_gen_147d") without a static per-name dict
+    entry, which is impossible here: the parameter is drawn fresh each cycle, not fixed
+    at review time like TEMPLATES. generated_templates.csv is factory.py's own
+    git-tracked audit ledger (every draw logged at generation time, before its verdict
+    is known), so this is reading the SAME record the doctrine itself relies on."""
+    path = os.path.join(BASE, "generated_templates.csv")
+    if not os.path.exists(path):
+        return {}
+    df = pd.read_csv(path)
+    return {row["name"]: {"family": row["family"], "rationale": row["rationale"]}
+            for _, row in df.iterrows()}
+
+
 def book_family(name):
-    """BOOK_FAMILY lookup with one pattern-based fallback: factory_run.py names every
+    """BOOK_FAMILY lookup with two pattern-based fallbacks: factory_run.py names every
     combo it builds `factory_combo_<leg_a>_<leg_b>` (the legs vary run to run, since
-    complementary_pairs() picks whichever pair is least-correlated THIS cycle), so a
-    static per-name dict entry can never cover future combos. Anything else unmapped
+    complementary_pairs() picks whichever pair is least-correlated THIS cycle) and every
+    live-generated candidate `<family-prefix>_gen_<params>` (the params are drawn fresh
+    each cycle) -- neither can have a static per-name dict entry. Anything else unmapped
     falls back to "?" (rendered as "Other")."""
     if name in BOOK_FAMILY:
         return BOOK_FAMILY[name]
     if name.startswith("factory_combo_"):
         return "H"
+    gen = _load_generated_ledger().get(name)
+    if gen:
+        return gen["family"]
     return "?"
 
 # Per-family extra metrics beyond the generic 6-stat row, for strategies whose economics
@@ -608,7 +651,8 @@ def render_paper_books(psum, phist, full, meta, gy_last):
 
     price_now, price_date = load_price_snapshot()
     piggy = load_piggyback_backtest()
-    data = book_panel_data(pick, phist, full, meta, gy_last, price_now, price_date, piggy)
+    factory_bt = load_factory_backtest()
+    data = book_panel_data(pick, phist, full, meta, gy_last, price_now, price_date, piggy, factory_bt)
     render_strategy_panel(pick, data, color_of[pick])
 
 
@@ -675,17 +719,21 @@ STRATEGY_DESCRIPTIONS = {
 
 
 def strategy_description(name):
-    """STRATEGY_DESCRIPTIONS lookup with one pattern-based fallback, mirroring
+    """STRATEGY_DESCRIPTIONS lookup with two pattern-based fallbacks, mirroring
     book_family(): factory_run.py's combo names vary run to run (whichever pair was
     least-correlated that cycle), so a static per-name entry can't cover them, and the
-    leg names can't be unambiguously recovered by splitting the combo name on "_"
-    (leg names themselves contain underscores). A generic description beats a fragile
-    parse."""
+    leg names can't be unambiguously recovered by splitting the combo name on "_" (leg
+    names themselves contain underscores) -- a generic description beats a fragile
+    parse. Live-generated candidates (#28b) get their real per-candidate rationale from
+    generated_templates.csv (logged at generation time), not a generic line."""
     if name in STRATEGY_DESCRIPTIONS:
         return STRATEGY_DESCRIPTIONS[name]
     if name.startswith("factory_combo_"):
         return ("A 30% sleeve on a 70% 60/40 core, built from the least-correlated pair "
                 "of factory-tested candidates that cycle — see graveyard.csv for which two.")
+    gen = _load_generated_ledger().get(name)
+    if gen:
+        return gen["rationale"]
     return "(no description yet — add one to STRATEGY_DESCRIPTIONS in app.py)"
 
 
@@ -834,22 +882,27 @@ def render_carry_risk_panel():
                "the short leg at that leverage, how far could price pump before liquidation.")
 
 
-def _dead_strategy_returns(name, oos, piggy):
+def _dead_strategy_returns(name, oos, piggy, factory_bt=None):
     """Best-effort OOS return series for ANY graveyard entry (ALIVE or DEAD), for the
     strategy detail view below. Bare strategies live in `oos` (full_returns.csv, sliced
     to OOS_START by the caller); piggyback constructions in `piggy`
-    (piggyback_returns.csv, already OOS-only at source -- see piggyback_backtest.py).
-    Returns None if neither has this name (e.g. insider_buying_21d, whose backtest lives
-    in a differently-shaped artifact, artifacts/insider_curves.csv) -- the caller falls
-    back to graveyard.csv's own logged summary stats rather than crashing."""
+    (piggyback_returns.csv, already OOS-only at source -- see piggyback_backtest.py);
+    promoted strategy-factory candidates in `factory_bt` (factory_returns.csv, #28b --
+    only promoted candidates get a curve, not all 20/day tested). Returns None if none
+    of the three has this name (e.g. insider_buying_21d, whose backtest lives in a
+    differently-shaped artifact, artifacts/insider_curves.csv, or a DEAD factory
+    candidate that was never promoted) -- the caller falls back to graveyard.csv's own
+    logged summary stats rather than crashing."""
     if name in oos.columns:
         return oos[name].fillna(0)
     if piggy is not None and name in piggy.columns:
         return piggy[name].dropna()
+    if factory_bt is not None and name in factory_bt.columns:
+        return factory_bt[name].dropna()
     return None
 
 
-def render_strategy_detail(gy_last, oos, piggy):
+def render_strategy_detail(gy_last, oos, piggy, factory_bt=None):
     """Per-strategy detail for ANY graveyard entry, not just the strategies that made it
     to a live paper book -- the "Verdicts" table above is the full ledger, but until this
     every DEAD strategy was just one flat row in it, with no blurb/chart/stat-card
@@ -867,7 +920,7 @@ def render_strategy_detail(gy_last, oos, piggy):
     blurb = strategy_description(pick)
     st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
 
-    r = _dead_strategy_returns(pick, oos, piggy)
+    r = _dead_strategy_returns(pick, oos, piggy, factory_bt)
     if r is not None:
         s = ann_stats(r)
         c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -954,7 +1007,8 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
         width="stretch", hide_index=True)
 
     piggy = load_piggyback_backtest()
-    render_strategy_detail(gy_last, oos, piggy)
+    factory_bt = load_factory_backtest()
+    render_strategy_detail(gy_last, oos, piggy, factory_bt)
 
     st.subheader("The luck floor — is anything distinguishable from random?")
     freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
