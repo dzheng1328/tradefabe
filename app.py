@@ -14,6 +14,7 @@ import os
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.graph_objects as go
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +29,7 @@ GOOD, CRIT  = "#0ca30c", "#d03b3b"
 BENCH_C, SPY_C = "#52514e", "#898781"
 DIV = ["#2a78d6", "#f0efec", "#e34948"]          # diverging blue <-> red, gray midpoint
 
-st.set_page_config(page_title="tradefabe lab", page_icon="📉", layout="wide")
+st.set_page_config(page_title="tradefabe lab", page_icon=":material/monitoring:", layout="wide")
 
 # ---- lab-protocol visual identity (works with Streamlit, not against it) ----
 LAB_CSS = """
@@ -52,8 +53,8 @@ h3{font-size:0.95rem!important;font-weight:600!important;text-transform:uppercas
 .lab-spec{font-family:var(--mono);font-size:.72rem;color:var(--ink2);
    border-bottom:1px solid var(--rule);padding-bottom:.9rem;margin-bottom:.4rem;}
 .lab-spec b{color:var(--ink);font-weight:600;}
-[data-testid="stMetric"]{background:var(--card);border:1px solid var(--rule);border-radius:6px;
-   padding:.7rem .9rem .6rem;}
+[data-testid="stMetric"]{background:var(--card);border:1px solid var(--rule);border-radius:8px;
+   padding:.7rem .9rem .6rem;transition:border-color .12s ease,box-shadow .12s ease;}
 [data-testid="stMetricLabel"] p{font-family:var(--mono)!important;font-size:.66rem!important;
    letter-spacing:.12em;text-transform:uppercase;color:var(--mut)!important;
    white-space:normal!important;overflow-wrap:break-word;line-height:1.3;}
@@ -69,9 +70,68 @@ h3{font-size:0.95rem!important;font-weight:600!important;text-transform:uppercas
 hr{border-color:var(--rule)!important;}
 a{color:var(--accent);}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+/* -- status badges: a ledger-stamp, not a SaaS pill -- squared corners, bordered,
+   uppercase mono, reused everywhere a verdict/state needs to read at a glance -- */
+.tf-badge{display:inline-block;padding:.1rem .45rem;border-radius:3px;
+   font-family:var(--mono);font-size:.68rem;font-weight:600;letter-spacing:.05em;
+   text-transform:uppercase;white-space:nowrap;border:1px solid currentColor;
+   vertical-align:1px;}
+.tf-badge--alive{color:var(--alive);background:rgba(30,125,67,.08);}
+.tf-badge--dead{color:var(--dead);background:rgba(179,64,46,.08);}
+.tf-badge--warn{color:#8a5a00;background:rgba(138,90,0,.08);}
+.tf-badge--muted{color:var(--mut);background:rgba(138,146,156,.10);}
+
+/* -- strategy blurb: one plain-English line, always in the same spot (right under
+   the strategy header, above the stat row) so the eye learns where to find it -- */
+.tf-blurb{font-family:var(--mono);font-size:.82rem;color:var(--ink2);line-height:1.55;
+   border-left:2px solid var(--accent);padding:.1rem 0 .1rem .75rem;margin:.3rem 0 1rem;}
+
+/* -- book status cards: click target is an invisible button absolutely stacked over
+   the real st.metric, so the metric's own type scale (label/value/delta) stays intact
+   and only a border/shadow marks hover + selection -- */
+div[class*="st-key-book_card_"]{position:relative;}
+div[class*="st-key-book_card_"] [data-testid="stMetric"]{cursor:pointer;}
+div[class*="st-key-book_card_idle_"]:hover [data-testid="stMetric"]{
+   border-color:var(--accent);box-shadow:0 1px 6px rgba(20,23,26,.06);}
+div[class*="st-key-book_card_active_"] [data-testid="stMetric"]{
+   border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+div[class*="st-key-book_click_"]{position:absolute;inset:0;z-index:3;}
+div[class*="st-key-book_click_"] [data-testid="stElementContainer"]{
+   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;}
+div[class*="st-key-book_click_"] button{
+   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+   min-height:0!important;min-width:0!important;
+   margin:0!important;padding:0!important;border:none!important;opacity:0!important;cursor:pointer;}
 </style>
 """
 st.markdown(LAB_CSS, unsafe_allow_html=True)
+
+
+def _bind_refresh_shortcut():
+    """Cmd+R (Mac) / Ctrl+R triggers the same cache-clear + rerun as the sidebar Refresh
+    button, without the browser/desktop-window doing its own native reload -- components.v1
+    runs in an iframe, so the listener is attached to window.parent.document to see
+    keystrokes on the actual app, and a flag on that document guards against re-binding
+    on every rerun."""
+    components.html("""
+        <script>
+        (function() {
+            const doc = window.parent.document;
+            if (doc.__tfRefreshBound) return;
+            doc.__tfRefreshBound = true;
+            doc.addEventListener('keydown', function(e) {
+                const mod = e.metaKey || e.ctrlKey;
+                if (mod && e.key.toLowerCase() === 'r') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const btn = doc.querySelector('.st-key-refresh_data_btn button');
+                    if (btn) btn.click();
+                }
+            }, true);
+        })();
+        </script>
+    """, height=0, width=0)
 
 
 # ==================================================================== data loading
@@ -116,7 +176,11 @@ def load_paper_state():
     if not (os.path.exists(summ) and os.path.exists(hist)):
         return None, None
     psum = pd.read_csv(summ)
-    phist = pd.read_csv(hist, parse_dates=["date"])
+    phist = pd.read_csv(hist)
+    # history.csv mixes bare-date rows (tradefabe run) with full-timestamp rows
+    # (tradefabe mark, every 30min) -- read_csv's own parse_dates can't infer a single
+    # format across that mix, so parse explicitly with format="mixed" instead.
+    phist["date"] = pd.to_datetime(phist["date"], format="mixed")
     return psum, phist
 
 
@@ -170,6 +234,12 @@ def fmt(v, kind="ratio"):
     if v is None or (isinstance(v, float) and not np.isfinite(v)):
         return "—"
     return f"{v:.2f}" if kind == "ratio" else f"{v:.1%}"
+
+
+def badge(text, kind="muted"):
+    """Ledger-stamp status tag (see .tf-badge in LAB_CSS) -- render with
+    unsafe_allow_html=True, inline inside an st.markdown/st.caption string."""
+    return f'<span class="tf-badge tf-badge--{kind}">{text}</span>'
 
 
 # ==================================================================== plotly theming
@@ -257,7 +327,14 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
 
 
 # ==================================================================== chart builders
-RANGE_WINDOWS = {"1D": 1, "1W": 7, "1M": 30, "3M": 90, "1Y": 365}
+RANGE_WINDOWS = {
+    "5H": pd.Timedelta(hours=5),
+    "1D": pd.Timedelta(days=1),
+    "1W": pd.Timedelta(days=7),
+    "1M": pd.Timedelta(days=30),
+    "3M": pd.Timedelta(days=90),
+    "1Y": pd.Timedelta(days=365),
+}
 
 
 def live_equity_chart(live_hist, color, window_label):
@@ -265,7 +342,7 @@ def live_equity_chart(live_hist, color, window_label):
     axis, filtered to the selected range — decoupled from the backtest curve entirely so
     ~2 days of live history is no longer an invisible sliver next to years of backtest."""
     if window_label != "ALL" and window_label in RANGE_WINDOWS:
-        cutoff = live_hist.index[-1] - pd.Timedelta(days=RANGE_WINDOWS[window_label])
+        cutoff = live_hist.index[-1] - RANGE_WINDOWS[window_label]
         live_hist = live_hist[live_hist.index >= cutoff]
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=live_hist.index, y=live_hist.values, name="Live paper equity",
@@ -370,25 +447,41 @@ def growth_chart(show, colors):
     return fig
 
 
-def fmt_compact_dollars(v):
-    """Abbreviated $ for tight metric cards (e.g. $99,664 -> $99.7K) -- full precision
-    stays in the positions table / deployed-capital metrics, this is display-only."""
+def fmt_full_dollars(v):
+    """Full dollar-and-cent precision (e.g. $99,663.87) -- book status used to abbreviate
+    to $99.7K, but at 8 live books the exact figure is worth the extra width."""
     sign = "-" if v < 0 else ""
-    v = abs(v)
-    return f"{sign}${v/1000:,.1f}K" if v >= 1000 else f"{sign}${v:,.0f}"
+    return f"{sign}${abs(v):,.2f}"
+
+
+def _select_book(name):
+    st.session_state.selected_book = name
 
 
 def render_book_status(psum):
-    """Book-status metric row, wrapped at 4 per row so cards stay wide enough to not
-    truncate -- with 8+ live books, a single st.columns(len(psum)) row makes each card so
-    narrow that Streamlit ellipsis-truncates BOTH the book name and the dollar figure."""
+    """Book-status row: each card is a real st.metric (same type scale as everywhere
+    else in the app) with an invisible full-card button stacked on top, so clicking
+    anywhere on a card selects that book -- replaces the separate 'Strategy' dropdown
+    that used to sit below this row. Wrapped at 4 per row so cards stay wide enough for
+    full $ precision without truncating or overlapping (fix for the 8-book truncation bug)."""
     st.subheader("Book status")
+    names = psum["book"].tolist()
+    if st.session_state.get("selected_book") not in names:
+        st.session_state.selected_book = names[0]
+
     rows = list(psum.iterrows())
     PER_ROW = 4
     for i in range(0, len(rows), PER_ROW):
         cols = st.columns(PER_ROW)
         for col, (_, r) in zip(cols, rows[i:i + PER_ROW]):
-            col.metric(r["book"], fmt_compact_dollars(r["equity"]), f"{r['return']:+.2%}")
+            name = r["book"]
+            selected = st.session_state.selected_book == name
+            with col:
+                with st.container(key=f"book_card_{'active' if selected else 'idle'}_{name}"):
+                    with st.container(key=f"book_click_{name}"):
+                        st.button(name, key=f"book_btn_{name}", on_click=_select_book, args=(name,))
+                    label_name = name.replace("_", "\\_")
+                    st.metric(label_name, fmt_full_dollars(r["equity"]), f"{r['return']:+.2%}")
 
 
 # ==================================================================== Paper Books view
@@ -398,7 +491,8 @@ def render_paper_books(psum, phist, full, meta, gy_last):
         unsafe_allow_html=True)
 
     if psum is None or psum.empty:
-        st.info("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.")
+        st.info("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.",
+                icon=":material/info:")
         return
 
     render_book_status(psum)
@@ -408,7 +502,7 @@ def render_paper_books(psum, phist, full, meta, gy_last):
     st.divider()
     names = psum["book"].tolist()
     color_of = {n: SLOTS[i % len(SLOTS)] for i, n in enumerate(names)}
-    pick = st.selectbox("Strategy", names)
+    pick = st.session_state.selected_book
 
     price_now, price_date = load_price_snapshot()
     piggy = load_piggyback_backtest()
@@ -416,8 +510,34 @@ def render_paper_books(psum, phist, full, meta, gy_last):
     render_strategy_panel(pick, data, color_of[pick])
 
 
+# Plain-English, one-line description of what each book actually does -- shown between
+# the strategy header and the Sharpe/Sortino/Calmar row. Add a new line here whenever a
+# book is added; STRATEGIES.md has the full spec if the wording needs to be checked.
+STRATEGY_DESCRIPTIONS = {
+    "tsmom_12m": "Goes long or short on the sign of the trailing 12-month return — "
+                 "a trend-follower betting that news gets underreacted to, not overreacted to.",
+    "tsmom_ensemble": "Blends 3-, 6-, and 12-month trend signals into one vote, so no single "
+                       "lookback window can whipsaw the book on its own.",
+    "green_line_200d": "Long above its 200-day moving average, short below it — "
+                        "the oldest trend rule there is, applied literally.",
+    "turn_of_month": "Long the whole universe only around month-end (last 4 + first 3 "
+                      "trading days) — a calendar flow, not a price prediction.",
+    "piggyback_2a": "A 30% sleeve of tsmom_12m + low_vol_xsec on top of a 70% 60/40 core — "
+                     "testing whether two standalone-dead bets earn their keep as diversifiers.",
+    "piggyback_3": "A 30% sleeve of tsmom_12m + green_line_200d + low_vol_xsec on a 70% 60/40 "
+                    "core — three standalone-dead legs, tested together as a diversifying sleeve.",
+    "piggyback_4": "A 30% sleeve of tsmom_12m + xsec_momentum + green_line_200d + low_vol_xsec "
+                    "on a 70% 60/40 core — the widest of the four piggyback blends.",
+    "carry_btc_eth": "Delta-neutral: long spot, short perp on BTC and ETH, collecting the funding "
+                      "rate with price risk hedged out by construction.",
+}
+
+
 def render_strategy_panel(name, data, color):
     st.markdown(f"### {name}")
+    blurb = STRATEGY_DESCRIPTIONS.get(name, "(no description yet — add one to "
+                                             "STRATEGY_DESCRIPTIONS in app.py)")
+    st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
     s = data["stats"]
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Sharpe", fmt(s["Sharpe"]))
@@ -430,14 +550,15 @@ def render_strategy_panel(name, data, color):
                "too young (< 30 days) for its own Sharpe/Sortino/etc. to mean anything yet.")
 
     if data["kind"] == "equity":
-        verdict = "✅ ALIVE" if data["verdict"] == "ALIVE" else "💀 DEAD"
-        st.caption(f"Backtest verdict: **{verdict}** · corr to 60/40: **{data['corr_bench']:.2f}** · "
+        verdict_badge = badge(data["verdict"], "alive" if data["verdict"] == "ALIVE" else "dead")
+        st.caption(f"Backtest verdict: {verdict_badge} · corr to 60/40: **{data['corr_bench']:.2f}** · "
                    f"noise floor bar: **{data['null_p95']:.2f}** (Bonferroni-adjusted, DOCTRINE v1.3) · "
-                   f"rebalance **{data['freq']}**")
+                   f"rebalance **{data['freq']}**", unsafe_allow_html=True)
     else:
         cm = data["carry_meta"]
-        st.caption("Delta-neutral funding carry (BTC + ETH perps, Hyperliquid) — price risk hedged "
-                   "out by construction; the book earns funding minus a 1.5%/yr fee drag.")
+        st.caption(f"Backtest verdict: {badge('ALIVE', 'alive')} — the only strategy that has "
+                   "cleared doctrine for real-capital consideration (still paper here) · "
+                   "funding shown net of a 1.5%/yr fee drag", unsafe_allow_html=True)
         m1, m2, m3 = st.columns(3)
         m1.metric("Net yield (since 2023-05)", f"{cm['net_yield']:.1%}")
         m2.metric("% days positive", f"{cm['pct_days_positive']:.0%}")
@@ -447,9 +568,9 @@ def render_strategy_panel(name, data, color):
     st.divider()
     st.markdown("**Live paper equity**")
     live_hist = data["live_hist"]
-    span_days = (live_hist.index[-1] - live_hist.index[0]).days
-    options = [w for w in ("1D", "1W", "1M", "3M", "1Y", "ALL")
-               if w == "ALL" or span_days >= RANGE_WINDOWS[w]]
+    span = live_hist.index[-1] - live_hist.index[0]
+    options = [w for w in ("5H", "1D", "1W", "1M", "3M", "1Y", "ALL")
+               if w == "ALL" or span >= RANGE_WINDOWS[w]]
     choice = st.segmented_control("Range", options, default="ALL", required=True,
                                   key=f"range_{name}", label_visibility="collapsed")
     st.plotly_chart(live_equity_chart(live_hist, color, choice), width="stretch")
@@ -460,8 +581,13 @@ def render_strategy_panel(name, data, color):
     with st.expander("Backtest history (2018 → present) & live tracking check"):
         st.plotly_chart(backtest_chart(data["bt_curve"], INK2), width="stretch")
         state, detail = divergence_status(data)
-        icon = {"insufficient": "⏳", "ok": "✅", "diverging": "⚠️"}[state]
-        (st.warning if state == "diverging" else st.caption)(f"{icon} {detail}")
+        state_badge = badge({"insufficient": "pending", "ok": "tracking",
+                             "diverging": "diverging"}[state],
+                            {"insufficient": "muted", "ok": "alive", "diverging": "warn"}[state])
+        if state == "diverging":
+            st.warning(detail, icon=":material/warning:")
+        else:
+            st.caption(f"{state_badge} {detail}", unsafe_allow_html=True)
 
     st.divider()
     if data["kind"] == "equity":
@@ -516,11 +642,14 @@ def render_carry_risk_panel():
         c = risk["coins"][coin]
         f7 = c["funding_7d"]
         flip = c["funding_flip_alert"]
-        val = f"{'⚠️ ' if flip else ''}{f7:+.2%}" if f7 is not None else "—"
+        val = f"{f7:+.2%}" if f7 is not None else "—"
         col.metric(f"{coin} 7d funding", val)
+        if flip:
+            col.markdown(badge("funding flip", "warn"), unsafe_allow_html=True)
     if risk["blended_funding_flip_alert"]:
         st.warning("Blended 7d funding has turned negative — bear-regime bleed. The book "
-                   "loses money net of the fee drag until this flips back.")
+                   "loses money net of the fee drag until this flips back.",
+                   icon=":material/warning:")
 
     rows = []
     for coin in ("BTC", "ETH"):
@@ -539,7 +668,8 @@ def render_carry_risk_panel():
         if flagged:
             st.error(f"High risk: at {hl:.0%} of Hyperliquid's live max leverage, "
                      f"**{', '.join(flagged)}** liquidation distance is under the "
-                     f"{risk['liq_distance_warn']:.0%} pump-cushion threshold.")
+                     f"{risk['liq_distance_warn']:.0%} pump-cushion threshold.",
+                     icon=":material/error:")
     else:
         st.caption("Leverage tiers unavailable this run (Hyperliquid unreachable) — funding "
                    "alert above still reflects the last successful fetch.")
@@ -593,7 +723,6 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
     st.subheader("Verdicts — the graveyard ledger")
     tbl = gy_last.reset_index()[["strategy", "freq", "oos_sharpe", "oos_sortino", "oos_calmar",
                                  "oos_maxdd", "corr_bench", "null_p95", "verdict"]].copy()
-    tbl["verdict"] = tbl["verdict"].map(lambda v: ("✅ " if v == "ALIVE" else "💀 ") + v)
     st.dataframe(
         tbl.style.map(lambda v: f"color: {GOOD}; font-weight: 600" if "ALIVE" in str(v)
                       else (f"color: {CRIT}; font-weight: 600" if "DEAD" in str(v) else ""),
@@ -668,6 +797,15 @@ with st.sidebar:
                 '<h1 style="font-size:1.3rem;margin:0 0 .4rem">evaluation lab</h1>',
                 unsafe_allow_html=True)
     st.caption("An honest lab for killing bad trading strategies. **Paper/backtest only.**")
+    with st.container(key="refresh_control"):
+        if st.button("Refresh data", key="refresh_data_btn", use_container_width=True,
+                    icon=":material/refresh:",
+                    help="Reloads the latest paper-book state and re-reads backtest artifacts "
+                         "(harness.py output) without restarting the app. Cmd+R (Mac) / "
+                         "Ctrl+R does the same."):
+            st.cache_data.clear()
+            st.rerun()
+    _bind_refresh_shortcut()
     view = st.radio("View", ["Paper Books", "Research Lab"], label_visibility="collapsed")
     st.divider()
     if view == "Paper Books":
@@ -695,17 +833,19 @@ with st.sidebar:
 if view == "Paper Books":
     if not backtest_ok:
         st.warning("Backtest artifacts not found — per-strategy stats need `.venv/bin/python harness.py` "
-                   "run at least once. Book status still shows below.")
+                   "run at least once. Book status still shows below.", icon=":material/warning:")
         psum2, phist2 = psum, phist
         if psum2 is not None:
             render_book_status(psum2)
         else:
-            st.info("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.")
+            st.info("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.",
+                icon=":material/info:")
     else:
         render_paper_books(psum, phist, full, meta, gy_last)
 else:
     if not backtest_ok:
-        st.error("No artifacts found — run `.venv/bin/python harness.py` first.")
+        st.error("No artifacts found — run `.venv/bin/python harness.py` first.",
+                 icon=":material/error:")
         st.stop()
     render_research_lab(full, meta, nulls, gy)
 
