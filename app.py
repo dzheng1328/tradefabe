@@ -473,11 +473,21 @@ BOOK_FAMILIES = {
     "H": "Piggyback / combined",
 }
 BOOK_FAMILY = {
-    "tsmom_12m": "A", "tsmom_ensemble": "A", "green_line_200d": "A",
+    "tsmom_12m": "A", "tsmom_ensemble": "A", "green_line_200d": "A", "xsec_momentum": "A",
+    "str_reversal_5d": "B",
     "turn_of_month": "C",
+    "low_vol_xsec": "D",
     "carry_btc_eth": "E",
-    "piggyback_2a": "H", "piggyback_3": "H", "piggyback_4": "H",
+    "insider_buying_21d": "G",
+    "piggyback_2a": "H", "piggyback_2b": "H", "piggyback_3": "H", "piggyback_4": "H",
 }
+
+# Per-family extra metrics beyond the generic 6-stat row, for strategies whose economics
+# the generic row doesn't fully cover (e.g. carry's yield-based economics -- see
+# render_strategy_panel's carry branch). Empty for families with no DEAD strategy needing
+# it yet -- add an entry here only once a specific family's generic-6 stats turn out to
+# miss something, not preemptively (#31).
+FAMILY_EXTRA_METRICS = {}
 
 
 def _is_monitor_only(name, gy_last):
@@ -602,6 +612,17 @@ STRATEGY_DESCRIPTIONS = {
                     "on a 70% 60/40 core — the widest of the four piggyback blends.",
     "carry_btc_eth": "Delta-neutral: long spot, short perp on BTC and ETH, collecting the funding "
                       "rate with price risk hedged out by construction.",
+    "xsec_momentum": "Ranks the universe by trailing 12-month return each month, long the top "
+                      "half and short the bottom half — the cross-sectional cousin of trend.",
+    "str_reversal_5d": "Fades the trailing 5-day move, rebalanced weekly — the opposite bet to "
+                        "momentum: short-horizon overreaction instead of underreaction.",
+    "low_vol_xsec": "Long the calmer half of the universe, short the wilder half (BAB-style: "
+                     "leverage-constrained investors overpay for volatile assets).",
+    "piggyback_2b": "A 30% sleeve of low_vol_xsec + turn_of_month on a 70% 60/40 core — the one "
+                     "piggyback blend never wired live (DEAD before and after the v1.3 correction).",
+    "insider_buying_21d": "Buys on Form-4 open-market insider purchases of $100k+, holding 21 "
+                           "trading days — tests whether copying legally-disclosed insider trades "
+                           "beats picking randomly.",
 }
 
 
@@ -751,6 +772,76 @@ def render_carry_risk_panel():
                "the short leg at that leverage, how far could price pump before liquidation.")
 
 
+def _dead_strategy_returns(name, oos, piggy):
+    """Best-effort OOS return series for ANY graveyard entry (ALIVE or DEAD), for the
+    strategy detail view below. Bare strategies live in `oos` (full_returns.csv, sliced
+    to OOS_START by the caller); piggyback constructions in `piggy`
+    (piggyback_returns.csv, already OOS-only at source -- see piggyback_backtest.py).
+    Returns None if neither has this name (e.g. insider_buying_21d, whose backtest lives
+    in a differently-shaped artifact, artifacts/insider_curves.csv) -- the caller falls
+    back to graveyard.csv's own logged summary stats rather than crashing."""
+    if name in oos.columns:
+        return oos[name].fillna(0)
+    if piggy is not None and name in piggy.columns:
+        return piggy[name].dropna()
+    return None
+
+
+def render_strategy_detail(gy_last, oos, piggy):
+    """Per-strategy detail for ANY graveyard entry, not just the strategies that made it
+    to a live paper book -- the "Verdicts" table above is the full ledger, but until this
+    every DEAD strategy was just one flat row in it, with no blurb/chart/stat-card
+    treatment at all (#31). Same visual language as render_strategy_panel's live-book
+    view (blurb, verdict badge, 6-stat row, backtest chart) minus anything that only
+    makes sense for a LIVE book (live-equity chart, positions, capital deployed)."""
+    st.subheader("Strategy detail — every tested candidate, alive or dead")
+    st.caption("The Verdicts table above is the full ledger; pick one strategy at a time "
+               "for the same depth of detail a live paper book gets.")
+    names = list(gy_last.index)
+    pick = st.selectbox("Strategy", names, key="dead_detail_pick", label_visibility="collapsed")
+    row = gy_last.loc[pick]
+
+    st.markdown(f"### {pick}")
+    blurb = STRATEGY_DESCRIPTIONS.get(pick, "(no description yet — add one to "
+                                             "STRATEGY_DESCRIPTIONS in app.py)")
+    st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
+
+    r = _dead_strategy_returns(pick, oos, piggy)
+    if r is not None:
+        s = ann_stats(r)
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        c1.metric("Sharpe", fmt(s["Sharpe"]))
+        c2.metric("Sortino", fmt(s["Sortino"]))
+        c3.metric("Calmar", fmt(s["Calmar"]))
+        c4.metric("Max Drawdown", fmt(s["MaxDD"], "pct"))
+        c5.metric("CAGR", fmt(s["CAGR"], "pct"))
+        c6.metric("Vol (ann.)", fmt(s["Vol"], "pct"))
+    else:
+        st.caption("Backtest return series isn't stored in the standard format for this "
+                   "strategy (see `research/insider_backtest.py`'s own artifact) — showing "
+                   "the summary stats logged at evaluation time instead.")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Sharpe", fmt(float(row["oos_sharpe"])))
+        c2.metric("Sortino", fmt(float(row["oos_sortino"])))
+        c3.metric("Calmar", fmt(float(row["oos_calmar"])))
+        c4.metric("Max Drawdown", fmt(float(row["oos_maxdd"]), "pct"))
+
+    verdict_badge = badge(row["verdict"], "alive" if row["verdict"] == "ALIVE" else "dead")
+    st.caption(f"Backtest verdict: {verdict_badge} · corr to 60/40: **{fmt(float(row['corr_bench']))}** · "
+               f"noise floor bar: **{fmt(float(row['null_p95']))}** · rebalance **{row['freq']}**",
+               unsafe_allow_html=True)
+
+    extra = FAMILY_EXTRA_METRICS.get(BOOK_FAMILY.get(pick))
+    if extra is not None:
+        extra(row)
+
+    if r is not None:
+        eq = (1 + r).cumprod()
+        st.plotly_chart(backtest_chart(eq, INK2), width="stretch")
+    else:
+        st.caption("See `artifacts/insider_curves.csv` for this strategy's own backtest study output.")
+
+
 # ==================================================================== Research Lab view
 def render_research_lab(full, meta, nulls, gy):
     OOS = pd.Timestamp(meta["oos_start"])
@@ -800,6 +891,9 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
                       else (f"color: {CRIT}; font-weight: 600" if "DEAD" in str(v) else ""),
                       subset=["verdict"]),
         width="stretch", hide_index=True)
+
+    piggy = load_piggyback_backtest()
+    render_strategy_detail(gy_last, oos, piggy)
 
     st.subheader("The luck floor — is anything distinguishable from random?")
     freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
