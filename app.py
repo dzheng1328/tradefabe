@@ -471,6 +471,7 @@ BOOK_FAMILIES = {
     "F": "Volatility risk premium",
     "G": "Information / signal-following",
     "H": "Piggyback / combined",
+    "I": "Breakout / channel",
 }
 BOOK_FAMILY = {
     "tsmom_12m": "A", "tsmom_ensemble": "A", "green_line_200d": "A", "xsec_momentum": "A",
@@ -480,7 +481,26 @@ BOOK_FAMILY = {
     "carry_btc_eth": "E",
     "insider_buying_21d": "G",
     "piggyback_2a": "H", "piggyback_2b": "H", "piggyback_3": "H", "piggyback_4": "H",
+    # strategy factory (#28) template variants -- STRATEGIES.md has the pre-registered specs
+    "tsmom_3m": "A", "tsmom_6m": "A", "tsmom_9m": "A", "tsmom_18m": "A", "tsmom_24m": "A",
+    "str_reversal_3d": "B", "str_reversal_10d": "B", "str_reversal_15d": "B", "str_reversal_20d": "B",
+    "turn_of_month_narrow": "C", "turn_of_month_wide": "C",
+    "low_vol_xsec_30d": "D", "low_vol_xsec_120d": "D",
+    "donchian_20d": "I", "donchian_55d": "I",
 }
+
+
+def book_family(name):
+    """BOOK_FAMILY lookup with one pattern-based fallback: factory_run.py names every
+    combo it builds `factory_combo_<leg_a>_<leg_b>` (the legs vary run to run, since
+    complementary_pairs() picks whichever pair is least-correlated THIS cycle), so a
+    static per-name dict entry can never cover future combos. Anything else unmapped
+    falls back to "?" (rendered as "Other")."""
+    if name in BOOK_FAMILY:
+        return BOOK_FAMILY[name]
+    if name.startswith("factory_combo_"):
+        return "H"
+    return "?"
 
 # Per-family extra metrics beyond the generic 6-stat row, for strategies whose economics
 # the generic row doesn't fully cover (e.g. carry's yield-based economics -- see
@@ -511,7 +531,7 @@ def group_books_by_family(psum, gy_last=None, show_monitor_only=True):
     for _, r in psum.iterrows():
         if not show_monitor_only and monitor_only[r["book"]]:
             continue
-        by_family.setdefault(BOOK_FAMILY.get(r["book"], "?"), []).append(r)
+        by_family.setdefault(book_family(r["book"]), []).append(r)
     out = []
     for family in list(BOOK_FAMILIES) + ["?"]:
         rows = by_family.get(family)
@@ -623,13 +643,55 @@ STRATEGY_DESCRIPTIONS = {
     "insider_buying_21d": "Buys on Form-4 open-market insider purchases of $100k+, holding 21 "
                            "trading days — tests whether copying legally-disclosed insider trades "
                            "beats picking randomly.",
+    # strategy factory (#28) template variants -- src/tradefabe/factory.py has each
+    # template's full rationale; these mirror it in one line.
+    "tsmom_3m": "Trend: sign of the trailing 3-month return — a faster lookback than "
+                "tsmom_12m, testing whether the underreaction edge shows up sooner.",
+    "tsmom_6m": "Trend: sign of the trailing 6-month return, between tsmom_3m and "
+                "tsmom_12m's lookbacks.",
+    "tsmom_9m": "Trend: sign of the trailing 9-month return.",
+    "tsmom_18m": "Trend: sign of the trailing 18-month return — slower than tsmom_12m, "
+                 "testing whether it filters more noise than signal.",
+    "tsmom_24m": "Trend: sign of the trailing 24-month return, the slowest trend variant tested.",
+    "str_reversal_3d": "Mean reversion: fade the trailing 3-day move — faster than the "
+                        "already-tested 5-day fade.",
+    "str_reversal_10d": "Mean reversion: fade the trailing 10-day move.",
+    "str_reversal_15d": "Mean reversion: fade the trailing 15-day move.",
+    "str_reversal_20d": "Mean reversion: fade the trailing 20-day move — slower than the "
+                         "already-tested 5-day fade, closer to a monthly reversal.",
+    "turn_of_month_narrow": "Calendar: narrower turn-of-month window (first 2 + last 2 "
+                             "trading days) than the already-tested 3+4.",
+    "turn_of_month_wide": "Calendar: wider turn-of-month window (first 5 + last 5 trading "
+                           "days) than the already-tested 3+4.",
+    "low_vol_xsec_30d": "Defensive anomaly: BAB-lite split using a faster 30-day vol window "
+                         "than the already-tested 60-day one.",
+    "low_vol_xsec_120d": "Defensive anomaly: BAB-lite split using a slower 120-day vol window "
+                          "than the already-tested 60-day one.",
+    "donchian_20d": "Breakout: long a new 20-day high, short a new 20-day low — reacts to a "
+                    "price EXTREME rather than an average; the faster classic Turtle Trader length.",
+    "donchian_55d": "Breakout: long a new 55-day high, short a new 55-day low — the slower "
+                     "classic Turtle Trader channel length.",
 }
+
+
+def strategy_description(name):
+    """STRATEGY_DESCRIPTIONS lookup with one pattern-based fallback, mirroring
+    book_family(): factory_run.py's combo names vary run to run (whichever pair was
+    least-correlated that cycle), so a static per-name entry can't cover them, and the
+    leg names can't be unambiguously recovered by splitting the combo name on "_"
+    (leg names themselves contain underscores). A generic description beats a fragile
+    parse."""
+    if name in STRATEGY_DESCRIPTIONS:
+        return STRATEGY_DESCRIPTIONS[name]
+    if name.startswith("factory_combo_"):
+        return ("A 30% sleeve on a 70% 60/40 core, built from the least-correlated pair "
+                "of factory-tested candidates that cycle — see graveyard.csv for which two.")
+    return "(no description yet — add one to STRATEGY_DESCRIPTIONS in app.py)"
 
 
 def render_strategy_panel(name, data, color):
     st.markdown(f"### {name}")
-    blurb = STRATEGY_DESCRIPTIONS.get(name, "(no description yet — add one to "
-                                             "STRATEGY_DESCRIPTIONS in app.py)")
+    blurb = strategy_description(name)
     st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
     s = data["stats"]
     c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -802,8 +864,7 @@ def render_strategy_detail(gy_last, oos, piggy):
     row = gy_last.loc[pick]
 
     st.markdown(f"### {pick}")
-    blurb = STRATEGY_DESCRIPTIONS.get(pick, "(no description yet — add one to "
-                                             "STRATEGY_DESCRIPTIONS in app.py)")
+    blurb = strategy_description(pick)
     st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
 
     r = _dead_strategy_returns(pick, oos, piggy)
@@ -831,7 +892,7 @@ def render_strategy_detail(gy_last, oos, piggy):
                f"noise floor bar: **{fmt(float(row['null_p95']))}** · rebalance **{row['freq']}**",
                unsafe_allow_html=True)
 
-    extra = FAMILY_EXTRA_METRICS.get(BOOK_FAMILY.get(pick))
+    extra = FAMILY_EXTRA_METRICS.get(book_family(pick))
     if extra is not None:
         extra(row)
 

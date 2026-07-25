@@ -24,6 +24,22 @@ def _gy_last(verdicts):
     return pd.DataFrame({"verdict": list(verdicts.values())}, index=list(verdicts.keys()))
 
 
+def test_book_family_resolves_known_names_from_the_static_dict():
+    assert app.book_family("tsmom_12m") == "A"
+    assert app.book_family("carry_btc_eth") == "E"
+
+
+def test_book_family_resolves_any_factory_combo_name_via_pattern_fallback():
+    # combo names vary run to run (whichever pair factory_run.py picked that cycle) --
+    # a static dict entry can never cover them all, so this must be pattern-based.
+    assert app.book_family("factory_combo_tsmom_3m_donchian_55d") == "H"
+    assert app.book_family("factory_combo_anything_at_all") == "H"
+
+
+def test_book_family_falls_back_to_unmapped_marker_for_anything_else():
+    assert app.book_family("some_totally_new_strategy") == "?"
+
+
 def test_is_monitor_only_true_for_a_dead_verdict():
     gy = _gy_last({"tsmom_12m": "DEAD"})
     assert app._is_monitor_only("tsmom_12m", gy) is True

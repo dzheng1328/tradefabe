@@ -30,4 +30,7 @@ tradefabe-app = "tradefabe.desktop:main"
 where = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+# "." so `import harness` (repo-root script) resolves; "research" so factory_run.py's
+# own `from piggyback_backtest import ...` (a sibling repo-root-script-style import,
+# not a package) resolves the same way it does when run directly as a script.
+pythonpath = [".", "research"]
