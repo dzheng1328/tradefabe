@@ -57,6 +57,18 @@ def family_n_tested(candidate_names):
     return len(graveyard_strategy_names() | set(candidate_names))
 
 
+def last_verdict(name):
+    """The most recent logged verdict ("ALIVE"/"DEAD") for `name`, or None if it's never
+    been evaluated. For callers that need to react to a JUST-WRITTEN evaluate() row
+    (e.g. the strategy factory deciding whether to promote a candidate, #29) without
+    evaluate() itself needing to change its return contract."""
+    if not os.path.exists(GRAVEYARD):
+        return None
+    rows = pd.read_csv(GRAVEYARD)
+    rows = rows[rows["strategy"] == name]
+    return rows.iloc[-1]["verdict"] if len(rows) else None
+
+
 def bonferroni_bar(null, n_tested, alpha=BONFERRONI_ALPHA):
     """The kill rule's luck bar, corrected for how many strategies have been tested
     (graveyard.csv's own count -- DOCTRINE.md v1.0.1 logged this as a future tightening;

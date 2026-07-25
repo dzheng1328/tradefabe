@@ -31,6 +31,8 @@ def scratch_graveyard(monkeypatch, tmp_path):
     monkeypatch.setattr(harness, "GRAVEYARD", str(gy))
     monkeypatch.setattr(piggyback_backtest, "GRAVEYARD", str(gy))
     monkeypatch.setattr(factory_run, "load_prices", lambda: (_synthetic_prices(), "SYNTHETIC (test)"))
+    monkeypatch.setattr(factory_run.factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory_run.factory, "PROMOTED_PATH", tmp_path / "promoted.json")
     return gy
 
 
@@ -65,3 +67,49 @@ def test_run_cycle_skips_the_combo_when_fewer_than_two_candidates_drawn(scratch_
     evaluated = factory_run.run_cycle(n=1, seed=5, verbose=False)
     assert len(evaluated) == 1
     assert not evaluated[0].startswith("factory_combo_")
+
+
+# ---------------------------------------------------------------- promotion (#29)
+def test_run_cycle_promotes_an_individual_candidate_that_comes_back_alive(scratch_graveyard, monkeypatch):
+    # Real evaluate() outcomes are all DEAD for both real and this synthetic data (same
+    # as the actual project's track record) -- force one specific verdict deterministically
+    # to test the PROMOTION WIRING itself, decoupled from evaluate()'s own statistics
+    # (already covered by test_deflated_sharpe.py).
+    sample_names = factory_run.factory.select_diverse_sample(
+        factory_run.factory.TEMPLATES, 4, np.random.default_rng(42))
+    alive_name = sample_names[0]
+
+    real_last_verdict = factory_run.last_verdict
+    monkeypatch.setattr(factory_run, "last_verdict",
+                        lambda name: "ALIVE" if name == alive_name else real_last_verdict(name))
+
+    factory_run.run_cycle(n=4, seed=42, verbose=False)
+    assert factory_run.factory.load_promoted() == [alive_name]
+
+
+def test_run_cycle_never_promotes_a_dead_candidate(scratch_graveyard):
+    factory_run.run_cycle(n=4, seed=42, verbose=False)
+    assert factory_run.factory.load_promoted() == []
+
+
+def test_run_cycle_never_promotes_the_combo(scratch_graveyard, monkeypatch):
+    # force EVERY verdict ALIVE, individuals and the combo alike -- only individuals
+    # should end up promoted (combo promotion needs piggyback.py's registry made
+    # dynamic first, deliberately out of scope here -- see factory_run.py's docstring).
+    monkeypatch.setattr(factory_run, "last_verdict", lambda name: "ALIVE")
+    evaluated = factory_run.run_cycle(n=4, seed=42, verbose=False)
+    combo_names = [n for n in evaluated if n.startswith("factory_combo_")]
+    assert combo_names   # a combo really was built this cycle
+    promoted = factory_run.factory.load_promoted()
+    assert set(promoted) == set(evaluated) - set(combo_names)
+
+
+def test_run_cycle_promotion_is_idempotent_across_cycles(scratch_graveyard, monkeypatch):
+    monkeypatch.setattr(factory_run, "last_verdict", lambda name: "ALIVE")
+    factory_run.run_cycle(n=2, seed=1, verbose=False)
+    first_promoted = factory_run.factory.load_promoted()
+    # a second cycle draws NEW templates (already_tested excludes the first batch) --
+    # promoted.json should accumulate, not reset.
+    factory_run.run_cycle(n=2, seed=2, verbose=False)
+    second_promoted = factory_run.factory.load_promoted()
+    assert set(first_promoted) < set(second_promoted)

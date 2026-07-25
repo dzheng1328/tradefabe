@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import pandas as pd
 import yfinance as yf
-from . import books, signals, piggyback
+from . import books, signals, piggyback, factory
 from .carry_live import run_carry
 from .carry_risk import check_carry_risk
 from .paths import STATE_DIR
@@ -13,7 +13,14 @@ EQUITY_BOOKS = list(signals.REGISTRY)
 # Only the 3 backtest-ALIVE piggyback constructions (piggyback.REGISTRY already excludes
 # the DEAD piggyback_2b -- see STRATEGIES.md family H / graveyard.csv).
 PIGGYBACK_BOOKS = list(piggyback.REGISTRY)
-ALL_BOOKS = EQUITY_BOOKS + PIGGYBACK_BOOKS
+# Factory templates (#28) auto-promoted (#29) after clearing the full doctrine gate --
+# factory.load_promoted() reads state/paper/promoted.json, written by
+# research/factory_run.py, so this list can grow between runner.py processes without a
+# code change. Re-read at IMPORT time -- a book promoted after this process started
+# won't appear until the next `tradefabe run`/`tradefabe mark` invocation, same as any
+# other module-level registry here.
+FACTORY_BOOKS = factory.load_promoted()
+ALL_BOOKS = EQUITY_BOOKS + PIGGYBACK_BOOKS + FACTORY_BOOKS
 
 
 def _prices() -> pd.DataFrame:
@@ -68,6 +75,9 @@ def run_daily(verbose: bool = True) -> pd.DataFrame:
     for name in PIGGYBACK_BOOKS:
         _, freq = piggyback.REGISTRY[name]
         _run_book(name, freq, piggyback.target_weights, px, today, last, verbose)
+    for name in FACTORY_BOOKS:
+        _, freq, _, _ = factory.TEMPLATES[name]
+        _run_book(name, freq, factory.target_weights, px, today, last, verbose)
     carry = run_carry()
     if verbose:
         print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")

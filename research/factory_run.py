@@ -15,6 +15,15 @@ this cycle's candidates (tradefabe.factory.complementary_pairs()) and evaluates 
 inventing a new one. "Mix everything" is deliberately not the default; one correlation-
 picked pair per cycle is.
 
+Any INDIVIDUAL template that comes back ALIVE is auto-promoted (#29) --
+factory.promote() registers it in state/paper/promoted.json, which runner.py reads at
+the start of every future `tradefabe run`/`tradefabe mark`, so the very next paper cycle
+opens it as a real $100k live book with zero special-casing (same books.py/render path
+every hand-picked book already goes through). The correlation-picked COMBO is evaluated
+but not auto-promoted here -- piggyback.py's registry is still a fixed hand-picked dict,
+not yet dynamic the way factory.TEMPLATES is; wiring combo promotion through it is a
+natural follow-up once that generalization exists, not done here to avoid half-wiring it.
+
 Usage: .venv/bin/python research/factory_run.py [--n N] [--seed SEED]
 """
 from __future__ import annotations
@@ -24,7 +33,8 @@ import pandas as pd
 
 from tradefabe.engine import load_prices, size_and_rebalance, net_returns, realized_vol
 from harness import (benchmark_returns, noise_floor, evaluate as harness_evaluate,
-                     family_n_tested, graveyard_strategy_names, OOS_START, NULL_TRIALS)
+                     family_n_tested, graveyard_strategy_names, last_verdict,
+                     OOS_START, NULL_TRIALS)
 from tradefabe import factory
 from piggyback_backtest import matched_null, evaluate as piggyback_evaluate, SLEEVE
 
@@ -68,9 +78,16 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
             print(f"\n[{family}] {name} -- {rationale}")
 
     n_tested = family_n_tested(sample)
+    promoted = []
     for name in sample:
         _, freq, _, _ = factory.TEMPLATES[name]
         harness_evaluate(name, returns[name], bench, nulls[freq], freq, n_tested)
+        if last_verdict(name) == "ALIVE":
+            factory.promote(name)
+            promoted.append(name)
+            if verbose:
+                print(f"  -> ALIVE: promoted {name} to a live paper book "
+                      f"(opens at $100k on the next tradefabe run)")
 
     evaluated = list(sample)
     oos_returns = {name: r[r.index >= OOS_START] for name, r in returns.items()}

@@ -166,3 +166,29 @@ def test_evaluate_kills_pure_noise_against_a_wide_null(monkeypatch, tmp_path):
     row = pd.read_csv(gy).iloc[0]
     assert row["dsr"] < 0.95
     assert row["verdict"] == "DEAD"
+
+
+# ---------------------------------------------------------------- last_verdict (#29)
+def test_last_verdict_none_when_never_evaluated(monkeypatch, tmp_path):
+    monkeypatch.setattr(harness, "GRAVEYARD", str(tmp_path / "does_not_exist.csv"))
+    assert harness.last_verdict("anything") is None
+
+
+def test_last_verdict_reads_back_a_just_written_row(monkeypatch, tmp_path):
+    gy = tmp_path / "graveyard.csv"
+    monkeypatch.setattr(harness, "GRAVEYARD", str(gy))
+    rng = np.random.default_rng(0)
+    null = rng.normal(0.0, 0.06, 500)
+    strat, bench = _synthetic_strategy_and_bench(seed=1, drift=0.0015)
+    harness.evaluate("test_strong_edge", strat, bench, null, "D", n_tested=1)
+    assert harness.last_verdict("test_strong_edge") == "ALIVE"
+    assert harness.last_verdict("never_evaluated") is None
+
+
+def test_last_verdict_returns_the_most_recent_of_multiple_rows_for_the_same_name(monkeypatch, tmp_path):
+    gy = tmp_path / "graveyard.csv"
+    gy.write_text("timestamp,strategy,verdict\n"
+                  "2026-01-01T00:00:00,foo,DEAD\n"
+                  "2026-02-01T00:00:00,foo,ALIVE\n")
+    monkeypatch.setattr(harness, "GRAVEYARD", str(gy))
+    assert harness.last_verdict("foo") == "ALIVE"
