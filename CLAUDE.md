@@ -201,29 +201,38 @@ machine-generated. Key things to know before touching this:
   anchors at 0.
 
 ## Roadmap
-Tracked as GitHub issues, milestone **Engine v1** (`gh issue list`, `gh api
-repos/dzheng1328/tradefabe/milestones`), mirrored on a GitHub Projects board:
-https://github.com/users/dzheng1328/projects/1 (Status / Area / Priority fields — check
-here first for an at-a-glance view before `gh issue list`).
+**Check the Projects board first** — https://github.com/users/dzheng1328/projects/1
+("tradefabe — lab board"). It holds every issue this repo has ever had (45 items incl.
+one in-flight PR) with four fields: **Status** (Todo/In Progress/Done), **Phase**,
+**Area**, **Priority**. `gh project item-list 1 --owner dzheng1328` reads it; needs a
+token with the `project` scope (`gh auth refresh -s project` — the plain `repo` scope is
+not enough, and the error message's suggested `read:project` can't write).
 
-8 open: **#38 schedule `research/factory_run.py` via launchd** (the factory itself is
-fully built and validated against real data, #28/#28b — nothing runs it automatically
-yet), #5 Alpaca paper integration (needs Dave's API keys — never commit them), #7
-piggyback book as book #6 (superseded in spirit by piggyback_2a/3/4 already live, #29 —
-worth checking if still relevant before picking up), #10 dashboard risk register panel,
-#23 overnight-effect strategy (deferred, needs Open-price caching), #24 ICT/Smart-Money-
-Concepts backtest (full design doc in the issue body — data-source blocker for
-High/Low is why `factory.py`'s own breakout family used Donchian channels instead, see
-STRATEGIES.md family I), #25 "modified double-down DCA" backtest (full design doc,
-Instagram-reel-sourced).
+Don't hand-maintain a roster of issue numbers here — it goes stale within a day. This
+section describes the SHAPE of the work; the board is the source of truth for status.
 
-13 closed: #1 extract shared research core, #2 unit tests + CI, #3 schedule daily
-`tradefabe run`, #4 dashboard paper-vs-backtest divergence (superseded by #11), #6 carry
-funding-flip + margin monitor, #8 paper-testing promote/kill criteria (DOCTRINE v1.2), #9
-vet/install graphify, #11 dashboard restructure around live paper books, **#27 DOCTRINE
-v1.4 (DSR+CPCV)**, **#28 the strategy factory**, **#29 auto-promote to live books**, **#30
-dashboard: group Book Status by family**, **#31 dashboard: DEAD-strategy detail view**
-(the last 5, 2026-07-25, are the strategy-factory initiative — see the section above).
+**Phases** (the board's `Phase` field): `Lab v0` (14, the founding 2026-07-21/22 research
+run — doctrine v1.0/v1.0.1, the congress/insider/thematic/day-trading/carry studies, src
+restructure, first dashboard), `Engine v1` (12, paper engine + CI + scheduling + DOCTRINE
+v1.2/v1.3), `Dashboard v2` (4), `Strategy factory` (7, #27–31/#38/#64), `Ongoing` (8,
+live research + standing gaps).
+
+**Backfill note:** issues **#41–58** were created 2026-07-25 to record work that was
+really done *before* the tracker existed (or that merged as a PR with no tracking issue —
+#55/#56/#57/#58). They were opened and closed in the same breath. They are history, not a
+queue; don't "re-do" one because it looks freshly filed.
+
+**The two P0s currently open:** **#38** schedule `research/factory_run.py` via launchd
+(the factory is fully built and validated, #28/#28b — nothing runs it automatically), and
+**#62** migrate off `st.components.v1.html` (Streamlit's stated removal date, 2026-06-01,
+has already passed — the dashboard works only because the installed version still ships
+the shim).
+
+**The `Ongoing` gaps worth knowing before you touch related code:** #59 `congress_copy`
+has no reproducible script (its DEAD verdict is prose-only), #60 the Py3.14 hidden-`.pth`
+bug, #61 `tradefabe.app` is hand-built and untracked, #63 the 30min mark cron doesn't
+fire while the Mac sleeps (so `history.csv` has legitimate multi-hour holes — not a bug),
+#64 the factory's correlation-picked combo is evaluated but can never be promoted.
 
 ## Explicitly off-limits
 - `~/Documents/daily tickers` — a separate, unrelated project Dave deliberately stopped.
