@@ -27,10 +27,14 @@ project holds elsewhere. #24 already anticipates this class of blocker for a dif
 reason (data recency); this is the same blocker for a different field.
 """
 from __future__ import annotations
+import json
 from itertools import combinations
 
 import numpy as np
 import pandas as pd
+
+from .paths import STATE_DIR
+from .engine import sized_weights
 
 
 # ---------- template signal generators (parametrized, closures over one config value) ----------
@@ -180,3 +184,49 @@ def complementary_pairs(returns, names, top_k=3):
             pairs.append((a, b, float(c)))
     pairs.sort(key=lambda t: abs(t[2]))
     return pairs[:top_k]
+
+
+def target_weights(prices, name):
+    """Today's vol-targeted, capped portfolio weights for a promoted template -- same
+    contract as signals.target_weights()/piggyback.target_weights(), so runner.py can
+    call whichever registry a book came from identically (#29's "zero special-casing"
+    requirement)."""
+    sig_fn, _, _, _ = TEMPLATES[name]
+    return sized_weights(prices, sig_fn(prices)).iloc[-1].fillna(0.0)
+
+
+# ---------- promotion registry (#29): which factory candidates run.py should treat as
+# real live books. A plain JSON list of names, not the templates/signal functions
+# themselves -- those already live in TEMPLATES (an importable module-level dict), so the
+# only thing that needs to persist ACROSS PROCESSES (factory_run.py's cycle exits; the
+# next `tradefabe run` is a fresh process) is which names were promoted. ----------
+PROMOTED_PATH = STATE_DIR / "promoted.json"
+
+
+def load_promoted():
+    """Every currently-promoted template name, filtered to ones still present in
+    TEMPLATES (defensive: if a template is ever removed from the library, a stale
+    promoted.json entry shouldn't crash runner.py -- it just stops being a live book)."""
+    if not PROMOTED_PATH.exists():
+        return []
+    with open(PROMOTED_PATH) as fh:
+        names = json.load(fh)
+    return [n for n in names if n in TEMPLATES]
+
+
+def promote(name):
+    """Registers `name` (must be a TEMPLATES key) as a live paper book, idempotently --
+    calling this again for an already-promoted name is a no-op, not a duplicate entry.
+    Does NOT open the book's state file itself: the next `tradefabe run` naturally
+    creates it at $100k on first encounter, exactly like any other new book (books.load()
+    on a name with no existing state/paper/<name>.json file already does this)."""
+    if name not in TEMPLATES:
+        raise ValueError(f"{name} is not a registered template -- only a TEMPLATES key "
+                         "can be promoted, no ad-hoc names")
+    promoted = load_promoted()
+    if name in promoted:
+        return
+    promoted.append(name)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(PROMOTED_PATH, "w") as fh:
+        json.dump(promoted, fh, indent=1)

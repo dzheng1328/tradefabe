@@ -163,3 +163,59 @@ def test_complementary_pairs_respects_top_k():
     returns = pd.DataFrame({n: rng.normal(0, 0.01, 100) for n in ("a", "b", "c", "d")}, index=idx)
     pairs = factory.complementary_pairs(returns, ["a", "b", "c", "d"], top_k=2)
     assert len(pairs) == 2
+
+
+# ---------------------------------------------------------------- target_weights
+def test_target_weights_matches_sized_weights_last_row():
+    from tradefabe.engine import sized_weights
+    px = trend_prices()
+    sig_fn = factory.TEMPLATES["tsmom_6m"][0]
+    got = factory.target_weights(px, "tsmom_6m")
+    expected = sized_weights(px, sig_fn(px)).iloc[-1].fillna(0.0)
+    pd.testing.assert_series_equal(got, expected)
+
+
+# ---------------------------------------------------------------- promotion registry (#29)
+def test_promote_writes_and_load_promoted_reads_back(monkeypatch, tmp_path):
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_PATH", tmp_path / "promoted.json")
+    assert factory.load_promoted() == []
+    factory.promote("donchian_20d")
+    assert factory.load_promoted() == ["donchian_20d"]
+
+
+def test_promote_is_idempotent(monkeypatch, tmp_path):
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_PATH", tmp_path / "promoted.json")
+    factory.promote("donchian_20d")
+    factory.promote("donchian_20d")
+    assert factory.load_promoted() == ["donchian_20d"]
+
+
+def test_promote_appends_without_clobbering_existing_entries(monkeypatch, tmp_path):
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_PATH", tmp_path / "promoted.json")
+    factory.promote("donchian_20d")
+    factory.promote("tsmom_3m")
+    assert set(factory.load_promoted()) == {"donchian_20d", "tsmom_3m"}
+
+
+def test_promote_rejects_a_name_not_in_templates(monkeypatch, tmp_path):
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_PATH", tmp_path / "promoted.json")
+    with pytest.raises(ValueError):
+        factory.promote("not_a_real_template")
+
+
+def test_load_promoted_filters_out_stale_names_no_longer_in_templates(monkeypatch, tmp_path):
+    p = tmp_path / "promoted.json"
+    p.write_text('["donchian_20d", "a_template_that_got_removed_later"]')
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_PATH", p)
+    assert factory.load_promoted() == ["donchian_20d"]
+
+
+def test_load_promoted_empty_when_file_does_not_exist(monkeypatch, tmp_path):
+    monkeypatch.setattr(factory, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(factory, "PROMOTED_PATH", tmp_path / "does_not_exist.json")
+    assert factory.load_promoted() == []
