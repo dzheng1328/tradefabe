@@ -5,29 +5,42 @@ engine** that runs the survivors as autonomous simulated books. **Paper only —
 money is connected, and nothing here is investment advice.**
 
 ## What this project learned (the short version)
-12+ retail strategies tested against pre-registered kill rules: every predictive/copy-based
+49+ strategies tested against pre-registered kill rules — every predictive/copy-based
 approach (price patterns, congress-copying, insider-following, thematic picking, candlestick
-wicks) came out dead or overfit. Two things survived scrutiny: **diversified buy-and-hold**
-and **delta-neutral crypto funding carry** (~12%/yr in the 2023-26 window, paid for bearing
-real crypto-infrastructure tail risk). Receipts in `graveyard.csv`, verdicts in
+wicks), plus a growing automated factory of parametrized variants (see below), all came out
+dead or overfit. Two things survived scrutiny: **diversified buy-and-hold** and
+**delta-neutral crypto funding carry** (~12%/yr in the 2023-26 window, paid for bearing
+real crypto-infrastructure tail risk). Being machine-generated isn't a lower bar either —
+same doctrine, same kill rules. Receipts in `graveyard.csv`, verdicts in
 [STRATEGIES.md](STRATEGIES.md), rules in [DOCTRINE.md](DOCTRINE.md).
 
 ## Layout
 ```
 src/tradefabe/     the installable engine: engine.py (data/sizing/returns core, single
-                   source of truth), signals.py, books.py, carry_live.py, carry_risk.py
-                   (funding-flip + liquidation monitor), runner.py, cli.py, desktop.py
-app.py             Streamlit dashboard. Two views (sidebar): Paper Books (live books +
-                   an interactive per-strategy panel, landing view) and Research Lab
-                   (backtest summary). Fully interactive charts (Plotly), not static images.
-harness.py         research evaluator: doctrine gates, noise floors, graveyard. Built on
-                   the shared src/tradefabe core, not a private copy of the math.
+                   source of truth), signals.py, books.py, piggyback.py, factory.py
+                   (strategy-factory template library + live generation), carry_live.py,
+                   carry_risk.py (funding-flip + liquidation monitor), runner.py, cli.py,
+                   desktop.py
+app.py             Streamlit dashboard. Two views (sidebar): Paper Books (live books
+                   grouped by family, click-to-select cards, an interactive per-strategy
+                   panel, landing view) and Research Lab (backtest summary, including a
+                   detail view for strategies that never made it to a live book). Fully
+                   interactive charts (Plotly), not static images.
+harness.py         research evaluator: doctrine gates (Deflated Sharpe Ratio + Combinatorial
+                   Purged CV as of v1.4), noise floors, graveyard. Built on the shared
+                   src/tradefabe core, not a private copy of the math.
 tsmom_backtest.py  standalone TSMOM study + plot, same shared core
 combine.py         blending / piggyback experiments
-research/          one-off studies (insider, congressional, carry, thematic, day-trading)
+research/          one-off studies (insider, congressional, carry, thematic, day-trading),
+                   piggyback_backtest.py (combo verdicts), factory_run.py (the strategy
+                   factory's daily driver, not yet on a cron)
 tests/             pytest suite, runs in CI on every push/PR (.github/workflows/tests.yml)
-artifacts/         generated research outputs (gitignored)
-state/paper/       paper-book ledgers + carry_risk.json, written by the runner (gitignored)
+graveyard.csv      the verdict ledger — every strategy ever evaluated, alive or dead
+generated_templates.csv   the strategy factory's own ledger of every live-generated
+                   candidate's spec, logged before its verdict is known
+artifacts/         generated research outputs (tracked in git)
+state/paper/       paper-book ledgers, carry_risk.json, and the factory's promotion
+                   registries, written by the runner (gitignored)
 ```
 
 ## Quickstart
@@ -35,24 +48,30 @@ state/paper/       paper-book ledgers + carry_risk.json, written by the runner (
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 
-.venv/bin/tradefabe run       # one daily paper cycle: 5 books + carry risk monitor
+.venv/bin/tradefabe run       # one daily paper cycle: rebalance due books + carry risk monitor
+.venv/bin/tradefabe mark      # mark all books to current price (finer chart resolution)
 .venv/bin/tradefabe status    # current book equities
 .venv/bin/streamlit run app.py  # dashboard at localhost:8501
 
 .venv/bin/python harness.py   # re-run the research evaluation (writes artifacts/)
+.venv/bin/python research/factory_run.py --n 20   # one strategy-factory cycle
 .venv/bin/pytest tests/       # run the test suite
 ```
 
-The 5 paper books: `tsmom_12m`, `tsmom_ensemble`, `green_line_200d`, `turn_of_month`
-(local simulated fills at close, pessimistic costs) and `carry_btc_eth` (accrues **real
-Hyperliquid funding** on a delta-neutral notional — when funding goes negative in bear
-regimes, the book bleeds; watching that live is the point). The dashboard's carry panel
-includes a risk monitor: a trailing 7-day funding-flip alert and a short-leg
-liquidation-distance stress table, sized against Hyperliquid's own live margin tiers
-(fetched fresh each run, not a hardcoded leverage guess).
+Paper books currently include `tsmom_12m`, `tsmom_ensemble`, `green_line_200d`,
+`turn_of_month` (local simulated fills at close, pessimistic costs), `carry_btc_eth`
+(accrues **real Hyperliquid funding** on a delta-neutral notional — when funding goes
+negative in bear regimes, the book bleeds; watching that live is the point), plus a
+growing set of strategy-factory promotions that accumulate one per daily cycle. The
+dashboard's carry panel includes a risk monitor: a trailing 7-day funding-flip alert and
+a short-leg liquidation-distance stress table, sized against Hyperliquid's own live
+margin tiers (fetched fresh each run, not a hardcoded leverage guess).
 
-A launchd agent (`com.dzheng.tradefabe`) runs `tradefabe run` daily at 18:00 local; logs in
-`state/logs/`. Each run marks all books and retargets whichever are due.
+Two launchd agents keep the paper engine running unattended: `com.dzheng.tradefabe` runs
+`tradefabe run` daily at 18:00 local (the actual rebalance), and
+`com.dzheng.tradefabe.mark` runs `tradefabe mark` every 30min so the live-equity chart has
+more than one point per day. Logs in `state/logs/`. The strategy factory
+(`research/factory_run.py`) isn't on a cron yet — still invoked by hand.
 
 ## Desktop app
 `~/Applications/tradefabe.app` opens the dashboard in a native window with its own Dock icon
@@ -75,8 +94,10 @@ Entry point: `tradefabe-app` (pywebview). **Not tracked in git** — hand-built 
 
 ## Roadmap
 Tracked as GitHub issues on this repo (milestone **Engine v1**), mirrored on a
-[Projects board](https://github.com/users/dzheng1328/projects/1). 6 closed (shared
-engine core, unit tests + CI, dashboard restructure incl. the paper-vs-backtest
-divergence view, carry funding-flip + margin monitor), 4 open (Alpaca paper
-integration, a piggyback book, pre-registered promote/kill criteria, a dashboard risk
-register panel).
+[Projects board](https://github.com/users/dzheng1328/projects/1). 13 closed (shared
+engine core, unit tests + CI, dashboard restructure around live paper books, carry
+funding-flip + margin monitor, promote/kill criteria, and — most recently — the
+strategy-factory initiative: DOCTRINE v1.4, the factory itself, auto-promotion, and two
+dashboard views for it), 8 open (scheduling the factory via launchd, Alpaca paper
+integration, a dashboard risk register panel, and a few backtest candidates still
+pending).
