@@ -458,30 +458,102 @@ def _select_book(name):
     st.session_state.selected_book = name
 
 
-def render_book_status(psum):
-    """Book-status row: each card is a real st.metric (same type scale as everywhere
-    else in the app) with an invisible full-card button stacked on top, so clicking
-    anywhere on a card selects that book -- replaces the separate 'Strategy' dropdown
-    that used to sit below this row. Wrapped at 4 per row so cards stay wide enough for
-    full $ precision without truncating or overlapping (fix for the 8-book truncation bug)."""
+# Family taxonomy -- same letters/order as STRATEGIES.md's own "Families" section, reused
+# here rather than inventing a separate one. Extend BOOK_FAMILIES/BOOK_FAMILY together
+# whenever a genuinely new family shows up (e.g. the strategy factory, #28); a book with
+# no entry here falls back to an "Other" group rather than crashing.
+BOOK_FAMILIES = {
+    "A": "Trend / momentum",
+    "B": "Mean reversion",
+    "C": "Calendar / seasonality",
+    "D": "Defensive anomaly",
+    "E": "Carry / structural",
+    "F": "Volatility risk premium",
+    "G": "Information / signal-following",
+    "H": "Piggyback / combined",
+}
+BOOK_FAMILY = {
+    "tsmom_12m": "A", "tsmom_ensemble": "A", "green_line_200d": "A",
+    "turn_of_month": "C",
+    "carry_btc_eth": "E",
+    "piggyback_2a": "H", "piggyback_3": "H", "piggyback_4": "H",
+}
+
+
+def _is_monitor_only(name, gy_last):
+    """A book is 'monitor-only' when it's live but backtest-DEAD (DOCTRINE v1.2's
+    paper-testing scope: paper-tracked for research/dashboard value, never eligible for
+    a paper-confirmed verdict). carry_btc_eth and any future factory-promoted book with
+    no graveyard row at all -- i.e. genuinely ALIVE, not just untested -- are NOT
+    monitor-only; only a logged DEAD verdict counts."""
+    return gy_last is not None and name in gy_last.index and gy_last.loc[name, "verdict"] == "DEAD"
+
+
+def group_books_by_family(psum, gy_last=None, show_monitor_only=True):
+    """Pure grouping logic behind render_book_status(), split out so it's testable
+    without a Streamlit runtime: which family each book in `psum` belongs to (unmapped
+    names fall back to family key "?", displayed as "Other"), filtered by the
+    monitor-only toggle. Returns an ordered list of (family_key, family_label, rows)
+    tuples, family order matching BOOK_FAMILIES (A-H) then "Other" last, and empty
+    families omitted entirely."""
+    monitor_only = {r["book"]: _is_monitor_only(r["book"], gy_last) for _, r in psum.iterrows()}
+    by_family = {}
+    for _, r in psum.iterrows():
+        if not show_monitor_only and monitor_only[r["book"]]:
+            continue
+        by_family.setdefault(BOOK_FAMILY.get(r["book"], "?"), []).append(r)
+    out = []
+    for family in list(BOOK_FAMILIES) + ["?"]:
+        rows = by_family.get(family)
+        if rows:
+            out.append((family, BOOK_FAMILIES.get(family, "Other"), rows))
+    return out
+
+
+def render_book_status(psum, gy_last=None):
+    """Book-status cards, grouped by family (STRATEGIES.md's own A-H taxonomy) so the
+    grid stays scannable as the roster grows past a handful of books -- each card is a
+    real st.metric (same type scale as everywhere else in the app) with an invisible
+    full-card button stacked on top, so clicking anywhere on a card selects that book
+    (replaces the old 'Strategy' dropdown). Wrapped at 4 per row, independently within
+    each family group, so cards stay wide enough for full $ precision without
+    truncating or overlapping (fix for the 8-book truncation bug)."""
     st.subheader("Book status")
     names = psum["book"].tolist()
     if st.session_state.get("selected_book") not in names:
         st.session_state.selected_book = names[0]
 
-    rows = list(psum.iterrows())
+    monitor_only = {n: _is_monitor_only(n, gy_last) for n in names}
+    show_monitor_only = True
+    if gy_last is not None and any(monitor_only.values()) and not all(monitor_only.values()):
+        show_monitor_only = st.checkbox(
+            "Show monitor-only (backtest-DEAD) books", value=True, key="show_monitor_only",
+            help="Books that are live for research/dashboard value but backtest-DEAD -- "
+                 "DOCTRINE v1.2 bars them from a paper-confirmed verdict under any "
+                 "circumstance. Hiding these keeps the default view on confirmed/live "
+                 "candidates as the roster grows.")
+        # if the filter just hid the currently-selected book, fall back to the first
+        # still-visible one rather than leaving the panel below pointing at a book with
+        # no highlighted card in the grid.
+        if not show_monitor_only and monitor_only.get(st.session_state.selected_book):
+            visible = [n for n in names if not monitor_only[n]]
+            if visible:
+                st.session_state.selected_book = visible[0]
+
     PER_ROW = 4
-    for i in range(0, len(rows), PER_ROW):
-        cols = st.columns(PER_ROW)
-        for col, (_, r) in zip(cols, rows[i:i + PER_ROW]):
-            name = r["book"]
-            selected = st.session_state.selected_book == name
-            with col:
-                with st.container(key=f"book_card_{'active' if selected else 'idle'}_{name}"):
-                    with st.container(key=f"book_click_{name}"):
-                        st.button(name, key=f"book_btn_{name}", on_click=_select_book, args=(name,))
-                    label_name = name.replace("_", "\\_")
-                    st.metric(label_name, fmt_full_dollars(r["equity"]), f"{r['return']:+.2%}")
+    for family, label, rows in group_books_by_family(psum, gy_last, show_monitor_only):
+        st.markdown(f'<div class="lab-eyebrow">{label}</div>', unsafe_allow_html=True)
+        for i in range(0, len(rows), PER_ROW):
+            cols = st.columns(PER_ROW)
+            for col, r in zip(cols, rows[i:i + PER_ROW]):
+                name = r["book"]
+                selected = st.session_state.selected_book == name
+                with col:
+                    with st.container(key=f"book_card_{'active' if selected else 'idle'}_{name}"):
+                        with st.container(key=f"book_click_{name}"):
+                            st.button(name, key=f"book_btn_{name}", on_click=_select_book, args=(name,))
+                        label_name = name.replace("_", "\\_")
+                        st.metric(label_name, fmt_full_dollars(r["equity"]), f"{r['return']:+.2%}")
 
 
 # ==================================================================== Paper Books view
@@ -495,7 +567,7 @@ def render_paper_books(psum, phist, full, meta, gy_last):
                 icon=":material/info:")
         return
 
-    render_book_status(psum)
+    render_book_status(psum, gy_last)
     st.caption(f"Books start at $100k paper capital. Last run: **{psum['last_run'].max()}** · "
                "run `.venv/bin/tradefabe run` daily (or via cron) to advance.")
 
