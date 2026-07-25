@@ -33,7 +33,7 @@ tsmom_backtest.py  standalone TSMOM study + plot, same shared core
 combine.py         blending / piggyback experiments
 research/          one-off studies (insider, congressional, carry, thematic, day-trading),
                    piggyback_backtest.py (combo verdicts), factory_run.py (the strategy
-                   factory's daily driver, not yet on a cron)
+                   factory's daily driver, daily 17:00 launchd job — see ops/)
 tests/             pytest suite, runs in CI on every push/PR (.github/workflows/tests.yml)
 graveyard.csv      the verdict ledger — every strategy ever evaluated, alive or dead
 generated_templates.csv   the strategy factory's own ledger of every live-generated
