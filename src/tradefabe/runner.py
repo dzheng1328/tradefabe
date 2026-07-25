@@ -36,6 +36,28 @@ def _run_book(name, freq, get_weights, px, today, last, verbose):
               f"  ({'rebalanced' if due else 'marked'})")
 
 
+def run_mark(verbose: bool = True) -> pd.DataFrame:
+    """Lighter sibling of run_daily(): marks every book to market at the current price
+    WITHOUT rebalancing, so the live-equity chart gets more than one point per day. Meant
+    for a tighter cron (e.g. every 30min) alongside the once-daily run_daily(), which still
+    owns the actual rebalance -- each strategy's registered M/W/D frequency is untouched.
+    books.mark()'s dedup key is a full timestamp here (vs. run_daily()'s bare date), so the
+    two interleave in the same history list without colliding."""
+    px = _prices()
+    now = dt.datetime.now().isoformat(timespec="minutes")
+    last = px.iloc[-1]
+    for name in ALL_BOOKS:
+        book = books.load(name)
+        books.mark(book, now, last)
+        books.save(book)
+        if verbose:
+            print(f"  {name:<18} equity ${books.equity(book, last):>12,.0f}  (marked)")
+    carry = run_carry()
+    if verbose:
+        print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
+    return write_summary(last)
+
+
 def run_daily(verbose: bool = True) -> pd.DataFrame:
     px = _prices()
     today = str(px.index[-1].date())

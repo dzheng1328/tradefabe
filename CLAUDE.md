@@ -50,13 +50,20 @@ state/paper/       paper-book ledgers + carry_risk.json, written by the runner (
 ## Commands
 ```sh
 .venv/bin/pip install -e ".[dev]"   # editable install incl. pytest (see Py3.14 gotcha below)
-.venv/bin/tradefabe run             # one daily paper cycle: 5 books + carry risk monitor
+.venv/bin/tradefabe run             # one daily paper cycle: rebalance due books + carry risk monitor
+.venv/bin/tradefabe mark            # mark all books to current price, no rebalance (finer chart resolution)
 .venv/bin/tradefabe status          # current book equities
 .venv/bin/tradefabe reset           # wipe paper state, restart at $100k/book
 .venv/bin/streamlit run app.py      # dashboard at localhost:8501
 .venv/bin/python harness.py         # re-run the doctrine evaluation, appends graveyard.csv
 .venv/bin/pytest tests/             # run the test suite locally (also runs in CI on push/PR)
 ```
+Two launchd jobs drive the paper engine unattended (`launchctl list | grep tradefabe`):
+`com.dzheng.tradefabe` runs `tradefabe run` daily at 18:00 (the actual rebalance, on each
+strategy's own doctrine-registered M/W/D schedule); `com.dzheng.tradefabe.mark` runs
+`tradefabe mark` every 30min around the clock (mark-only, no rebalance) so the dashboard's
+live-equity chart has more than one point per day. Logs: `state/logs/run.{log,err}` and
+`state/logs/mark.{log,err}`.
 Desktop app: `~/Applications/tradefabe.app` (own Dock icon, native window, `tradefabe-app`
 entry point via pywebview). **Not tracked in git** — hand-built, 3 files under
 `~/Applications/tradefabe.app/Contents/`. If you rebuild or move it, bake
