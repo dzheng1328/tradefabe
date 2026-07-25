@@ -82,10 +82,15 @@ PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" \
                                                     # (also runs daily 17:00 via launchd, see ops/)
 .venv/bin/pytest tests/             # run the test suite locally (also runs in CI on push/PR)
 ```
-**Three** launchd jobs drive the lab unattended (`launchctl list | grep tradefabe`).
-Their plists are tracked in **`ops/`** — that directory is the source of truth; the
-copies macOS reads live in `~/Library/LaunchAgents/`. **`ops/README.md` has the install
-steps and the EX_CONFIG trap; read it before adding or editing a job.**
+## Automations — everything that runs without you
+Nine things run on their own. Know all of them before assuming a file changed by magic.
+
+### 1. Scheduled (launchd, 3 jobs)
+`launchctl list | grep tradefabe`. Plists are tracked in **`ops/`** — that directory is
+the source of truth; the copies macOS reads live in `~/Library/LaunchAgents/`.
+**`ops/README.md` has the install steps and the EX_CONFIG trap; read it before adding or
+editing a job.** This repo uses launchd, not cron — the single `crontab -l` entry belongs
+to the off-limits `daily tickers` project (see the bottom of this file); leave it alone.
 - `com.dzheng.tradefabe` — `tradefabe run` daily at 18:00 (the actual rebalance, on each
   strategy's own doctrine-registered M/W/D schedule). Logs `state/logs/run.{log,err}`.
 - `com.dzheng.tradefabe.mark` — `tradefabe mark` every 30min around the clock (mark-only,
@@ -101,12 +106,44 @@ steps and the EX_CONFIG trap; read it before adding or editing a job.**
   **git-tracked** files (`graveyard.csv`, `generated_templates.csv`,
   `artifacts/factory_returns.csv`), so the working tree is dirty every day it runs.
   Nothing auto-commits that, on purpose.
-Desktop app: `~/Applications/tradefabe.app` (own Dock icon, native window, `tradefabe-app`
-entry point via pywebview). **Not tracked in git** — hand-built, 3 files under
-`~/Applications/tradefabe.app/Contents/`. If you rebuild or move it, bake
+
+### 2. CI (GitHub Actions, 1 workflow)
+`.github/workflows/tests.yml` — runs `pytest tests/` on GitHub's runners.
+**Trigger is `push` and `pull_request` on `main` ONLY.** A PR targeting any other branch
+gets *no checks at all* — `gh pr checks` reports "no checks reported", which reads like a
+failure but just means the workflow never fired. This bites stacked PRs: only the bottom
+of a stack is tested until each one is retargeted to `main` as the one below merges. Run
+the suite locally before relying on a stacked PR being green.
+
+### 3. In-process (run inside the scheduled jobs, not separately scheduled)
+These have no plist of their own, so they're invisible in `launchctl list`:
+- **`run_carry()`** (`carry_live.py`) — accrues real Hyperliquid funding on the
+  delta-neutral notional. Called by **both** `run_daily()` and `run_mark()`, so it fires
+  ~48x/day and stamps a minute-resolution history row each time.
+- **`check_carry_risk()`** (`carry_risk.py`) — funding-flip alert + short-leg liquidation
+  distance, sized against Hyperliquid's live margin tiers. Called by `run_daily()` **only**
+  (not by `mark`), so `state/paper/carry_risk.json` refreshes once a day, not every 30min
+  — the dashboard's risk panel prints its `generated_at`, and it lagging the other numbers
+  by up to a day is expected, not a bug. Never raises; a network failure yields a report
+  full of nulls rather than killing the run.
+- **Factory auto-promotion** (`factory_run.py` → `factory.promote()` /
+  `promote_generated()`) — every cycle promotes its best-DSR candidate to a live paper
+  book regardless of verdict, writing `state/paper/promoted*.json` and persisting the
+  winner's curve. `runner.py` reads those registries at **import time**, so a promotion
+  only takes effect on the next `run`/`mark` process.
+
+### 4. Dev-environment config (not runtime, but it acts on its own)
+- **`.claude/settings.json`** (tracked) — lets agents run `gh`/`git` without a prompt;
+  denies `gh repo delete` and force-push, since this repo's rule is branch-and-PR.
+  `.claude/settings.local.json` is Dave's personal, gitignored overlay.
+- **`.claude/launch.json`** — a `dashboard` preview config for `preview_start`.
+
+**Desktop app** (user-launched, NOT automated — listed here so the inventory above reads
+as complete): `~/Applications/tradefabe.app`, own Dock icon, native window, `tradefabe-app`
+entry point via pywebview. **Not tracked in git** — hand-built, 3 files under
+`~/Applications/tradefabe.app/Contents/` (issue #61). If you rebuild or move it, bake
 `export PYTHONPATH="$(repo root)/src"` into the launcher script before it execs
-`tradefabe-app` — see the Py3.14 gotcha below for why. `.claude/launch.json` has a
-`dashboard` preview config for `preview_start`.
+`tradefabe-app` — see the Py3.14 gotcha below for why.
 
 ## Doctrine — read DOCTRINE.md before adding or judging any strategy
 Pre-registered, OOS-only (2018+), data-derived noise floor (500 random strategies per

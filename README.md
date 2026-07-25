@@ -67,11 +67,35 @@ dashboard's carry panel includes a risk monitor: a trailing 7-day funding-flip a
 a short-leg liquidation-distance stress table, sized against Hyperliquid's own live
 margin tiers (fetched fresh each run, not a hardcoded leverage guess).
 
-Two launchd agents keep the paper engine running unattended: `com.dzheng.tradefabe` runs
-`tradefabe run` daily at 18:00 local (the actual rebalance), and
-`com.dzheng.tradefabe.mark` runs `tradefabe mark` every 30min so the live-equity chart has
-more than one point per day. Logs in `state/logs/`. The strategy factory
-(`research/factory_run.py`) isn't on a cron yet — still invoked by hand.
+## What runs unattended
+Three launchd agents keep the lab going without anyone at the keyboard. Their plists are
+tracked in [`ops/`](ops/), which also documents installing them and the silent-failure
+trap they can hit.
+
+| agent | what it does | when |
+|---|---|---|
+| `com.dzheng.tradefabe` | `tradefabe run` — the actual rebalance, each book on its own doctrine-registered M/W/D schedule | daily 18:00 |
+| `com.dzheng.tradefabe.mark` | `tradefabe mark` — mark-only, no rebalance, so the live-equity chart has more than one point per day | every 30 min |
+| `com.dzheng.tradefabe.factory` | `research/factory_run.py --n 20` — one strategy-factory cycle: 20 fresh candidates through the full doctrine gate, best one promoted to a live book | daily 17:00 |
+
+The factory runs an hour before the daily rebalance on purpose, so a candidate promoted at
+17:00 opens its paper book that same evening. Logs live in `state/logs/` for the first two
+and `~/Library/Logs/tradefabe/` for the factory (a macOS permissions constraint — `ops/README.md`
+explains). Note the 30-minute mark agent does **not** fire while the Mac is asleep, so the
+equity history legitimately has overnight gaps.
+
+Three more automations run *inside* those jobs rather than on their own schedule: real
+Hyperliquid funding accrual (every run and every mark), the carry risk monitor that writes
+the dashboard's funding-flip and liquidation panel (once daily, on `run` only), and the
+factory's auto-promotion of each cycle's best candidate.
+
+Tests run in CI on every push and PR **to `main`** via
+[`.github/workflows/tests.yml`](.github/workflows/tests.yml) — note that a PR targeting any
+other branch gets no checks at all.
+
+On the tooling side, `.claude/settings.json` lets coding agents run `git` and `gh` without
+a prompt (force-push and repo-deletion denied, since the rule here is branch-and-PR), and
+`.claude/launch.json` holds a dashboard preview config.
 
 ## Desktop app
 `~/Applications/tradefabe.app` opens the dashboard in a native window with its own Dock icon
@@ -93,11 +117,12 @@ Entry point: `tradefabe-app` (pywebview). **Not tracked in git** — hand-built 
 - Every strategy ever tested is logged in `graveyard.csv` — the multiple-testing record.
 
 ## Roadmap
-Tracked as GitHub issues on this repo (milestone **Engine v1**), mirrored on a
-[Projects board](https://github.com/users/dzheng1328/projects/1). 13 closed (shared
-engine core, unit tests + CI, dashboard restructure around live paper books, carry
-funding-flip + margin monitor, promote/kill criteria, and — most recently — the
-strategy-factory initiative: DOCTRINE v1.4, the factory itself, auto-promotion, and two
-dashboard views for it), 8 open (scheduling the factory via launchd, Alpaca paper
-integration, a dashboard risk register panel, and a few backtest candidates still
-pending).
+Everything lives on the [Projects board](https://github.com/users/dzheng1328/projects/1) —
+every issue this repo has ever had, tagged with **Status**, **Phase**, **Area** and
+**Priority**. Work completed before the tracker existed was backfilled as closed issues, so
+the board is the whole history rather than just the queue.
+
+Phases: `Lab v0` (the founding research run), `Engine v1` (paper engine, CI, scheduling),
+`Dashboard v2`, `Strategy factory`, and `Ongoing` (live research plus standing gaps —
+things like a DEAD verdict whose script was never saved, and a hand-built desktop app with
+no build script). Check the board rather than this paragraph for current counts.
