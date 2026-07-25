@@ -207,10 +207,11 @@ machine-generated. Key things to know before touching this:
     Homebrew's file, not the venv's).
   - The `.app` desktop launcher hits this too (no `PYTHONPATH` by default) — see the
     Commands section above for the fix baked into the launcher script.
-- **`congress_copy` (NANC proxy) has no script in the repo.** It was run and verdicted
-  (DEAD, −0.4%/yr alpha after SPY+QQQ beta) but never saved as a reproducible file —
-  the verdict lives only in `STRATEGIES.md` prose and memory. If it needs re-checking,
-  write `research/congress_backtest.py` from scratch rather than looking for one.
+- **`congress_copy` is verdicted but has no `graveyard.csv` row.** `research/congress_backtest.py`
+  now reproduces it (#59): NANC alpha −0.28%/yr, t = −0.12, R² 0.93 on SPY+QQQ — pure
+  tech beta, DEAD confirmed. It is deliberately NOT in graveyard.csv: that schema is for
+  strategies scored through the doctrine gates (DSR/CPCV/noise floor), and this was judged
+  by factor regression, so a row would be mostly empty fields pretending to be a gate run.
 - **`graveyard.csv` is tracked in git** (fixed 2026-07-22 — it used to be gitignored,
   which silently defeated its own stated purpose as "the multiple-testing record").
   If you ever add strategies to the `.gitignore` block, don't let this one slip back in.

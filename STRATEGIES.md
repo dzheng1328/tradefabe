@@ -100,8 +100,8 @@ rare cycle that finds a real winner.
 
 Both DEAD. Congressional "outperformance" is stale + now just tech beta. Insider-buying's real
 edge lives in illiquid microcaps where spreads/impact eat it; the tradeable slice has no edge and
-lost to random stock-picking from the same pool. Backtests: `insider_backtest.py`, NANC/KRUZ/KNOW
-regression above. Survivorship (145 delisted names dropped) biased insider results UP, and it still died.
+lost to random stock-picking from the same pool. Backtests: `insider_backtest.py`, `congress_backtest.py`
+(NANC/KRUZ/KNOW alpha vs SPY+QQQ). Survivorship (145 delisted names dropped) biased insider results UP, and it still died.
 
 ### H. Piggyback / combined constructions (edge: a standalone-DEAD strategy can still earn
 its place as a diversifying sleeve on the passive core — see `combine.py`, doctrine's
