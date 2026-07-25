@@ -7,6 +7,19 @@ multiple-testing record. Pipeline for every strategy, no exceptions:
 > **Stage 1** historical backtest vs DOCTRINE → **Stage 2** forward paper-trading (Alpaca,
 > autonomous) → **Stage 3** real money (never without an explicit human decision).
 
+**The strategy factory (#28, `src/tradefabe/factory.py` + `research/factory_run.py`).**
+Rather than one candidate at a time by hand, `factory.TEMPLATES` is a pre-registered
+library of parametrized signal generators — new lookback/window variants of families
+already below, plus new family I — each with its own one-line economic rationale (same
+bar as the rest of this roster). `factory_run.py` draws a bounded, family-diverse sample
+per cycle, runs every candidate through the identical doctrine gate (DOCTRINE v1.4,
+no lighter bar for being machine-generated), and — since blind full enumeration would
+inflate `n_tested` for no reason — picks the single least-correlated pair among that
+cycle's candidates for one piggyback-style construction, rather than testing every
+subset. The rows below ARE the pre-registration: the template's parameters are frozen in
+`factory.py` before any candidate drawn from it is evaluated, exactly like a hand-picked
+strategy's spec is frozen here before its verdict.
+
 ## Families — deliberately different edge sources
 
 ### A. Trend / momentum (edge: gradual underreaction to news)
@@ -16,23 +29,36 @@ multiple-testing record. Pipeline for every strategy, no exceptions:
 | `tsmom_ensemble` | blend of 3/6/12-mo trend | M | TESTED |
 | `xsec_momentum` | long 12-mo winners, short losers | M | TESTED |
 | `green_line_200d` | long above 200-day MA, short below | M | TESTED |
+| `tsmom_3m` (factory) | sign of trailing 3-mo return | M | **DEAD** — DSR 0.23 |
+| `tsmom_6m` (factory) | sign of trailing 6-mo return | M | **DEAD** — DSR 0.25 |
+| `tsmom_9m` (factory) | sign of trailing 9-mo return | M | **DEAD** — DSR 0.50 |
+| `tsmom_18m` (factory) | sign of trailing 18-mo return | M | **DEAD** — DSR 0.62 |
+| `tsmom_24m` (factory) | sign of trailing 24-mo return | M | **DEAD** — DSR 0.48 |
 
 ### B. Mean reversion (edge: short-horizon overreaction — the *opposite* bet to A)
 | strategy | spec | freq | status |
 |---|---|---|---|
 | `str_reversal_5d` | fade the trailing 5-day move | W | TESTED |
+| `str_reversal_3d` (factory) | fade the trailing 3-day move | W | **DEAD** — DSR 0.00 |
+| `str_reversal_10d` (factory) | fade the trailing 10-day move | W | **DEAD** — DSR 0.04 |
+| `str_reversal_15d` (factory) | fade the trailing 15-day move | W | **DEAD** — DSR 0.10 |
+| `str_reversal_20d` (factory) | fade the trailing 20-day move | W | **DEAD** — DSR 0.13 |
 | pairs / cointegration | Engle-Granger pair spread z-score | D | QUEUED — needs pair-scan infra |
 
 ### C. Calendar / seasonality (edge: structural flow patterns, not prediction)
 | strategy | spec | freq | status |
 |---|---|---|---|
 | `turn_of_month` | long all assets, last 4 + first 3 trading days | D | TESTED |
+| `turn_of_month_narrow` (factory) | long all assets, last 2 + first 2 trading days | D | **DEAD** — clears DSR (1.00) but fails gate 2 (Calmar 0.06 vs bench 0.45) |
+| `turn_of_month_wide` (factory) | long all assets, last 5 + first 5 trading days | D | **DEAD** — clears DSR (1.00) but fails gate 2 (Calmar 0.18 vs bench 0.45) |
 | overnight effect | hold close→open only | D | QUEUED — needs Open prices in cache |
 
 ### D. Defensive anomaly (edge: leverage-constrained investors overpay for volatility)
 | strategy | spec | freq | status |
 |---|---|---|---|
 | `low_vol_xsec` | long calmer half of universe, short wilder half (BAB-lite) | M | TESTED |
+| `low_vol_xsec_30d` (factory) | same split, 30-day vol window (vs 60-day) | M | **DEAD** — DSR 0.01 |
+| `low_vol_xsec_120d` (factory) | same split, 120-day vol window (vs 60-day) | M | **DEAD** — DSR 0.03 |
 
 ### E. Carry / structural (edge: get PAID a flow, no prediction needed)
 | strategy | spec | freq | status |
@@ -88,6 +114,33 @@ the roster) — that correlation-structure finding stands; what changed is wheth
 piggyback construction can statistically prove it beats a random one once multiple
 testing is honestly priced in. Verdicts: `graveyard.csv` (original + corrected rows,
 both kept — append-only ledger), `research/piggyback_backtest.py`.
+
+### I. Breakout / channel (edge: react to a price EXTREME, not an average — a distinct
+mechanism from family A's moving-average trend, added by the strategy factory, #28)
+
+| strategy | spec | freq | status |
+|---|---|---|---|
+| `donchian_20d` (factory) | long a new 20-day high, short a new 20-day low | D | **DEAD** — clears DSR (1.00) but fails gate 2 (Calmar −0.08 vs bench 0.45) |
+| `donchian_55d` (factory) | long a new 55-day high, short a new 55-day low | D | **DEAD** — clears DSR (1.00) but fails gate 2 (Calmar −0.11 vs bench 0.45) |
+
+Classic Turtle Trader channel lengths (Faith 2007). ICT/Smart-Money-Concepts (#24) were
+considered for this slot and deliberately excluded from the factory's template library:
+this project's price cache is Close-only (`engine.load_prices`), and Fair Value Gaps/
+order blocks/liquidity sweeps all need High/Low (or intraday) data this repo doesn't
+fetch yet — faking them off Close-only data would mislabel an arbitrary heuristic as an
+ICT concept. #24 remains its own issue, blocked on the same class of data gap for a
+different reason (2yr-hourly recency).
+
+**First factory cycle (2026-07-25, seed 20260725):** drew all 15 templates + one
+correlation-picked combo (`str_reversal_15d` + `tsmom_6m`, corr −0.00 — genuinely
+uncorrelated, not just low). **All 16 DEAD**, `n_tested` 27→28. The daily-rebalanced
+calendar/breakout variants (`turn_of_month_narrow/wide`, `donchian_20d/55d`) all clear
+DSR outright (1.00 — an artifact of the D-frequency noise floor's own SR* sitting deeply
+negative, same shape as the existing `turn_of_month` row) but every one fails gate 2 on
+Calmar, same failure mode as their already-tested siblings. No parameter variant of an
+already-DEAD family manufactured a new edge — consistent with this roster's whole
+track record, and exactly what a working multiple-testing correction should look like:
+volume alone doesn't buy a pass.
 
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
