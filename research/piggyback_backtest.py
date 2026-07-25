@@ -25,7 +25,7 @@ from tradefabe.engine import load_prices, size_and_rebalance, net_returns, stats
 from tradefabe.signals import sig_random
 from tradefabe.piggyback import LEGS, SPECS, SLEEVE
 from harness import (benchmark_returns, OOS_START, CORR_DIV, DD_MULT, GRAVEYARD,
-                     bonferroni_bar, family_n_tested)
+                     bonferroni_bar, family_n_tested, dsr_gate1)
 
 NULL_TRIALS = 150
 FREQ = "M"
@@ -60,8 +60,11 @@ def evaluate(name, combo, bench, null, k, legs, n_tested):
     both = pd.concat([combo, bench], axis=1).dropna()
     corr = both.iloc[:, 0].corr(both.iloc[:, 1])
     null_bar, bar_method, bar_pctile = bonferroni_bar(null, n_tested)
+    # DOCTRINE v1.4: same shared gate-1 decision harness.evaluate() uses for bare
+    # strategies -- bonferroni_bar above stays, logged only, same as harness.py.
+    v14 = dsr_gate1(combo, null, n_tested)
 
-    beats_luck = s["Sharpe"] > null_bar
+    beats_luck = v14["beats_luck"]
     earns = (calmar(s) > calmar(b)) or (abs(corr) < CORR_DIV and s["Sharpe"] >= b["Sharpe"])
     dd_ok = s["MaxDD"] >= DD_MULT * b["MaxDD"]
     alive = bool(beats_luck and earns and dd_ok)
@@ -69,8 +72,10 @@ def evaluate(name, combo, bench, null, k, legs, n_tested):
     print(f"\n=== DOCTRINE verdict: {name}  (sleeve: {' + '.join(legs)}) ===")
     print(f"  combo     Sharpe {s['Sharpe']:.2f} | Sortino {s['Sortino']:.2f} | Calmar {calmar(s):.2f} | MaxDD {s['MaxDD']:.1%} | corr->bench {corr:.2f}")
     print(f"  benchmark Sharpe {b['Sharpe']:.2f} | Calmar {calmar(b):.2f} | MaxDD {b['MaxDD']:.1%}   (60/40)")
-    print(f"  matched luck floor (depth-{k} construction, {NULL_TRIALS} trials, n_tested={n_tested}, {bar_method} p{bar_pctile:.2f}): Sharpe = {null_bar:.2f}")
-    print(f"  gate 1  beats luck  : {beats_luck}   ({s['Sharpe']:.2f} > {null_bar:.2f})")
+    print(f"  matched luck floor (depth-{k} construction, {NULL_TRIALS} trials, n_tested={n_tested}): Bonferroni {bar_method} p{bar_pctile:.2f} = {null_bar:.2f} (logged only)")
+    print(f"  DSR (v1.4): {v14['dsr']:.3f} vs SR* {v14['sr_star']:.2f} annualized "
+          f"({v14['cpcv_n_paths']} CPCV paths, skew {v14['skew']:.2f}, kurt {v14['kurtosis']:.2f})")
+    print(f"  gate 1  beats luck  : {beats_luck}   (DSR {v14['dsr']:.3f} > 0.95)")
     print(f"  gate 2  earns place : {earns}   (Calmar {calmar(s):.2f} vs {calmar(b):.2f}; |corr| {abs(corr):.2f} -- structurally high, informational only)")
     print(f"  gate 3  not painful : {dd_ok}   (MaxDD {s['MaxDD']:.1%} vs limit {DD_MULT * b['MaxDD']:.1%})")
     print(f"  VERDICT: {'ALIVE -> promote to forward paper-testing' if alive else 'DEAD -> graveyard, no rescue'}")
@@ -81,7 +86,11 @@ def evaluate(name, combo, bench, null, k, legs, n_tested):
            "oos_maxdd": round(s["MaxDD"], 3), "corr_bench": round(corr, 3),
            "null_p95": round(null_bar, 3), "bench_sharpe": round(b["Sharpe"], 3),
            "bench_calmar": round(calmar(b), 3), "verdict": "ALIVE" if alive else "DEAD",
-           "n_tested": n_tested, "bar_method": bar_method, "bar_pctile": round(bar_pctile, 3)}
+           "n_tested": n_tested, "bar_method": bar_method, "bar_pctile": round(bar_pctile, 3),
+           "dsr": round(v14["dsr"], 4), "dsr_sr_star": round(v14["sr_star"], 3),
+           "cpcv_n_paths": v14["cpcv_n_paths"],
+           "cpcv_sharpe_mean": round(v14["cpcv_sharpe_mean"], 3) if v14["cpcv_sharpe_mean"] is not None else "",
+           "cpcv_sharpe_std": round(v14["cpcv_sharpe_std"], 3) if v14["cpcv_sharpe_std"] is not None else ""}
     pd.DataFrame([row]).to_csv(GRAVEYARD, mode="a", header=not os.path.exists(GRAVEYARD), index=False)
 
 
