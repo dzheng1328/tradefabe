@@ -11,6 +11,7 @@ Paper only.
 from __future__ import annotations
 import os
 import sys
+import time
 import numpy as np
 import pandas as pd
 
@@ -36,12 +37,47 @@ BASE       = str(REPO_ROOT)                              # repo root: data/ and 
 DATA_CACHE = os.path.join(BASE, "data", "prices.csv")
 
 
+# How long a cached price file is trusted before we re-download. The cache used to have
+# no expiry at all, so a local checkout silently scored every strategy against whatever
+# prices it happened to fetch first (found 5 days stale, 2026-07-26).
+CACHE_MAX_AGE_HOURS = float(os.environ.get("TRADEFABE_CACHE_HOURS", "12"))
+
+
+def drop_incomplete_tail(px):
+    """Trim trailing rows that aren't a complete cross-section.
+
+    yfinance intermittently appends a partial bar for the current, still-open (or
+    non-trading) day: the row exists but some tickers are NaN. That row is not a close,
+    and marking against it produced both a NaN equity and a phantom flip-flop between two
+    equity values on a weekend when nothing traded (2026-07-26).
+
+    Only the TAIL is trimmed. Leading NaNs are legitimate -- they're tickers whose history
+    starts later than the universe's."""
+    if px.empty:
+        return px
+    complete = px.notna().all(axis=1)
+    if not complete.any() or complete.iloc[-1]:
+        return px
+    last = complete[complete].index[-1]
+    n = int((px.index > last).sum())
+    print(f"[warn] dropping {n} trailing incomplete price bar(s) after {last.date()} "
+          f"(partial cross-section, not a close)", file=sys.stderr)
+    return px.loc[:last]
+
+
+def _cache_is_fresh(path):
+    age_h = (time.time() - os.path.getmtime(path)) / 3600.0
+    return age_h <= CACHE_MAX_AGE_HOURS
+
+
 def load_prices():
-    """cache -> yfinance -> synthetic fallback. Returns (prices, source_label)."""
+    """fresh cache -> yfinance -> stale cache -> synthetic. Returns (prices, source_label)."""
     os.makedirs(os.path.dirname(DATA_CACHE), exist_ok=True)
+    cached = None
     if os.path.exists(DATA_CACHE):
-        px = pd.read_csv(DATA_CACHE, index_col=0, parse_dates=True)
-        return px.dropna(how="all"), "cache"
+        cached = pd.read_csv(DATA_CACHE, index_col=0, parse_dates=True).dropna(how="all")
+        if _cache_is_fresh(DATA_CACHE):
+            return drop_incomplete_tail(cached), "cache"
     try:
         import yfinance as yf
         raw = yf.download(UNIVERSE, start=START, auto_adjust=True, progress=False, threads=False)
@@ -54,9 +90,14 @@ def load_prices():
         px = px.dropna(how="all")
         if px.shape[0] < 500 or px.shape[1] < 4:
             raise RuntimeError("insufficient data returned from yfinance")
-        px.to_csv(DATA_CACHE)
-        return px, "yfinance"
-    except Exception as e:  # offline / sandbox fallback so the pipeline still runs end-to-end
+        px.to_csv(DATA_CACHE)                      # cache the RAW frame; trim on the way out
+        return drop_incomplete_tail(px), "yfinance"
+    except Exception as e:
+        # a stale cache is real market data; synthetic is not. Always prefer the cache.
+        if cached is not None:
+            print(f"[warn] live data unavailable ({e}); falling back to STALE cache.",
+                  file=sys.stderr)
+            return drop_incomplete_tail(cached), "cache (stale)"
         print(f"[warn] live data unavailable ({e}); generating SYNTHETIC data.", file=sys.stderr)
         return _synthetic_prices(), "SYNTHETIC (do not trust the numbers)"
 

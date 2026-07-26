@@ -64,13 +64,16 @@ def _run_book(name, freq, get_weights, px, today, last, verbose):
     fresh = not book["positions"] and book["last_rebalance"] is None
     due = fresh or freq == "D" or signals.is_month_first_trading_day(px.index)
     if due:
-        books.rebalance_to(book, get_weights(px, name), today, last, signals.COST_BPS)
+        ok = books.rebalance_to(book, get_weights(px, name), today, last, signals.COST_BPS)
     else:
-        books.mark(book, today, last)
+        ok = books.mark(book, today, last)
     books.save(book)
     if verbose:
-        print(f"  {name:<18} equity ${books.equity(book, last):>12,.0f}"
-              f"  ({'rebalanced' if due else 'marked'})")
+        if ok:
+            print(f"  {name:<18} equity ${books.equity(book, last):>12,.0f}"
+                  f"  ({'rebalanced' if due else 'marked'})")
+        else:
+            print(f"  {name:<18} {'':>19}  (SKIPPED — unpriceable, ledger untouched)")
 
 
 def run_mark(verbose: bool = True) -> pd.DataFrame:
@@ -85,10 +88,13 @@ def run_mark(verbose: bool = True) -> pd.DataFrame:
     last = px.iloc[-1]
     for name in ALL_BOOKS:
         book = books.load(name)
-        books.mark(book, now, last)
+        ok = books.mark(book, now, last)
         books.save(book)
         if verbose:
-            print(f"  {name:<18} equity ${books.equity(book, last):>12,.0f}  (marked)")
+            if ok:
+                print(f"  {name:<18} equity ${books.equity(book, last):>12,.0f}  (marked)")
+            else:
+                print(f"  {name:<18} {'':>19}  (SKIPPED — unpriceable, ledger untouched)")
     carry = run_carry()
     if verbose:
         print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
