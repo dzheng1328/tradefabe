@@ -91,7 +91,12 @@ def mark(book: dict, date: str, px: pd.Series) -> bool:
         print(f"[warn] {book['name']}: skipping mark at {date} — no usable price for "
               f"{unpriced or 'held positions'}", file=sys.stderr)
         return False
-    if not book["history"] or book["history"][-1][0] != date:
+    # A key already recorded is never rewritten -- the first valuation of a bar is the
+    # record. But the check has to scan the WHOLE history, not just history[-1]:
+    # run_daily() keys on a bare date and run_mark() on a full timestamp, so the two
+    # interleave, and a repeated bare date that wasn't the last entry got appended a
+    # second time (25 duplicate keys accumulated before this was caught).
+    if not any(row[0] == date for row in book["history"]):
         book["history"].append([date, round(eq, 2)])
     book["last_run"] = dt.datetime.now().isoformat(timespec="seconds")
     book["last_price_bar"] = bar_date(px) or book.get("last_price_bar")
