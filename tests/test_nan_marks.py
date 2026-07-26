@@ -144,3 +144,50 @@ def test_multiple_trailing_partial_bars_are_all_dropped():
 
 def test_empty_frame_does_not_explode():
     assert engine.drop_incomplete_tail(pd.DataFrame()).empty
+
+
+# ------------------------------------------------------- no backward time travel
+def _bar(day, spy=100.0, ief=50.0):
+    """A price row labelled with the bar it came from, the way px.iloc[-1] is."""
+    s = pd.Series({"SPY": spy, "IEF": ief})
+    s.name = pd.Timestamp(day)
+    return s
+
+
+def test_a_mark_never_regresses_to_an_older_bar(book):
+    # the dashboard square wave: yfinance's newest row comes and goes, so equity jumped
+    # between Friday's close and Thursday's close and back again
+    assert books.mark(book, "t1", _bar("2026-07-24", spy=110.0)) is True
+    friday = list(book["history"])
+    assert books.mark(book, "t2", _bar("2026-07-23", spy=100.0)) is False
+    assert book["history"] == friday, "equity may stand still but must not travel back"
+
+
+def test_the_same_bar_may_be_re_marked(book):
+    assert books.mark(book, "t1", _bar("2026-07-24")) is True
+    assert books.mark(book, "t2", _bar("2026-07-24")) is True
+    assert len(book["history"]) == 2
+
+
+def test_a_newer_bar_is_accepted(book):
+    assert books.mark(book, "t1", _bar("2026-07-23", spy=100.0)) is True
+    assert books.mark(book, "t2", _bar("2026-07-24", spy=110.0)) is True
+    assert book["history"][-1][1] > book["history"][0][1]
+
+
+def test_the_bar_actually_used_is_recorded(book):
+    books.mark(book, "t1", _bar("2026-07-24"))
+    assert book["last_price_bar"] == "2026-07-24"
+
+
+def test_an_unlabelled_series_still_marks(book):
+    # plain Series with no .name -- must not crash or silently refuse
+    assert books.mark(book, "t1", _px()) is True
+
+
+def test_rebalance_refuses_an_older_bar(book):
+    w = pd.Series({"SPY": 0.6, "IEF": 0.4})
+    assert books.rebalance_to(book, w, "2026-07-24", _bar("2026-07-24"), 5.0) is True
+    before = dict(book["positions"])
+    assert books.rebalance_to(book, w, "2026-07-23", _bar("2026-07-23"), 5.0) is False
+    assert book["positions"] == before

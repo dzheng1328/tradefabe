@@ -51,10 +51,39 @@ def equity(book: dict, px: pd.Series) -> float:
     return book["cash"] + pos_val
 
 
+def bar_date(px: pd.Series):
+    """The date of the price bar this Series came from, or None if unlabelled."""
+    name = getattr(px, "name", None)
+    if name is None:
+        return None
+    try:
+        return pd.Timestamp(name).date().isoformat()
+    except (ValueError, TypeError):
+        return None
+
+
+def _regressed(book: dict, px: pd.Series) -> str | None:
+    """The bar we'd be marking against, if it is OLDER than the last one used.
+
+    yfinance's most recent row comes and goes: a complete Friday bar in one call, an
+    incomplete one in the next, absent in a third. Marking against whatever arrives makes
+    equity jump backwards to an earlier close and back again -- the two-value square wave
+    seen on the dashboard 2026-07-26. Equity may stand still, but it must never travel
+    back in time."""
+    bar, prev = bar_date(px), book.get("last_price_bar")
+    return bar if (bar and prev and bar < prev) else None
+
+
 def mark(book: dict, date: str, px: pd.Series) -> bool:
     """Append an equity mark. Returns False (and writes nothing) if the book can't be
     priced -- a NaN written into the ledger is permanent and silently poisons every
-    downstream chart and return series (hit for real 2026-07-26, 8 books in one cycle)."""
+    downstream chart and return series (hit for real 2026-07-26, 8 books in one cycle) --
+    or if the price bar is older than the one already marked against."""
+    stale = _regressed(book, px)
+    if stale:
+        print(f"[warn] {book['name']}: skipping mark at {date} — price bar {stale} is older "
+              f"than {book['last_price_bar']} already used", file=sys.stderr)
+        return False
     eq = equity(book, px)
     if not math.isfinite(eq):
         unpriced = [t for t in book["positions"]
@@ -65,6 +94,7 @@ def mark(book: dict, date: str, px: pd.Series) -> bool:
     if not book["history"] or book["history"][-1][0] != date:
         book["history"].append([date, round(eq, 2)])
     book["last_run"] = dt.datetime.now().isoformat(timespec="seconds")
+    book["last_price_bar"] = bar_date(px) or book.get("last_price_bar")
     return True
 
 
@@ -82,6 +112,11 @@ def rebalance_to(book: dict, weights: pd.Series, date: str, px: pd.Series,
     Returns False without trading if the book or any target name can't be priced. Note
     `p <= 0` does NOT screen NaN (`nan <= 0` is False), so a partial price bar would
     otherwise size positions off a NaN and corrupt the book permanently."""
+    stale = _regressed(book, px)
+    if stale:
+        print(f"[warn] {book['name']}: skipping rebalance at {date} — price bar {stale} is "
+              f"older than {book['last_price_bar']} already used", file=sys.stderr)
+        return False
     eq = equity(book, px)
     if not math.isfinite(eq):
         print(f"[warn] {book['name']}: skipping rebalance at {date} — book not priceable",
