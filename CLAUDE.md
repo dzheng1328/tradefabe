@@ -145,6 +145,15 @@ instead of one hand-picked strategy, through the same DSR/CPCV gate.
   freq is the FINER of the two legs'.
 
 ## Live gotchas — check these before assuming something's broken
+- **yfinance intermittently returns a PARTIAL trailing bar** for the current, still-open
+  or non-trading day — the row exists, some tickers are NaN. `engine.drop_incomplete_tail()`
+  trims it. Never treat the last row as a close without that. NaN also slips past naive
+  guards: `nan or 0` is `nan` and `nan <= 0` is `False`, so `books.mark()` /
+  `rebalance_to()` check `math.isfinite` explicitly and skip-and-warn rather than write.
+  A NaN in the ledger is permanent. Test: `tests/test_nan_marks.py`.
+- **The price cache expires after 12h** (`TRADEFABE_CACHE_HOURS`). It used to have no
+  expiry, so local runs scored against arbitrarily old prices while the cloud engine (no
+  cache) was fine. Offline, a stale cache beats synthetic — real-but-old over invented.
 - **Install BOTH extras: `pip install -e ".[dev,desktop]"`.** `desktop.py` imports
   `webview` *lazily inside main()*, so omitting `[desktop]` leaves
   `import tradefabe.desktop` succeeding and the app dead on launch. Verifying by module
