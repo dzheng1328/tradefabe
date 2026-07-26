@@ -539,6 +539,7 @@ BOOK_FAMILIES = {
     "G": "Information / signal-following",
     "H": "Piggyback / combined",
     "I": "Breakout / channel",
+    "L": "Intraday / hourly",
 }
 BOOK_FAMILY = {
     "tsmom_12m": "A", "tsmom_ensemble": "A", "green_line_200d": "A", "xsec_momentum": "A",
@@ -554,6 +555,8 @@ BOOK_FAMILY = {
     "turn_of_month_narrow": "C", "turn_of_month_wide": "C",
     "low_vol_xsec_30d": "D", "low_vol_xsec_120d": "D",
     "donchian_20d": "I", "donchian_55d": "I",
+    # family L, hourly (#86) -- all DEAD, all regime-limited to 2023+ by data availability
+    "funding_timing_1h": "L", "crypto_reversal_1h": "L", "equity_tsmom_1h": "L",
 }
 
 
@@ -760,6 +763,17 @@ STRATEGY_DESCRIPTIONS = {
                     "price EXTREME rather than an average; the faster classic Turtle Trader length.",
     "donchian_55d": "Breakout: long a new 55-day high, short a new 55-day low — the slower "
                      "classic Turtle Trader channel length.",
+    "funding_timing_1h": "Hourly: delta-neutral BTC+ETH carry whose notional is on when the "
+                         "trailing 24h mean funding is positive and flat when it is negative. "
+                         "DEAD — always-on carry returned +10.4%/yr at Sharpe 12.4 over the "
+                         "identical window, so the timing overlay destroyed 40% of the return. "
+                         "Regime-limited: hourly funding only exists from 2023-05.",
+    "crypto_reversal_1h": "Hourly: fade the trailing 6h move on BTC+ETH, equal weight, "
+                          "long/short. DEAD — turnover drag alone is 173%/yr (0.40 per bar × "
+                          "8,679 bars/yr × 5bps). Regime-limited to 2024-07+.",
+    "equity_tsmom_1h": "Hourly: sign of the trailing 24-bar (~5 session) return on the 15-ETF "
+                       "universe, long/short. DEAD — lost 14.4%/yr against 14%/yr of turnover "
+                       "drag. Regime-limited to 2023-08+.",
 }
 
 
