@@ -376,3 +376,59 @@ def promote_generated(spec):
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     with open(PROMOTED_GENERATED_PATH, "w") as fh:
         json.dump(entries, fh, indent=1)
+
+
+# ---------- promotion registry for correlation-picked COMBOS (#64) ----------
+# The third registry, and the reason it exists: factory_run.py builds one combo per cycle
+# from the least-correlated pair, but until now it could never become a live book --
+# piggyback.REGISTRY is a fixed hand-picked dict, so the factory could promote a
+# single-strategy candidate it discovered and not a COMBO it discovered. That asymmetry
+# was an unfinished wiring job, not a doctrine choice.
+#
+# A combo carries its legs' full specs (not just names) for the same reason
+# PROMOTED_GENERATED_PATH does: a generated leg's signal function exists in no importable
+# module-level dict, so a fresh `tradefabe run` process must reconstruct it.
+PROMOTED_COMBOS_PATH = STATE_DIR / "promoted_combos.json"
+COMBO_SLEEVE = 0.30   # same fixed sleeve piggyback.py uses -- pre-committed, not optimized
+
+
+def load_promoted_combos():
+    if not PROMOTED_COMBOS_PATH.exists():
+        return []
+    with open(PROMOTED_COMBOS_PATH) as fh:
+        return json.load(fh)
+
+
+def promote_combo(spec):
+    """Registers a combo as a live paper book, idempotent by name. `spec` is
+    {"name", "freq", "legs": [{"name", "family", "params"} | {"name": <TEMPLATES key>}]}."""
+    entries = load_promoted_combos()
+    if any(e["name"] == spec["name"] for e in entries):
+        return
+    entries.append({"name": spec["name"], "freq": spec["freq"], "legs": spec["legs"]})
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(PROMOTED_COMBOS_PATH, "w") as fh:
+        json.dump(entries, fh, indent=1)
+
+
+def _leg_signal(leg):
+    """A leg is either a TEMPLATES entry (name alone is enough) or a generated candidate
+    (needs family+params to rebuild)."""
+    if leg.get("params"):
+        return rebuild_signal(leg["family"], leg["params"])
+    if leg["name"] in TEMPLATES:
+        return TEMPLATES[leg["name"]][0]
+    raise KeyError(f"combo leg {leg['name']!r} is neither a template nor a generated spec")
+
+
+def combo_target_weights(prices, spec):
+    """70% of the 60/40 core + 30% equal-weight blend of each leg's own vol-targeted
+    weights -- the identical construction piggyback.target_weights() uses, so a promoted
+    combo is allocated exactly like a hand-picked piggyback book rather than by a second,
+    subtly different rule."""
+    from .engine import BENCH_W, sized_weights
+    leg_w = [sized_weights(prices, _leg_signal(l)(prices)).iloc[-1].fillna(0.0)
+             for l in spec["legs"]]
+    sleeve_w = sum(leg_w) / len(leg_w)
+    bench_w = pd.Series(BENCH_W).reindex(prices.columns).fillna(0.0)
+    return (1 - COMBO_SLEEVE) * bench_w + COMBO_SLEEVE * sleeve_w

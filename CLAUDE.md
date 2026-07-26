@@ -184,9 +184,13 @@ machine-generated. Key things to know before touching this:
 - **A promoted book needs a persisted backtest curve or the dashboard crashes** — see
   the Known gaps entry below. Only promoted candidates get one written
   (`artifacts/factory_returns.csv`); the other ~19/cycle correctly don't.
-- The correlation-picked combo (one per cycle, from the least-correlated pair) is
-  evaluated and logged but never auto-promoted — `piggyback.py`'s registry is still a
-  fixed hand-picked dict, not yet dynamic.
+- **The correlation-picked combo competes in the same promotion ranking** (#64). It is
+  not promoted *in addition* to the best individual — one new book per cycle either way.
+  Promoted combos live in `state/paper/promoted_combos.json` (a third registry beside
+  `promoted.json`/`promoted_generated.json`), each carrying its legs' full specs so a
+  fresh `tradefabe run` can rebuild both signals. Weights use
+  `factory.combo_target_weights()`, the identical 70/30 construction
+  `piggyback.target_weights()` uses. Rebalance freq is the FINER of the two legs'.
 - Runs daily at 17:00 via `com.dzheng.tradefabe.factory` (issue #38, closed 2026-07-25).
   Its plist is tracked in `ops/`; logs go to `~/Library/Logs/tradefabe/`, not `state/logs/`.
 

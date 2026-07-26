@@ -70,6 +70,23 @@ def _persist_backtest_curve(name, r_oos):
         r_oos.rename(name).to_frame().to_csv(FACTORY_RETURNS_PATH)
 
 
+_FREQ_ORDER = {"D": 0, "W": 1, "M": 2}
+
+
+def _combo_spec(name, candidates, leg_a, leg_b):
+    """Legs carry their full spec so a fresh runner process can rebuild both signals.
+    The book rebalances at the FINER of the two legs' frequencies -- a daily leg blended
+    into a monthly-rebalanced book would only refresh its signal 12x/yr, which is not the
+    strategy that was backtested."""
+    by_name = {c["name"]: c for c in candidates}
+    legs = []
+    for leg in (leg_a, leg_b):
+        c = by_name[leg]
+        legs.append({"name": leg, "family": c["family"], "params": c["params"]})
+    freq = min((by_name[leg_a]["freq"], by_name[leg_b]["freq"]), key=lambda f: _FREQ_ORDER.get(f, 9))
+    return {"name": name, "freq": freq, "legs": legs}
+
+
 def _template_candidates(names):
     out = []
     for name in names:
@@ -151,6 +168,7 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
         harness_evaluate(c["name"], returns[c["name"]], bench, nulls[c["freq"]], c["freq"], n_tested)
 
     evaluated = list(names_this_cycle)
+    combo_name = combo_returns = combo_spec = None
     oos_returns = {name: r[r.index >= OOS_START] for name, r in returns.items()}
     oos_frame = pd.DataFrame(oos_returns).dropna(how="all")
     if len(names_this_cycle) >= 2:
@@ -170,18 +188,29 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
                 piggyback_evaluate(combo_name, combo, bench_oos, null_k2, 2,
                                    (leg_a, leg_b), combo_n_tested)
                 evaluated.append(combo_name)
+                combo_returns = combo
+                combo_spec = _combo_spec(combo_name, candidates, leg_a, leg_b)
 
-    # ---- promote the single best-DSR individual this cycle, regardless of verdict ----
-    rows = rows_for(names_this_cycle)
+    # ---- promote the single best-DSR candidate this cycle, regardless of verdict ----
+    # The combo competes in this SAME ranking (#64) rather than being promoted on top of
+    # the winner: it fixes the asymmetry (the factory could promote an individual it
+    # discovered but not a combo it discovered) without changing the one-new-book-per-
+    # cycle growth rate that CLAUDE.md documents.
+    pool = names_this_cycle + ([combo_name] if combo_spec else [])
+    rows = rows_for(pool)
     if len(rows):
         best = rows.loc[rows["dsr"].idxmax()]
         best_name = best["strategy"]
-        best_candidate = next(c for c in candidates if c["name"] == best_name)
-        if best_candidate["source"] == "template":
-            factory.promote(best_name)
+        if combo_spec and best_name == combo_name:
+            factory.promote_combo(combo_spec)
+            _persist_backtest_curve(best_name, combo_returns)
         else:
-            factory.promote_generated(best_candidate)
-        _persist_backtest_curve(best_name, oos_returns[best_name])
+            best_candidate = next(c for c in candidates if c["name"] == best_name)
+            if best_candidate["source"] == "template":
+                factory.promote(best_name)
+            else:
+                factory.promote_generated(best_candidate)
+            _persist_backtest_curve(best_name, oos_returns[best_name])
         if verbose:
             tag = "monitor-only" if best["verdict"] == "DEAD" else "ALIVE"
             print(f"\nbest of cycle: {best_name} (DSR {best['dsr']:.3f}, {tag}) -> "

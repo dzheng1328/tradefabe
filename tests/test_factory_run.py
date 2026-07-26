@@ -154,30 +154,50 @@ def test_run_cycle_promotes_a_generated_winner_via_promote_generated_with_full_s
     assert isinstance(entry["params"], dict) and entry["params"]
 
 
-def test_run_cycle_never_promotes_the_combo(scratch_graveyard, monkeypatch):
-    # force the COMBO itself to have the highest DSR of everything evaluated -- it must
-    # still never be promoted (combo promotion needs piggyback.py's registry made
-    # dynamic first, deliberately out of scope here -- see factory_run.py's docstring).
+def test_run_cycle_can_promote_the_combo_when_it_wins(scratch_graveyard, monkeypatch):
+    # #64 reversed the old contract: the combo used to be excluded from the promotion
+    # ranking entirely (piggyback.py's registry was a fixed dict, so a combo could not
+    # become a live book). It now competes on equal terms. Force it to have the top DSR
+    # and confirm it is promoted -- into the COMBO registry, with its legs' full specs.
     real_rows_for = factory_run.rows_for
 
     def fake_rows_for(names):
-        # rows_for() here is only ever called with names_this_cycle (individuals, no
-        # combo) -- confirm that, then just return real (unmodified) rows: with no
-        # forced winner, whichever real candidate has the highest DSR gets promoted,
-        # which is what we're checking is never the combo (impossible anyway, since
-        # the combo is never in `names` here).
-        assert not any(n.startswith("factory_combo_") for n in names)
-        return real_rows_for(names)
+        rows = real_rows_for(names).copy()
+        combo = [n for n in names if n.startswith("factory_combo_")]
+        assert combo, "the combo must be in the ranking pool now"
+        rows.loc[rows["strategy"].isin(combo), "dsr"] = 1.0
+        rows.loc[~rows["strategy"].isin(combo), "dsr"] = 0.0
+        return rows
     monkeypatch.setattr(factory_run, "rows_for", fake_rows_for)
 
     evaluated = factory_run.run_cycle(n=4, seed=42, verbose=False)
     combo_names = [n for n in evaluated if n.startswith("factory_combo_")]
-    assert combo_names   # a combo really was built this cycle
-    promoted = set(factory_run.factory.load_promoted()) | \
+    assert combo_names
+
+    promoted_combos = factory_run.factory.load_promoted_combos()
+    assert {c["name"] for c in promoted_combos} & set(combo_names)
+    spec = next(c for c in promoted_combos if c["name"] in combo_names)
+    assert len(spec["legs"]) == 2
+    assert spec["freq"] in ("D", "W", "M")
+
+
+def test_combo_promotion_does_not_also_promote_an_individual(scratch_graveyard, monkeypatch):
+    # one new book per cycle: when the combo wins it REPLACES the individual winner
+    # rather than being promoted on top of it.
+    real_rows_for = factory_run.rows_for
+
+    def fake_rows_for(names):
+        rows = real_rows_for(names).copy()
+        combo = [n for n in names if n.startswith("factory_combo_")]
+        rows.loc[rows["strategy"].isin(combo), "dsr"] = 1.0
+        rows.loc[~rows["strategy"].isin(combo), "dsr"] = 0.0
+        return rows
+    monkeypatch.setattr(factory_run, "rows_for", fake_rows_for)
+
+    factory_run.run_cycle(n=4, seed=42, verbose=False)
+    individuals = set(factory_run.factory.load_promoted()) | \
         {g["name"] for g in factory_run.factory.load_promoted_generated()}
-    assert promoted.isdisjoint(set(combo_names))
-
-
+    assert not individuals, "combo won, so no individual should have been promoted"
 def test_run_cycle_promotion_accumulates_across_cycles(scratch_graveyard):
     factory_run.run_cycle(n=4, seed=1, verbose=False)
     first_promoted = set(factory_run.factory.load_promoted())
