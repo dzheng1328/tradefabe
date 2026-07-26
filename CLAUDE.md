@@ -18,6 +18,20 @@ advice (state that boundary instead). This is a standing constraint, not a per-t
 **Git workflow:** branch + PR, never direct pushes to `main`. One branch per issue,
 `gh pr create` with a body summarizing the change and test plan, merge after CI is green.
 
+**NEVER chain a branch delete after a merge in the same command.** `gh pr merge` fails
+silently-ish on a bad flag or a `state/` conflict, and anything `;`-chained after it still
+runs — deleting the branch then CLOSES the unmerged PR, and GitHub will not let you reopen
+a PR whose branch is gone. This has cost three recoveries (#65, #80, #92); each needed the
+commit dug out of reflog and a fresh PR. The rule:
+
+```sh
+gh pr merge <N> --squash
+gh pr view <N> --json state,mergedAt   # must print MERGED before anything below
+git branch -D <b>; git push origin --delete <b>
+```
+Verify `state=MERGED` as its own step. Never `--delete-branch`, never `&&`/`;` the cleanup
+onto the merge.
+
 **The repo lives at `~/tradefabe`** (moved out of `~/Documents` 2026-07-26 — iCloud sync
 there corrupted the venv and wrote conflict copies of tracked files). A compatibility
 symlink remains at the old path. Never point new config at it; use the real path.
