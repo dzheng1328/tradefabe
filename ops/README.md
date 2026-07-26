@@ -15,6 +15,12 @@ The factory runs at 17:00, an hour before the 18:00 `run`, on purpose: it promot
 best candidate to a live paper book, and `runner.py` reads the promotion registries at
 import time, so a 17:00 promotion opens its book that same evening instead of a day later.
 
+## Desktop app
+
+`./ops/build_app.sh` rebuilds `~/Applications/tradefabe.app` from scratch (`--dest` to
+build elsewhere). The bundle is not tracked; this script and `ops/icon.icns` are, which is
+the part that was previously unrecoverable.
+
 ## Install / reinstall
 
 ```sh
