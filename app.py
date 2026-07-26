@@ -299,14 +299,21 @@ def themed_layout(**overrides):
 
 
 # ==================================================================== per-book normalization
-def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, piggy=None, factory_bt=None):
+def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, piggy=None,
+                    factory_bt=None, hourly_bt=None):
     """Normalize a live paper book into one shape the panel can render, regardless of
     whether it's an equity-signal book (backtest in full_returns.csv, real ticker
     positions), a piggyback construction (backtest in piggyback_returns.csv, same
     positions shape as an equity book), a promoted strategy-factory candidate (backtest
     in factory_returns.csv, #28b -- only promoted candidates get a persisted curve, not
-    all 20/day tested), or the carry book (backtest in a separate study, funding-accrual,
-    no ticker positions)."""
+    all 20/day tested), a family L hourly book (backtest in hourly_returns.csv, #86), or
+    the carry book (backtest in a separate study, funding-accrual, no ticker positions).
+
+    EVERY source that can produce a live book must be listed here. The fallback is a bare
+    `full[name]`, which raises KeyError and takes the whole dashboard down -- adding
+    family L to the Research Lab's lookup but not to THIS one did exactly that on
+    2026-07-26, which is the failure CLAUDE.md's Known-gaps entry describes word for
+    word."""
     live_hist = (phist[phist["book"] == name]
                  .drop_duplicates("date", keep="last")
                  .set_index("date")["equity"].sort_index())
@@ -319,6 +326,8 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
             bt_returns = piggy[name]
         elif factory_bt is not None and name in factory_bt.columns:
             bt_returns = factory_bt[name]
+        elif hourly_bt is not None and name in hourly_bt.columns:
+            bt_returns = hourly_bt[name]
         else:
             bt_returns = full[name]
         bt_curve = (1 + bt_returns.fillna(0)).cumprod()
@@ -714,7 +723,8 @@ def render_paper_books(psum, phist, full, meta, gy_last):
     price_now, price_date = load_price_snapshot()
     piggy = load_piggyback_backtest()
     factory_bt = load_factory_backtest()
-    data = book_panel_data(pick, phist, full, meta, gy_last, price_now, price_date, piggy, factory_bt)
+    data = book_panel_data(pick, phist, full, meta, gy_last, price_now, price_date, piggy,
+                           factory_bt, load_hourly_backtest())
     render_strategy_panel(pick, data, color_of[pick])
 
 
