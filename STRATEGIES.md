@@ -267,9 +267,36 @@ same turnover drag the candidate does.
 
 | strategy | spec | freq | status |
 |---|---|---|---|
-| `funding_timing_1h` | delta-neutral BTC+ETH carry, notional scaled by the hourly funding rate: full size when the trailing 24h mean funding is positive, flat when negative | H | QUEUED |
-| `crypto_reversal_1h` | fade the trailing 6h return on BTC+ETH, equal weight, long/short | H | QUEUED |
-| `equity_tsmom_1h` | sign of the trailing 24-bar (≈5 session) return on the 15-ETF universe, long/short | H | QUEUED |
+| `funding_timing_1h` | delta-neutral BTC+ETH carry, notional scaled by the hourly funding rate: full size when the trailing 24h mean funding is positive, flat when negative | H | **DEAD** — Sharpe 5.37, +6.19%/yr, but **always-on carry over the identical window returns +10.40%/yr at Sharpe 12.42**. The timing overlay destroys 40% of the return and half the Sharpe. Fails gate 2 (Calmar 1.33 vs 15.22) and gate 3 (MaxDD −4.6% vs −0.7%) |
+| `crypto_reversal_1h` | fade the trailing 6h return on BTC+ETH, equal weight, long/short | H | **DEAD** — Sharpe −2.94, −70.4%/yr, MaxDD −97.7%. **Turnover drag alone is 173%/yr** (0.400/bar × 8,679 bars/yr × 5bps) |
+| `equity_tsmom_1h` | sign of the trailing 24-bar (≈5 session) return on the 15-ETF universe, long/short | H | **DEAD** — Sharpe −1.93, −14.4%/yr, MaxDD −40.7%. Turnover drag 14%/yr |
+
+`research/hourly_backtest.py`, 2026-07-26. Hourly bars are **snapshotted** to
+`artifacts/hourly_bars_*.csv` because yfinance's intraday window is a rolling 730 days —
+without the snapshot these verdicts could not be reproduced in six months.
+
+**The one-line result: none of the three survives its own turnover.** The two directional
+rows lose money outright, and the funding overlay loses to simply holding the position it
+was meant to improve.
+
+**Declared deviation from the pre-registration above.** `funding_timing_1h` was
+pre-registered to benchmark against CASH. Cash cannot be used: it has zero drawdown, so
+`calmar(bench)` is NaN and gate 3 reduces to `MaxDD >= 0`, which no strategy holding any
+risk can satisfy. It was benchmarked against **always-on carry** instead — the
+economically meaningful question (does timing beat holding?) and *strictly harder* than
+cash, since carry earns ~10%/yr and cash earns 0. A deviation that can only make ALIVE
+harder to reach is not a thumb on the scale, but it is a deviation and is logged as one.
+
+**Gate 1 is VACUOUS at hourly frequency — read these DSRs as uninformative, not as
+passes.** All three cleared gate 1 with DSR 1.000, including the two that lost 70%/yr and
+14%/yr. The matched null is the reason: random hourly trading pays so much turnover cost
+that its Sharpe is −79.5 / −9.8 / −18.3. "Beats luck" therefore only asks whether a
+strategy loses money *more slowly than random churn*, which is nearly free to satisfy.
+Gates 2 and 3 did all the work here. **A future hourly candidate that clears gate 1 has
+demonstrated almost nothing** — the noise-floor construction in DOCTRINE v1.0.1 was
+designed for monthly/weekly/daily rebalancing, where the cost term does not swamp the
+signal term. This is a limitation of applying it at high turnover, not a reason to relax
+it; the honest fix is to treat gate 2 as the binding constraint in this family and say so.
 
 Parameter choices are pre-committed here and are **not** to be tuned after seeing results —
 a different lookback is a NEW row and a NEW graveyard entry (rule 2 below). The three
