@@ -20,7 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 desktop = ["pywebview"]
-dev = ["pytest"]
+dev = ["pytest", "pytest-xdist"]
 
 [project.scripts]
 tradefabe = "tradefabe.cli:main"
@@ -34,3 +34,8 @@ where = ["src"]
 # own `from piggyback_backtest import ...` (a sibling repo-root-script-style import,
 # not a package) resolves the same way it does when run directly as a script.
 pythonpath = [".", "research"]
+
+# Parallel by default: the suite is run constantly and test_factory_run.py alone was
+# ~50s of a 55s serial run. Measured 54.4s -> 13s on 14 cores, stable across repeats.
+# Pass `-n0` to disable when you need readable tracebacks, --pdb, or -x.
+addopts = ["-n", "auto"]
