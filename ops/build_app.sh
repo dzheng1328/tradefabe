@@ -7,13 +7,15 @@
 # Usage:  ops/build_app.sh [--dest DIR] [--repo DIR]
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# pwd -P, not pwd: the repo has a compatibility symlink at the old ~/Documents location,
+# and a launcher that baked the symlinked path would still route the app through iCloud.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 DEST="$HOME/Applications"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --dest) DEST="$2"; shift 2 ;;
-    --repo) REPO="$(cd "$2" && pwd)"; shift 2 ;;
+    --repo) REPO="$(cd "$2" && pwd -P)"; shift 2 ;;
     -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
