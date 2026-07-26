@@ -177,6 +177,20 @@ def load_factory_backtest():
 
 
 @st.cache_data
+def load_hourly_backtest():
+    """Backtest OOS returns for family L, the hourly strategies (research/hourly_backtest.py,
+    #86). A fourth curve source beside full/piggyback/factory: these are daily-AGGREGATED
+    series (the study generates hourly returns then compounds them per day, so ANN=252 and
+    the 60/40 benchmark stay comparable), and they live in their own artifact because the
+    study fetches its own snapshotted hourly bars rather than harness.py's daily cache.
+    None if the study hasn't been run."""
+    path = os.path.join(ART, "hourly_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+@st.cache_data
 def load_carry_backtest():
     """The carry book's backtest lives outside harness.py's artifacts (separate study,
     research/carry_hl.py) — different universe, different date range (since 2023-05, not
@@ -983,7 +997,7 @@ def render_risk_register():
                "3-year sample is not evidence one cannot occur.")
 
 
-def _dead_strategy_returns(name, oos, piggy, factory_bt=None):
+def _dead_strategy_returns(name, oos, piggy, factory_bt=None, hourly_bt=None):
     """Best-effort OOS return series for ANY graveyard entry (ALIVE or DEAD), for the
     strategy detail view below. Bare strategies live in `oos` (full_returns.csv, sliced
     to OOS_START by the caller); piggyback constructions in `piggy`
@@ -1000,10 +1014,12 @@ def _dead_strategy_returns(name, oos, piggy, factory_bt=None):
         return piggy[name].dropna()
     if factory_bt is not None and name in factory_bt.columns:
         return factory_bt[name].dropna()
+    if hourly_bt is not None and name in hourly_bt.columns:
+        return hourly_bt[name].dropna()
     return None
 
 
-def render_strategy_detail(gy_last, oos, piggy, factory_bt=None):
+def render_strategy_detail(gy_last, oos, piggy, factory_bt=None, hourly_bt=None):
     """Per-strategy detail for ANY graveyard entry, not just the strategies that made it
     to a live paper book -- the "Verdicts" table above is the full ledger, but until this
     every DEAD strategy was just one flat row in it, with no blurb/chart/stat-card
@@ -1021,7 +1037,7 @@ def render_strategy_detail(gy_last, oos, piggy, factory_bt=None):
     blurb = strategy_description(pick)
     st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
 
-    r = _dead_strategy_returns(pick, oos, piggy, factory_bt)
+    r = _dead_strategy_returns(pick, oos, piggy, factory_bt, hourly_bt)
     if r is not None:
         s = ann_stats(r)
         c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -1109,7 +1125,7 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
 
     piggy = load_piggyback_backtest()
     factory_bt = load_factory_backtest()
-    render_strategy_detail(gy_last, oos, piggy, factory_bt)
+    render_strategy_detail(gy_last, oos, piggy, factory_bt, load_hourly_backtest())
 
     st.subheader("The luck floor — is anything distinguishable from random?")
     freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
