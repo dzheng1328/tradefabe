@@ -207,6 +207,11 @@ machine-generated. Key things to know before touching this:
     `.venv` a symlink to it — so every existing path still works unchanged. Rebuild it
     with **`ops/setup_venv.sh`**, which refuses to create the venv anywhere under
     `~/Documents` or `~/Desktop`.
+  - **Install BOTH extras: `pip install -e ".[dev,desktop]"`.** `[desktop]` provides
+    pywebview, which backs the `.app`. `desktop.py` imports `webview` *lazily inside
+    main()*, so omitting it leaves `import tradefabe.desktop` working and the app dead on
+    launch — that exact mistake broke the app on 2026-07-26. `ops/setup_venv.sh` and
+    `ops/build_app.sh` now both import `webview` explicitly as a check.
   - **`PYTHONPATH` is no longer required** — `import tradefabe`, `pytest`, and the CLI
     all work with it unset. The plists and `.app` launcher still export it; that is now
     belt-and-braces rather than load-bearing, and harmless.

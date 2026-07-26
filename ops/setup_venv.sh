@@ -38,8 +38,11 @@ mkdir -p "$VENV_HOME"
 rm -rf "$TARGET"
 "$PYTHON" -m venv "$TARGET"
 "$TARGET/bin/python" -m pip install -q --upgrade pip
-echo "==> installing $REPO in editable mode with dev extras"
-"$TARGET/bin/pip" install -q -e "$REPO[dev]"
+echo "==> installing $REPO in editable mode with dev AND desktop extras"
+# [desktop] is not optional in practice: pywebview backs the .app entry point, and
+# desktop.py imports it LAZILY inside main(), so omitting it leaves an importable module
+# and an app that dies on launch. Installing only [dev] here is exactly what broke it.
+"$TARGET/bin/pip" install -q -e "$REPO[dev,desktop]"
 
 echo "==> linking $REPO/.venv -> $TARGET"
 if [ -e "$REPO/.venv" ] && [ ! -L "$REPO/.venv" ]; then
@@ -52,5 +55,9 @@ ln -s "$TARGET" "$REPO/.venv"
 echo "==> verifying import works with NO PYTHONPATH set"
 env -u PYTHONPATH "$REPO/.venv/bin/python" -c \
   "import tradefabe; print('    OK ->', tradefabe.__file__)"
+# webview specifically: desktop.py defers this import, so a missing pywebview is
+# invisible to `import tradefabe.desktop` and only shows up when the app fails to open.
+env -u PYTHONPATH "$REPO/.venv/bin/python" -c \
+  "import webview; print('    webview OK ->', webview.__version__)"
 echo
 echo "done. .venv -> $TARGET"
