@@ -406,7 +406,9 @@ def promote_combo(spec):
     if any(e["name"] == spec["name"] for e in entries):
         return
     entries.append({"name": spec["name"], "freq": spec["freq"], "legs": spec["legs"]})
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    # mkdir the parent of the ACTUAL path, not STATE_DIR: the two diverge whenever a
+    # caller patches one and not the other, and then this writes into real paper state.
+    PROMOTED_COMBOS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(PROMOTED_COMBOS_PATH, "w") as fh:
         json.dump(entries, fh, indent=1)
 

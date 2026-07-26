@@ -34,6 +34,7 @@ def scratch_graveyard(monkeypatch, tmp_path):
     monkeypatch.setattr(factory_run.factory, "STATE_DIR", tmp_path)
     monkeypatch.setattr(factory_run.factory, "PROMOTED_PATH", tmp_path / "promoted.json")
     monkeypatch.setattr(factory_run.factory, "PROMOTED_GENERATED_PATH", tmp_path / "promoted_generated.json")
+    monkeypatch.setattr(factory_run.factory, "PROMOTED_COMBOS_PATH", tmp_path / "promoted_combos.json")
     monkeypatch.setattr(factory_run.factory, "GENERATED_LEDGER", tmp_path / "generated_templates.csv")
     monkeypatch.setattr(factory_run, "FACTORY_RETURNS_PATH", tmp_path / "factory_returns.csv")
     return gy
