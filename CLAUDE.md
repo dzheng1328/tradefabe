@@ -47,7 +47,7 @@ combine.py         blending / piggyback-on-60/40 experiments
 research/          one-off studies: insider_backtest.py, carry_backtest.py, carry_hl.py,
                    thematic_backtest.py, concentrate.py, sector_momentum.py, daytrade_tests.py,
                    piggyback_backtest.py (family H verdicts), factory_run.py (the strategy
-                   factory's daily driver — see Strategy factory below, not yet on a cron, #38)
+                   factory's daily driver — daily 17:00 launchd job, see ops/)
 tests/             pytest suite — runs in CI on every push/PR to main. pyproject.toml's
                    pythonpath = [".", "research"] so `import harness` / `import factory_run`
                    (repo-root-script-style imports, not the installed package) resolve under pytest.
@@ -78,22 +78,72 @@ state/paper/       paper-book ledgers, carry_risk.json, promoted.json + promoted
 .venv/bin/streamlit run app.py      # dashboard at localhost:8501
 .venv/bin/python harness.py         # re-run the doctrine evaluation, appends graveyard.csv
 PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" \
-  .venv/bin/python research/factory_run.py --n 20   # one strategy-factory cycle (not on a cron yet, #38)
+  .venv/bin/python research/factory_run.py --n 20   # one strategy-factory cycle by hand
+                                                    # (also runs daily 17:00 via launchd, see ops/)
 .venv/bin/pytest tests/             # run the test suite locally (also runs in CI on push/PR)
 ```
-Two launchd jobs drive the paper engine unattended (`launchctl list | grep tradefabe`):
-`com.dzheng.tradefabe` runs `tradefabe run` daily at 18:00 (the actual rebalance, on each
-strategy's own doctrine-registered M/W/D schedule); `com.dzheng.tradefabe.mark` runs
-`tradefabe mark` every 30min around the clock (mark-only, no rebalance) so the dashboard's
-live-equity chart has more than one point per day. Logs: `state/logs/run.{log,err}` and
-`state/logs/mark.{log,err}`. **A third job for `research/factory_run.py` does not exist
-yet** — see issue #38; it's still invoked by hand.
-Desktop app: `~/Applications/tradefabe.app` (own Dock icon, native window, `tradefabe-app`
-entry point via pywebview). **Not tracked in git** — hand-built, 3 files under
-`~/Applications/tradefabe.app/Contents/`. If you rebuild or move it, bake
+## Automations — everything that runs without you
+Nine things run on their own. Know all of them before assuming a file changed by magic.
+
+### 1. Scheduled (launchd, 3 jobs)
+`launchctl list | grep tradefabe`. Plists are tracked in **`ops/`** — that directory is
+the source of truth; the copies macOS reads live in `~/Library/LaunchAgents/`.
+**`ops/README.md` has the install steps and the EX_CONFIG trap; read it before adding or
+editing a job.** This repo uses launchd, not cron — the single `crontab -l` entry belongs
+to the off-limits `daily tickers` project (see the bottom of this file); leave it alone.
+- `com.dzheng.tradefabe` — `tradefabe run` daily at 18:00 (the actual rebalance, on each
+  strategy's own doctrine-registered M/W/D schedule). Logs `state/logs/run.{log,err}`.
+- `com.dzheng.tradefabe.mark` — `tradefabe mark` every 30min around the clock (mark-only,
+  no rebalance) so the dashboard's live-equity chart has more than one point per day.
+  Logs `state/logs/mark.{log,err}`. Note `StartInterval` does **not** fire while the Mac
+  sleeps, so `history.csv` legitimately has multi-hour overnight holes (issue #63).
+- `com.dzheng.tradefabe.factory` — `research/factory_run.py --n 20` daily at **17:00**,
+  deliberately an hour before the 18:00 run so a promoted candidate opens its book the
+  same evening (`runner.py` reads the promotion registries at import time). Logs
+  **`~/Library/Logs/tradefabe/factory.{log,err}`** — NOT `state/logs/`, because a launchd
+  job whose binary lacks TCC access to `~/Documents` dies at setup with a silent
+  EX_CONFIG; see `ops/README.md`. Unlike the other two, a factory cycle writes to
+  **git-tracked** files (`graveyard.csv`, `generated_templates.csv`,
+  `artifacts/factory_returns.csv`), so the working tree is dirty every day it runs.
+  Nothing auto-commits that, on purpose.
+
+### 2. CI (GitHub Actions, 1 workflow)
+`.github/workflows/tests.yml` — runs `pytest tests/` on GitHub's runners.
+**Trigger is `push` and `pull_request` on `main` ONLY.** A PR targeting any other branch
+gets *no checks at all* — `gh pr checks` reports "no checks reported", which reads like a
+failure but just means the workflow never fired. This bites stacked PRs: only the bottom
+of a stack is tested until each one is retargeted to `main` as the one below merges. Run
+the suite locally before relying on a stacked PR being green.
+
+### 3. In-process (run inside the scheduled jobs, not separately scheduled)
+These have no plist of their own, so they're invisible in `launchctl list`:
+- **`run_carry()`** (`carry_live.py`) — accrues real Hyperliquid funding on the
+  delta-neutral notional. Called by **both** `run_daily()` and `run_mark()`, so it fires
+  ~48x/day and stamps a minute-resolution history row each time.
+- **`check_carry_risk()`** (`carry_risk.py`) — funding-flip alert + short-leg liquidation
+  distance, sized against Hyperliquid's live margin tiers. Called by `run_daily()` **only**
+  (not by `mark`), so `state/paper/carry_risk.json` refreshes once a day, not every 30min
+  — the dashboard's risk panel prints its `generated_at`, and it lagging the other numbers
+  by up to a day is expected, not a bug. Never raises; a network failure yields a report
+  full of nulls rather than killing the run.
+- **Factory auto-promotion** (`factory_run.py` → `factory.promote()` /
+  `promote_generated()`) — every cycle promotes its best-DSR candidate to a live paper
+  book regardless of verdict, writing `state/paper/promoted*.json` and persisting the
+  winner's curve. `runner.py` reads those registries at **import time**, so a promotion
+  only takes effect on the next `run`/`mark` process.
+
+### 4. Dev-environment config (not runtime, but it acts on its own)
+- **`.claude/settings.json`** (tracked) — lets agents run `gh`/`git` without a prompt;
+  denies `gh repo delete` and force-push, since this repo's rule is branch-and-PR.
+  `.claude/settings.local.json` is Dave's personal, gitignored overlay.
+- **`.claude/launch.json`** — a `dashboard` preview config for `preview_start`.
+
+**Desktop app** (user-launched, NOT automated — listed here so the inventory above reads
+as complete): `~/Applications/tradefabe.app`, own Dock icon, native window, `tradefabe-app`
+entry point via pywebview. **Not tracked in git** — hand-built, 3 files under
+`~/Applications/tradefabe.app/Contents/` (issue #61). If you rebuild or move it, bake
 `export PYTHONPATH="$(repo root)/src"` into the launcher script before it execs
-`tradefabe-app` — see the Py3.14 gotcha below for why. `.claude/launch.json` has a
-`dashboard` preview config for `preview_start`.
+`tradefabe-app` — see the Py3.14 gotcha below for why.
 
 ## Doctrine — read DOCTRINE.md before adding or judging any strategy
 Pre-registered, OOS-only (2018+), data-derived noise floor (500 random strategies per
@@ -137,7 +187,8 @@ machine-generated. Key things to know before touching this:
 - The correlation-picked combo (one per cycle, from the least-correlated pair) is
   evaluated and logged but never auto-promoted — `piggyback.py`'s registry is still a
   fixed hand-picked dict, not yet dynamic.
-- Not yet on a cron (issue #38) — `factory_run.py` only runs when invoked by hand.
+- Runs daily at 17:00 via `com.dzheng.tradefabe.factory` (issue #38, closed 2026-07-25).
+  Its plist is tracked in `ops/`; logs go to `~/Library/Logs/tradefabe/`, not `state/logs/`.
 
 ## Known gaps and gotchas — check these before assuming something's broken
 - **Python 3.14 + macOS sandbox pth bug:** a sandboxed shell can stamp new files
@@ -222,9 +273,7 @@ really done *before* the tracker existed (or that merged as a PR with no trackin
 #55/#56/#57/#58). They were opened and closed in the same breath. They are history, not a
 queue; don't "re-do" one because it looks freshly filed.
 
-**The two P0s currently open:** **#38** schedule `research/factory_run.py` via launchd
-(the factory is fully built and validated, #28/#28b — nothing runs it automatically), and
-**#62** migrate off `st.components.v1.html` (Streamlit's stated removal date, 2026-06-01,
+**The P0 currently open:** **#62** migrate off `st.components.v1.html` (Streamlit's stated removal date, 2026-06-01,
 has already passed — the dashboard works only because the installed version still ships
 the shim).
 

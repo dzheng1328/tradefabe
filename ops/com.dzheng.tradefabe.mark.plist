@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.dzheng.tradefabe.mark</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/dzheng/Documents/tradefabe/.venv/bin/tradefabe</string>
+    <string>mark</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PYTHONPATH</key><string>/Users/dzheng/Documents/tradefabe/src</string></dict>
+  <key>StartInterval</key><integer>1800</integer>
+  <key>StandardOutPath</key><string>/Users/dzheng/Documents/tradefabe/state/logs/mark.log</string>
+  <key>StandardErrorPath</key><string>/Users/dzheng/Documents/tradefabe/state/logs/mark.err</string>
+</dict>
+</plist>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Strategy factory, one cycle per day (issue #38). Full rationale in ops/README.md:
+  why 17:00 (an hour before the 18:00 run, so a promotion opens its book the same
+  evening), why this job calls a bare script instead of the tradefabe console script,
+  and why PYTHONPATH is baked in.
+
+  Two traps this file already fell into, both of which fail as EX_CONFIG (78) with an
+  empty log, so there is nothing to read that tells you why:
+
+  1. Logs must NOT live under the repo. It sits in ~/Documents, which is TCC-protected,
+     and the Homebrew python this job execs cannot write there under launchd. The two
+     older jobs get away with state/logs/ because they exec the tradefabe console
+     script, which was granted access; a fresh binary is not. Hence ~/Library/Logs.
+  2. Keep this comment free of doubled hyphens. XML forbids them inside comments, and
+     plutil lint accepts them anyway while stricter parsers reject the file. Check with
+     xmllint, not plutil.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.dzheng.tradefabe.factory</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/dzheng/Documents/tradefabe/.venv/bin/python</string>
+    <string>/Users/dzheng/Documents/tradefabe/research/factory_run.py</string>
+    <string>--n</string>
+    <string>20</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/dzheng/Documents/tradefabe</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>/Users/dzheng/Documents/tradefabe/src:/Users/dzheng/Documents/tradefabe:/Users/dzheng/Documents/tradefabe/research</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/Users/dzheng/Library/Logs/tradefabe/factory.log</string>
+  <key>StandardErrorPath</key><string>/Users/dzheng/Library/Logs/tradefabe/factory.err</string>
+</dict>
+</plist>
