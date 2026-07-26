@@ -5,6 +5,7 @@ that's the point of watching it live."""
 from __future__ import annotations
 import time
 import datetime as dt
+import pandas as pd
 import requests
 from .paths import STATE_DIR
 from . import books
@@ -42,25 +43,31 @@ def run_carry(name: str = "carry_btc_eth") -> dict:
     book = books.load(name)
     now_ms = int(dt.datetime.now(dt.UTC).timestamp() * 1000)
     start = book.get("last_ts") or (now_ms - 24 * 3600 * 1000)
-    per_coin = []
-    for c in COINS:
-        pts = _funding_since(c, start + 1)
-        per_coin.append(sum(f for _, f in pts))
-    days = max((now_ms - start) / (24 * 3600 * 1000), 1e-9)
-    accrual = (sum(per_coin) / len(COINS)) - FEE_DRAG_YR / 365 * days
-    eq = book.get("equity", books.START_CASH) if "equity" in book else books.START_CASH
-    book["equity"] = round(eq * (1 + accrual), 2)
-    book["last_ts"] = now_ms
-    # Minute-resolution stamp, same key shape books.mark() uses for the equity books.
-    # This used to key on the bare DATE, which collapsed every 30min mark cron call into
-    # a single overwritten row per day -- the accrual was already being computed every
-    # cycle, it just wasn't being RECORDED, so the dashboard's short ranges (5H/1D) had
-    # exactly one point to draw and rendered a bare dot.
-    stamp = dt.datetime.now().isoformat(timespec="minutes")
-    if not book["history"] or book["history"][-1][0] != stamp:
-        book["history"].append([stamp, book["equity"]])
-    else:
-        book["history"][-1][1] = book["equity"]
-    book["last_run"] = dt.datetime.now().isoformat(timespec="seconds")
+    # Hyperliquid pays funding EVERY HOUR, so accrue and stamp per hourly point rather
+    # than collapsing the whole gap into one row at cycle time. GitHub's cron fires only
+    # ~every 2.2h despite an hourly schedule, so one row per cycle left the 5H chart with
+    # a single point -- the accrual was always computed correctly, it just wasn't being
+    # RECORDED at the resolution the data already had.
+    per_coin = {c: dict(_funding_since(c, start + 1)) for c in COINS}
+    stamps = sorted(set().union(*(set(v) for v in per_coin.values())))
+    eq = book.get("equity", books.START_CASH)
+    prev_ms = start
+    for ts in stamps:
+        rates = [per_coin[c][ts] for c in COINS if ts in per_coin[c]]
+        if not rates:
+            continue
+        days = max((ts - prev_ms) / (24 * 3600 * 1000), 0.0)
+        eq *= 1 + (sum(rates) / len(rates)) - FEE_DRAG_YR / 365 * days
+        prev_ms = ts
+        # Minute-resolution key, same shape books.mark() uses. Stamped at the FUNDING
+        # point's own time, not wall-clock, so the series is evenly hourly regardless of
+        # when the cycle happened to run.
+        key = books.utc_stamp(pd.Timestamp(ts, unit="ms"))
+        if not any(row[0] == key for row in book["history"]):
+            book["history"].append([key, round(eq, 2)])
+
+    book["equity"] = round(eq, 2)
+    book["last_ts"] = stamps[-1] if stamps else now_ms
+    book["last_run"] = dt.datetime.now(dt.UTC).replace(tzinfo=None).isoformat(timespec="seconds")
     books.save(book)
     return book

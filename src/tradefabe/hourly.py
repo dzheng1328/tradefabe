@@ -85,6 +85,8 @@ def fetch_hourly(tickers) -> pd.DataFrame:
     if not isinstance(raw.columns, pd.MultiIndex):
         px.columns = list(tickers)
     px = px[[t for t in tickers if t in px.columns]].dropna(how="all")
+    if px.index.tz is not None:          # tz-aware bar stamps leak into history keys
+        px.index = px.index.tz_convert("UTC").tz_localize(None)
     complete = px.notna().all(axis=1)
     if complete.any() and not complete.iloc[-1]:
         px = px.loc[:complete[complete].index[-1]]
@@ -139,10 +141,10 @@ def run_funding_timing(name: str = "funding_timing_1h", verbose: bool = True) ->
     book["equity"] = round(eq * (1 + accrual), 2)
     book["last_ts"] = now_ms
     book["gate_on"] = on
-    stamp = dt.datetime.now().isoformat(timespec="minutes")
+    stamp = books.utc_stamp()
     if not any(row[0] == stamp for row in book["history"]):
         book["history"].append([stamp, book["equity"]])
-    book["last_run"] = dt.datetime.now().isoformat(timespec="seconds")
+    book["last_run"] = dt.datetime.now(dt.UTC).replace(tzinfo=None).isoformat(timespec="seconds")
     books.save(book)
     if verbose:
         state = "ON" if on else "FLAT"
@@ -155,7 +157,7 @@ def run_price_books(verbose: bool = True) -> list[str]:
     run_mark(), so the realised cadence is the mark cadence -- see the module docstring's
     caveat about that being slower than the tested 1h spec."""
     done = []
-    stamp = dt.datetime.now().isoformat(timespec="minutes")
+    stamp = books.utc_stamp()
     for name, spec in BOOKS.items():
         try:
             px = fetch_hourly(spec["tickers"])
@@ -169,6 +171,10 @@ def run_price_books(verbose: bool = True) -> list[str]:
             continue
         book = books.load(name)
         last = px.iloc[-1]
+        # Backfill BEFORE rebalancing. These books retarget every cycle, so the positions
+        # held across the gap are the OLD ones -- valuing the gap at the new positions
+        # would report a history the book never had.
+        filled = books.backfill_marks(book, px)
         ok = books.rebalance_to(book, target_weights(px, name), stamp, last, COST_BPS)
         # Cache the equity ON the book, the way carry_live does. write_summary() values
         # every other book against the DAILY price frame, which has no BTC-USD/ETH-USD
@@ -178,8 +184,10 @@ def run_price_books(verbose: bool = True) -> list[str]:
             book["equity"] = round(books.equity(book, last), 2)
         books.save(book)
         if verbose:
+            extra = f", +{filled} backfilled" if filled else ""
             if ok:
-                print(f"  {name:<22} equity ${books.equity(book, last):>12,.0f}  (hourly rebalance)")
+                print(f"  {name:<22} equity ${books.equity(book, last):>12,.0f}"
+                      f"  (hourly rebalance{extra})")
             else:
                 print(f"  {name:<22} (SKIPPED — unpriceable, ledger untouched)")
         done.append(name)
