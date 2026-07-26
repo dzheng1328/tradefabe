@@ -27,13 +27,26 @@ FACTORY_BOOKS = factory.load_promoted()
 # fresh every process, same determinism guarantee TEMPLATES gets "for free" from being
 # source code.
 GENERATED_BOOKS = factory.load_promoted_generated()
-ALL_BOOKS = EQUITY_BOOKS + PIGGYBACK_BOOKS + FACTORY_BOOKS + [g["name"] for g in GENERATED_BOOKS]
+# Promoted correlation-picked COMBOS (#64). Same re-read-at-import contract as the two
+# registries above; each entry carries its legs' full specs so the signal functions can be
+# rebuilt in this process.
+COMBO_BOOKS = factory.load_promoted_combos()
+ALL_BOOKS = (EQUITY_BOOKS + PIGGYBACK_BOOKS + FACTORY_BOOKS
+             + [g["name"] for g in GENERATED_BOOKS] + [c["name"] for c in COMBO_BOOKS])
 
 
 def _prices() -> pd.DataFrame:
     px = yf.download(signals.UNIVERSE, period="420d", auto_adjust=True,
                      progress=False, threads=False)["Close"]
     return px.dropna(how="all")
+
+
+def _make_combo_get_weights(spec):
+    """get_weights(px, name)-shaped callable for a promoted combo -- closes over the spec
+    so factory.combo_target_weights() can rebuild both legs."""
+    def get_weights(px, name):
+        return factory.combo_target_weights(px, spec)
+    return get_weights
 
 
 def _make_generated_get_weights(sig_fn):
@@ -99,6 +112,8 @@ def run_daily(verbose: bool = True) -> pd.DataFrame:
         sig_fn = factory.rebuild_signal(g["family"], g["params"])
         get_weights = _make_generated_get_weights(sig_fn)
         _run_book(g["name"], g["freq"], get_weights, px, today, last, verbose)
+    for c in COMBO_BOOKS:
+        _run_book(c["name"], c["freq"], _make_combo_get_weights(c), px, today, last, verbose)
     carry = run_carry()
     if verbose:
         print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
