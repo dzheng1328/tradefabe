@@ -1,4 +1,18 @@
-# ops/ — launchd agents that drive the paper engine
+# ops/ — build scripts, and the RETIRED launchd agents
+
+> **The paper engine no longer runs here (#63).** It runs in GitHub Actions
+> (`.github/workflows/paper-engine.yml`) because launchd does not fire while the Mac is
+> asleep, which left multi-hour holes in the ledger. **The cloud is the sole owner of
+> `state/`** — run `git pull` before reading the dashboard locally. The plists below are
+> kept for reference and are installed as `*.plist.disabled`; re-enabling one while the
+> Action runs would fork the ledger.
+
+## Scripts (still current)
+
+- `setup_venv.sh` — create the venv outside iCloud (#60). Use this, not `python3 -m venv`.
+- `build_app.sh` — rebuild `~/Applications/tradefabe.app` (#61).
+
+# Reference: the retired launchd agents
 
 The three jobs that run this lab unattended. **These files are the source of truth**;
 the copies macOS actually reads live in `~/Library/LaunchAgents/`. Historically the
