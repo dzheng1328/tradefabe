@@ -191,3 +191,28 @@ def test_rebalance_refuses_an_older_bar(book):
     before = dict(book["positions"])
     assert books.rebalance_to(book, w, "2026-07-23", _bar("2026-07-23"), 5.0) is False
     assert book["positions"] == before
+
+
+# ------------------------------------------------------- duplicate keys
+def test_a_repeated_key_is_not_appended_twice_even_when_not_last(book):
+    """run_daily() keys on a bare date, run_mark() on a full timestamp, so the two
+    interleave. mark() used to compare only against history[-1], so a bare date that
+    reappeared after some timestamps was appended a SECOND time -- 25 duplicate keys
+    accumulated in the live ledger before this was caught."""
+    books.mark(book, "2026-07-23", _px())
+    books.mark(book, "2026-07-24T21:44", _px())
+    books.mark(book, "2026-07-24T21:50", _px())
+    books.mark(book, "2026-07-23", _px(spy=999.0))     # the interleaved repeat
+
+    keys = [k for k, _ in book["history"]]
+    assert len(keys) == len(set(keys)), f"duplicate keys: {keys}"
+    assert keys.count("2026-07-23") == 1
+
+
+def test_a_repeated_key_does_not_rewrite_the_first_valuation(book):
+    # the first valuation of a bar is the record -- see test_books.py
+    books.mark(book, "2026-07-23", _px())
+    first = book["history"][0][1]
+    books.mark(book, "2026-07-24T00:00", _px())
+    books.mark(book, "2026-07-23", _px(spy=999.0))
+    assert book["history"][0][1] == first
