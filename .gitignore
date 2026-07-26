@@ -4,7 +4,10 @@ data/
 *.png
 results.csv
 .DS_Store
-state/
+# state/ is NO LONGER ignored (#63): the paper ledger is now written by the
+# paper-engine GitHub Action and committed, which is what makes the cloud the single
+# owner. Logs stay local -- they are noise, not ledger.
+state/logs/
 *.egg-info/
 build/
 graphify-out/

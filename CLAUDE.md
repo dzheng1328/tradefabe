@@ -85,27 +85,19 @@ PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" \
 ## Automations — everything that runs without you
 Nine things run on their own. Know all of them before assuming a file changed by magic.
 
-### 1. Scheduled (launchd, 3 jobs)
-`launchctl list | grep tradefabe`. Plists are tracked in **`ops/`** — that directory is
-the source of truth; the copies macOS reads live in `~/Library/LaunchAgents/`.
-**`ops/README.md` has the install steps and the EX_CONFIG trap; read it before adding or
-editing a job.** This repo uses launchd, not cron — the single `crontab -l` entry belongs
-to the off-limits `daily tickers` project (see the bottom of this file); leave it alone.
-- `com.dzheng.tradefabe` — `tradefabe run` daily at 18:00 (the actual rebalance, on each
-  strategy's own doctrine-registered M/W/D schedule). Logs `state/logs/run.{log,err}`.
-- `com.dzheng.tradefabe.mark` — `tradefabe mark` every 30min around the clock (mark-only,
-  no rebalance) so the dashboard's live-equity chart has more than one point per day.
-  Logs `state/logs/mark.{log,err}`. Note `StartInterval` does **not** fire while the Mac
-  sleeps, so `history.csv` legitimately has multi-hour overnight holes (issue #63).
-- `com.dzheng.tradefabe.factory` — `research/factory_run.py --n 20` daily at **17:00**,
-  deliberately an hour before the 18:00 run so a promoted candidate opens its book the
-  same evening (`runner.py` reads the promotion registries at import time). Logs
-  **`~/Library/Logs/tradefabe/factory.{log,err}`** — NOT `state/logs/`, because a launchd
-  job whose binary lacks TCC access to `~/Documents` dies at setup with a silent
-  EX_CONFIG; see `ops/README.md`. Unlike the other two, a factory cycle writes to
-  **git-tracked** files (`graveyard.csv`, `generated_templates.csv`,
-  `artifacts/factory_returns.csv`), so the working tree is dirty every day it runs.
-  Nothing auto-commits that, on purpose.
+### 1. Scheduled (GitHub Actions — `.github/workflows/paper-engine.yml`)
+**The paper engine runs in the cloud, not on the Mac (#63).** launchd does not fire while
+the machine sleeps, which left multi-hour holes in the ledger. **The Action is the SOLE
+OWNER of `state/`** — it commits the ledger after every cycle, so `git pull` before
+reading the dashboard locally. The three launchd plists are retired to
+`*.plist.disabled`; re-enabling one would fork the ledger. No secrets: paper only,
+public APIs.
+- **mark** — hourly. Marks every book to current price, no rebalance.
+- **factory** — daily 21:00 UTC. `research/factory_run.py --n 20`.
+- **run** — daily 22:00 UTC, an hour after factory so a promotion opens its book the same
+  cycle (`runner.py` reads the promotion registries at import time).
+
+Trigger one by hand: `gh workflow run "paper engine" -f job=mark|run|factory`.
 
 ### 2. CI (GitHub Actions, 1 workflow)
 `.github/workflows/tests.yml` — runs `pytest tests/` on GitHub's runners.
