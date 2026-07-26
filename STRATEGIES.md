@@ -144,13 +144,11 @@ mechanism from family A's moving-average trend, added by the strategy factory, #
 | `donchian_20d` (factory) | long a new 20-day high, short a new 20-day low | D | **DEAD** — clears DSR (1.00) but fails gate 2 (Calmar −0.08 vs bench 0.45) |
 | `donchian_55d` (factory) | long a new 55-day high, short a new 55-day low | D | **DEAD** — clears DSR (1.00) but fails gate 2 (Calmar −0.11 vs bench 0.45) |
 
-Classic Turtle Trader channel lengths (Faith 2007). ICT/Smart-Money-Concepts (#24) were
-considered for this slot and deliberately excluded from the factory's template library:
-this project's price cache is Close-only (`engine.load_prices`), and Fair Value Gaps/
-order blocks/liquidity sweeps all need High/Low (or intraday) data this repo doesn't
-fetch yet — faking them off Close-only data would mislabel an arbitrary heuristic as an
-ICT concept. #24 remains its own issue, blocked on the same class of data gap for a
-different reason (2yr-hourly recency).
+Classic Turtle Trader channel lengths (Faith 2007). ICT/Smart-Money-Concepts were
+excluded from the factory's template library because this project's price cache is
+Close-only (`engine.load_prices`), and Fair Value Gaps/order blocks/liquidity sweeps all
+need High/Low data. They are now tested separately in **family J** off their own hourly
+OHLC fetch — not through the factory, which still runs Close-only daily.
 
 **First factory cycle (2026-07-25, seed 20260725):** drew all 15 templates + one
 correlation-picked combo (`str_reversal_15d` + `tsmom_6m`, corr −0.00 — genuinely
@@ -162,6 +160,38 @@ Calmar, same failure mode as their already-tested siblings. No parameter variant
 already-DEAD family manufactured a new edge — consistent with this roster's whole
 track record, and exactly what a working multiple-testing correction should look like:
 volume alone doesn't buy a pass.
+
+### J. ICT / Smart-Money-Concepts (edge claimed: institutional order flow leaves readable
+footprints — liquidity sweeps, imbalances, structure breaks. #24)
+
+| strategy | spec (mechanical, hourly bars) | freq | status |
+|---|---|---|---|
+| `ict_fvg` | 3-bar Fair Value Gap: bar1.high < bar3.low (bull) / bar1.low > bar3.high (bear); trade gap direction, hold 6 bars | H | **DEAD** — Sharpe −1.58, worse than the random null's mean; fails all three gates |
+| `ict_order_block` | last opposite bar before an impulse > 1.5×ATR that also breaks a 12-bar swing; trade impulse direction, hold 6 | H | **DEAD** — Sharpe −0.64, DSR 0.19 |
+| `ict_liquidity_sweep` | pierce a 12-bar swing extreme then close back inside within 3 bars; FADE it, hold 6 | H | **DEAD** — Sharpe −0.03 (best of the four), DSR 0.70 — still short of the 0.95 bar |
+| `ict_mss` | market structure shift: close beyond a 12-bar swing pivot; trade break direction, hold 6 | H | **DEAD** — Sharpe −1.04, DSR 0.04 |
+| `ict_combo_order_block_liquidity_sweep` | correlation-picked pair (corr −0.05), equal weight | H | **DEAD** — Sharpe −0.38 |
+| `ict_all_concepts` | all four equal-weighted, the "mix them all" candidate | H | **DEAD** — Sharpe −1.65 |
+| `ict_power_of_3` | Asian/London/NY accumulation-manipulation-distribution | — | **NOT TESTED** — US ETFs trade 09:30–16:00 ET only; the Asian and London sessions do not exist in this data. Left untested rather than faked. |
+
+All six DEAD (`research/ict_backtest.py`, 2026-07-26). The matched null — random entries at
+the same trade frequency through the identical hold/cost path — has mean Sharpe **−1.43**,
+because costs eat everything absent an edge. Three of the four concepts do not clear even
+that. `ict_liquidity_sweep` is the only one near breakeven, and its DSR (0.70) is well
+short of the 0.95 bar.
+
+**Power caveat, stated up front:** hourly history is ~2.9 years (2023-08 → 2026-07,
+yfinance's free cap) against the roster's 2018+ standard — one macro regime and far fewer
+observations. A DEAD verdict here is *weaker* evidence than a DEAD verdict on the daily
+roster. It is not, however, evidence of an edge that better data would reveal: the point
+estimates are negative, not merely insignificant.
+
+**Evidentiary note:** ICT thresholds come from practitioner folklore, not published
+backtests — unlike TSMOM's 12-month lookback (Moskowitz-Ooi-Pedersen 2012) or BAB
+(Frazzini-Pedersen 2014). These are one deterministic reading of each concept; a
+practitioner would read them discretionarily and might disagree with any specific
+threshold. That is exactly why they were pre-registered mechanically and tested rather
+than argued about.
 
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
