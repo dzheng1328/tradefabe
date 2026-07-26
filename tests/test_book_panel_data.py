@@ -77,3 +77,62 @@ def test_book_panel_data_raises_a_clear_keyerror_when_no_source_has_the_name():
     with pytest.raises(KeyError):
         app.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_050]),
                             full, _meta(), _gy_last_row(name), None, None)
+
+
+def test_book_panel_data_uses_hourly_source_for_family_l():
+    """The same bug, recurred (2026-07-26). Family L's hourly books (#86) became LIVE
+    books whose curves live in a FOURTH artifact, hourly_returns.csv. The Research Lab
+    lookup was extended and this one was not, so opening any of the three in Paper Books
+    crashed the whole dashboard with a bare KeyError -- word for word the failure
+    CLAUDE.md's Known-gaps entry describes."""
+    name = "crypto_reversal_1h"
+    hourly = _returns_frame(name)
+    full = pd.DataFrame({"unrelated": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
+    dates = pd.bdate_range("2026-01-01", periods=3)
+    data = app.book_panel_data(name, _phist(name, dates, [100_000, 99_950, 99_900]),
+                               full, _meta(), _gy_last_row(name), None, None,
+                               piggy=None, factory_bt=None, hourly_bt=hourly)
+    assert data["kind"] == "equity"
+    assert len(data["bt_curve"]) > 0
+
+
+@pytest.mark.parametrize("name", ["crypto_reversal_1h", "equity_tsmom_1h", "funding_timing_1h"])
+def test_every_live_book_on_disk_resolves_a_curve(name):
+    """End-to-end guard: every book that actually exists in state/paper must resolve a
+    backtest curve from the real artifacts, not just from a fixture. This is the check
+    that would have caught the crash before it shipped."""
+    import os
+    from tradefabe.paths import STATE_DIR
+    if not (STATE_DIR / f"{name}.json").exists():
+        pytest.skip(f"{name} not opened in this checkout")
+    hourly = app.load_hourly_backtest.__wrapped__()
+    piggy = app.load_piggyback_backtest.__wrapped__()
+    factory_bt = app.load_factory_backtest.__wrapped__()
+    full = pd.read_csv(os.path.join(app.ART, "full_returns.csv"), index_col=0, parse_dates=True)
+    sources = [d for d in (piggy, factory_bt, hourly) if d is not None]
+    assert any(name in d.columns for d in sources) or name in full.columns, \
+        f"{name} is a live book with no persisted backtest curve in ANY source"
+
+
+def test_the_call_site_supplies_every_source_book_panel_data_accepts():
+    """The crash had TWO halves: book_panel_data() didn't accept the hourly source, AND
+    render_paper_books() didn't pass it. A test that only exercises the function would
+    have gone green while the dashboard still died on the missing argument.
+
+    So assert the structural invariant directly: render_paper_books' call to
+    book_panel_data must supply EVERY parameter the function declares. Adding a fifth
+    curve source then fails here until the call site is updated too."""
+    import ast, inspect
+
+    n_params = len(inspect.signature(app.book_panel_data).parameters)
+    tree = ast.parse(inspect.getsource(app.render_paper_books).lstrip())
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call)
+             and getattr(n.func, "id", getattr(n.func, "attr", None)) == "book_panel_data"]
+    assert calls, "render_paper_books no longer calls book_panel_data -- update this test"
+    for c in calls:
+        supplied = len(c.args) + len(c.keywords)
+        assert supplied == n_params, (
+            f"book_panel_data accepts {n_params} params but the Paper Books call site "
+            f"supplies {supplied}; a live book from the unpassed source crashes the "
+            f"dashboard with a bare KeyError")
