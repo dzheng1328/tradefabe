@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import pandas as pd
 import yfinance as yf
-from . import books, signals, piggyback, factory, hourly
+from . import books, signals, piggyback, factory, hourly, pricing
 from .carry_live import run_carry
 from .carry_risk import check_carry_risk
 from .engine import sized_weights
@@ -97,15 +97,26 @@ def run_mark(verbose: bool = True) -> pd.DataFrame:
     books.mark()'s dedup key is a full timestamp here (vs. run_daily()'s bare date), so the
     two interleave in the same history list without colliding."""
     px = _prices()
-    now = dt.datetime.now().isoformat(timespec="minutes")
+    now = books.utc_stamp()
     last = px.iloc[-1]
+    # One fetch per distinct hourly source, then backfill every bar since each book's last
+    # mark. GitHub's cron actually fires ~every 2.2h despite an hourly schedule, so marking
+    # once per firing left multi-hour holes; backfilling makes chart resolution independent
+    # of when the scheduler happened to run. See pricing.py.
+    hourly_px = pricing.fetch_for_books(ALL_BOOKS)
     for name in ALL_BOOKS:
         book = books.load(name)
-        ok = books.mark(book, now, last)
+        filled = books.backfill_marks(book, hourly_px.get(pricing.source_for(name)))
+        # The daily-frame mark is now only a FALLBACK, for when the hourly source was
+        # unavailable. When backfill ran it has already marked through the latest complete
+        # hourly bar, which is strictly fresher than the daily close.
+        ok = bool(filled) or books.mark(book, now, last)
         books.save(book)
         if verbose:
-            if ok:
-                print(f"  {name:<18} equity ${books.equity(book, last):>12,.0f}  (marked)")
+            extra = f", +{filled} backfilled" if filled else ""
+            if ok or filled:
+                print(f"  {name:<18} equity ${books.equity(book, last):>12,.0f}"
+                      f"  (marked{extra})")
             else:
                 print(f"  {name:<18} {'':>19}  (SKIPPED — unpriceable, ledger untouched)")
     carry = run_carry()

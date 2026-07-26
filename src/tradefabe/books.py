@@ -51,6 +51,20 @@ def equity(book: dict, px: pd.Series) -> float:
     return book["cash"] + pos_val
 
 
+def utc_stamp(when=None) -> str:
+    """The ONE clock every history key uses: naive UTC, minute resolution.
+
+    The paper engine runs in a UTC container and owns the ledger, so its wall-clock marks
+    were already UTC while a local `tradefabe mark` wrote PDT -- and hourly bars arrived
+    tz-AWARE. Three representations in one series made it non-monotonic, which no amount
+    of sorting fixes because the values genuinely disagree about what time it is."""
+    if when is None:
+        return dt.datetime.now(dt.UTC).replace(tzinfo=None).isoformat(timespec="minutes")
+    ts = pd.Timestamp(when)
+    ts = ts.tz_convert("UTC").tz_localize(None) if ts.tzinfo else ts
+    return ts.isoformat(timespec="minutes")
+
+
 def bar_date(px: pd.Series):
     """The date of the price bar this Series came from, or None if unlabelled."""
     name = getattr(px, "name", None)
@@ -98,9 +112,58 @@ def mark(book: dict, date: str, px: pd.Series) -> bool:
     # second time (25 duplicate keys accumulated before this was caught).
     if not any(row[0] == date for row in book["history"]):
         book["history"].append([date, round(eq, 2)])
-    book["last_run"] = dt.datetime.now().isoformat(timespec="seconds")
+    book["last_run"] = dt.datetime.now(dt.UTC).replace(tzinfo=None).isoformat(timespec="seconds")
     book["last_price_bar"] = bar_date(px) or book.get("last_price_bar")
     return True
+
+
+def backfill_marks(book: dict, px: pd.DataFrame, cap: int = 400) -> int:
+    """Append one mark per price bar since this book's last recorded mark. Returns how
+    many were added.
+
+    Positions are constant between rebalances, so valuing them at each intervening bar's
+    real close is ordinary mark-to-market, just computed late -- NOT invented data. This
+    is what decouples chart resolution from GitHub's erratic cron: a cycle that fires 2.5h
+    after the previous one still lands every hourly point in between.
+
+    Marks strictly forward in time and never rewrites an existing key, so running it twice
+    is a no-op. `cap` bounds a first run on a long-idle book from appending thousands of
+    rows in one go."""
+    if px is None or px.empty:
+        return 0
+    # Tracked separately from history keys ON PURPOSE. The keys written by mark() are
+    # WALL-CLOCK stamps ("2026-07-26T20:59"), while these are BAR times (Friday's close,
+    # if the market has been shut since). Comparing the two key spaces made backfill go
+    # permanently silent the moment a wall-clock mark landed after the last bar.
+    last_bar = book.get("last_backfill_bar")
+    # NEVER backfill before the book existed. The price source carries 30 days of bars,
+    # but a book opened three days ago did not hold these positions three weeks ago --
+    # writing marks for that window would be inventing a history it never had, which is
+    # the one thing this ledger must not do.
+    inception = book["history"][0][0] if book["history"] else None
+    added = 0
+    for ts, row in px.iloc[-cap:].iterrows():
+        key = utc_stamp(ts)
+        if inception is not None and key < inception:
+            continue
+        if last_bar is not None and key <= last_bar:
+            continue
+        if any(r[0] == key for r in book["history"]):
+            continue
+        eq = equity(book, row)
+        if not math.isfinite(eq):
+            continue
+        book["history"].append([key, round(eq, 2)])
+        book["last_backfill_bar"] = key
+        added += 1
+    if added:
+        book["history"].sort(key=lambda r: r[0])   # bar times interleave with wall-clock
+        # Deliberately does NOT touch `last_price_bar`. That field guards the DAILY-frame
+        # mark path against regressing to an older close; hourly bars are a different
+        # clock, and setting it here made every daily mark look like a step backwards in
+        # time, so mark() correctly refused all of them and no equity book marked at all.
+        book["last_run"] = dt.datetime.now(dt.UTC).replace(tzinfo=None).isoformat(timespec="seconds")
+    return added
 
 
 def _finite(v) -> bool:

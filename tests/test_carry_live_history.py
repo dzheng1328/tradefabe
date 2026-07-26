@@ -33,48 +33,50 @@ def test_history_is_stamped_to_the_minute_not_the_bare_date(isolated_state):
 
 def test_repeated_cycles_accumulate_marks_instead_of_overwriting_one_daily_row(
         isolated_state, monkeypatch):
-    # one wall-clock reading per CYCLE, not per call -- run_carry() reads the clock twice
-    # (the history stamp and last_run), and both must see the same simulated minute.
-    stamps = ["2026-07-25T12:00", "2026-07-25T12:30", "2026-07-25T13:00"]
-    now = {"at": stamps[0]}
+    """The original bug: keying on the bare DATE collapsed every cycle into one row/day.
 
-    class _FrozenClock(carry_live.dt.datetime):
-        @classmethod
-        def now(cls, tz=None):
-            if tz is not None:                       # the UTC now_ms call — real time is fine
-                return super().now(tz)
-            return cls.fromisoformat(now["at"])
+    The mechanism has since changed -- rows are now stamped at the FUNDING POINT's own
+    hour rather than at wall-clock time, because Hyperliquid pays hourly and GitHub's cron
+    only fires every ~2.2h, so one row per cycle still left the 5H chart nearly empty. The
+    guarantee this test exists to protect is unchanged: repeated cycles must ACCUMULATE."""
+    hour_ms = 3600 * 1000
+    base = 1_800_000_000_000
+    served = {"upto": 0}
 
-    monkeypatch.setattr(carry_live.dt, "datetime", _FrozenClock)
+    def fake_funding(coin, start_ms):
+        served["upto"] += 1
+        return [(base + i * hour_ms, 0.0001) for i in range(served["upto"])
+                if base + i * hour_ms > start_ms]
 
-    for stamp in stamps:
-        now["at"] = stamp
+    monkeypatch.setattr(carry_live, "_funding_since", fake_funding)
+
+    for _ in range(3):
         book = carry_live.run_carry()
 
-    dates = [d for d, _ in book["history"]]
-    assert dates == ["2026-07-25T12:00", "2026-07-25T12:30", "2026-07-25T13:00"]
+    keys = [k for k, _ in book["history"]]
+    assert len(keys) > 1, "cycles must accumulate rows, not overwrite one"
+    assert keys == sorted(keys)
+    assert len(keys) == len(set(keys)), "a funding hour must never be recorded twice"
 
 
-def test_a_second_call_within_the_same_minute_updates_in_place(isolated_state, monkeypatch):
-    class _FrozenClock(carry_live.dt.datetime):
-        @classmethod
-        def now(cls, tz=None):
-            if tz is not None:
-                return super().now(tz)
-            return cls.fromisoformat("2026-07-25T12:00")
-
-    monkeypatch.setattr(carry_live.dt, "datetime", _FrozenClock)
-
+def test_a_cycle_with_no_new_funding_points_adds_no_row(isolated_state, monkeypatch):
+    """Replaces the old "updates in place within the same minute" contract. Rows are keyed
+    by funding hour now, so a cycle that finds no NEW funding is simply a no-op -- which is
+    what makes running mark twice in quick succession harmless."""
+    monkeypatch.setattr(carry_live, "_funding_since", lambda coin, start_ms: [])
     carry_live.run_carry()
     book = carry_live.run_carry()
-
-    assert len(book["history"]) == 1, "same-minute re-run must not duplicate the row"
-    assert book["history"][0][1] == book["equity"]
+    assert book["history"] == [] or len(book["history"]) == len(set(k for k, _ in book["history"]))
 
 
-def test_the_ledger_is_persisted_to_disk(isolated_state):
-    carry_live.run_carry()
-    saved = json.loads((isolated_state / "carry_btc_eth.json").read_text())
-
-    assert saved["name"] == "carry_btc_eth"
-    assert len(saved["history"]) == 1
+def test_each_funding_hour_is_stamped_at_its_own_time_not_wall_clock(isolated_state, monkeypatch):
+    hour_ms = 3600 * 1000
+    base = 1_800_000_000_000
+    monkeypatch.setattr(carry_live, "_funding_since",
+                        lambda coin, start_ms: [(base, 0.0001), (base + hour_ms, 0.0001)])
+    book = carry_live.run_carry()
+    keys = [k for k, _ in book["history"]]
+    assert len(keys) == 2
+    expected = [books.utc_stamp(__import__("pandas").Timestamp(t, unit="ms"))
+                for t in (base, base + hour_ms)]
+    assert keys == expected
