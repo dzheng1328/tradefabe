@@ -149,3 +149,74 @@ def test_a_dead_source_does_not_kill_the_cycle(monkeypatch):
         raise RuntimeError("yfinance down")
     monkeypatch.setattr(pricing, "fetch", boom)
     assert pricing.fetch_for_books(["tsmom_12m"]) == {}
+
+
+# ---------------------------------------------------------------- fetch dedup (#97)
+def test_hourly_books_do_not_refetch_what_pricing_already_has(monkeypatch):
+    """hourly.py used to own a second, near-identical yfinance fetcher, so a mark cycle
+    pulled the SAME bars twice -- five downloads where three would do. Beyond the wasted
+    time, every extra call is another chance for yfinance to return a partial bar."""
+    from tradefabe import hourly
+    calls = []
+    monkeypatch.setattr(hourly, "fetch_hourly", lambda name: calls.append(name) or pd.DataFrame())
+    prefetched = {"equity_hourly": _bars(30, cols=("SPY",)),
+                  "crypto_hourly": _bars(30, cols=("BTC-USD",))}
+    monkeypatch.setattr(hourly.books, "load",
+                        lambda n: {"name": n, "cash": 1000.0, "positions": {},
+                                   "history": [], "last_run": None, "last_rebalance": None})
+    monkeypatch.setattr(hourly.books, "save", lambda b: None)
+    hourly.run_price_books(verbose=False, prefetched=prefetched)
+    assert calls == [], f"refetched despite prefetched frames: {calls}"
+
+
+def test_hourly_falls_back_to_fetching_when_nothing_is_prefetched(monkeypatch):
+    from tradefabe import hourly
+    calls = []
+    monkeypatch.setattr(hourly, "fetch_hourly", lambda name: calls.append(name) or pd.DataFrame())
+    hourly.run_price_books(verbose=False, prefetched=None)
+    assert set(calls) == set(hourly.PRICE_BOOK_NAMES)
+
+
+def test_every_hourly_book_maps_to_a_pricing_source_with_matching_tickers():
+    """If these drift apart, a prefetched frame silently prices the wrong universe."""
+    from tradefabe import hourly
+    for name, spec in hourly.BOOKS.items():
+        src = pricing.source_for(name)
+        assert sorted(spec["tickers"]) == sorted(pricing.SOURCES[src]), \
+            f"{name}: hourly tickers != pricing[{src}]"
+
+
+# ---------------------------------------------------------------- noise-floor cache (#97)
+def test_noise_floor_is_memoized_and_returns_identical_values():
+    import harness
+    idx = pd.bdate_range("2018-01-02", periods=400)
+    rng = np.random.default_rng(3)
+    px = pd.DataFrame({c: 100 * np.exp(np.cumsum(rng.normal(0.0003, 0.01, 400)))
+                       for c in ("SPY", "IEF", "QQQ", "GLD")}, index=idx)
+    a = harness.noise_floor(px, "M", 20)
+    b = harness.noise_floor(px, "M", 20)
+    assert np.array_equal(a, b)
+    assert (harness._prices_fingerprint(px), "M", 20) in harness._NULL_CACHE
+
+
+def test_a_mutated_price_frame_misses_the_cache():
+    """Keyed on CONTENT, not object identity -- otherwise a caller that mutates its frame
+    silently reuses a floor built from different data."""
+    import harness
+    idx = pd.bdate_range("2018-01-02", periods=400)
+    rng = np.random.default_rng(7)
+    px = pd.DataFrame({c: 100 * np.exp(np.cumsum(rng.normal(0.0003, 0.01, 400)))
+                       for c in ("SPY", "IEF", "QQQ", "GLD")}, index=idx)
+    a = harness.noise_floor(px, "M", 20)
+    px2 = px.copy(); px2.iloc[0, 0] *= 1.5
+    assert not np.array_equal(a, harness.noise_floor(px2, "M", 20))
+
+
+def test_a_different_frequency_misses_the_cache():
+    import harness
+    idx = pd.bdate_range("2018-01-02", periods=400)
+    rng = np.random.default_rng(11)
+    px = pd.DataFrame({c: 100 * np.exp(np.cumsum(rng.normal(0.0003, 0.01, 400)))
+                       for c in ("SPY", "IEF", "QQQ", "GLD")}, index=idx)
+    assert not np.array_equal(harness.noise_floor(px, "M", 20),
+                              harness.noise_floor(px, "W", 20))

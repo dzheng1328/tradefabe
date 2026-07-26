@@ -268,7 +268,30 @@ def benchmark_returns(prices):
 
 
 # ---------- the data-derived noise floor (per rebalance frequency) ----------
+_NULL_CACHE: dict = {}
+
+
+def _prices_fingerprint(prices):
+    """Content hash, so a mutated frame misses the cache rather than reusing a stale null."""
+    return (prices.shape, tuple(prices.columns),
+            int(pd.util.hash_pandas_object(prices, index=True).sum()))
+
+
 def noise_floor(prices, freq, trials=NULL_TRIALS, rv=None):
+    """Sharpe distribution of `trials` random strategies at this rebalance frequency.
+
+    MEMOIZED per (prices, freq, trials). The internal rng is seeded to 0 and consumed
+    sequentially, so the result is a pure function of those three -- recomputing it is
+    identical work every time. That mattered: `factory_run.run_cycle()` rebuilds the floor
+    per call, and the 12 tests that each call it made `test_factory_run.py` 83% of the
+    suite's serial runtime (45s of 54s).
+
+    Keyed on a CONTENT fingerprint, not object identity, so a caller that mutates its price
+    frame gets a fresh floor instead of a silently stale one."""
+    key = (_prices_fingerprint(prices), freq, trials)
+    hit = _NULL_CACHE.get(key)
+    if hit is not None:
+        return hit
     if rv is None:
         rv = realized_vol(prices)
     rng = np.random.default_rng(0)
@@ -278,7 +301,9 @@ def noise_floor(prices, freq, trials=NULL_TRIALS, rv=None):
         v = stats(r[r.index >= OOS_START])["Sharpe"]
         if np.isfinite(v):
             out.append(v)
-    return np.array(out)
+    arr = np.array(out)
+    _NULL_CACHE[key] = arr
+    return arr
 
 
 # ---------- doctrine verdict ----------
