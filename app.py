@@ -14,7 +14,6 @@ import os
 import numpy as np
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 import plotly.graph_objects as go
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -103,6 +102,9 @@ div[class*="st-key-book_click_"] button{
    position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
    min-height:0!important;min-width:0!important;
    margin:0!important;padding:0!important;border:none!important;opacity:0!important;cursor:pointer;}
+/* the Cmd+R keybinding shim is a functional iframe, not UI -- st.iframe rejects a
+   0 size (components.html allowed it), so it renders 1px and is hidden here. */
+iframe[title="st.iframe"]{display:none!important;}
 </style>
 """
 st.markdown(LAB_CSS, unsafe_allow_html=True)
@@ -110,11 +112,13 @@ st.markdown(LAB_CSS, unsafe_allow_html=True)
 
 def _bind_refresh_shortcut():
     """Cmd+R (Mac) / Ctrl+R triggers the same cache-clear + rerun as the sidebar Refresh
-    button, without the browser/desktop-window doing its own native reload -- components.v1
-    runs in an iframe, so the listener is attached to window.parent.document to see
-    keystrokes on the actual app, and a flag on that document guards against re-binding
-    on every rerun."""
-    components.html("""
+    button, without the browser/desktop-window doing its own native reload.
+
+    st.iframe (not st.html) is required here: the script must run in a real iframe with
+    same-origin access so it can reach window.parent.document and see keystrokes on the
+    actual app. st.html renders inline and would break that. A flag on the parent document
+    guards against re-binding on every rerun."""
+    st.iframe("""
         <script>
         (function() {
             const doc = window.parent.document;
@@ -131,7 +135,7 @@ def _bind_refresh_shortcut():
             }, true);
         })();
         </script>
-    """, height=0, width=0)
+    """, height=1, width=1)
 
 
 # ==================================================================== data loading
