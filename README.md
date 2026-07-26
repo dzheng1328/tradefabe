@@ -45,8 +45,7 @@ state/paper/       paper-book ledgers, carry_risk.json, and the factory's promot
 
 ## Quickstart
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
+./ops/setup_venv.sh          # venv outside iCloud, symlinked to .venv (see gotcha below)
 
 .venv/bin/tradefabe run       # one daily paper cycle: rebalance due books + carry risk monitor
 .venv/bin/tradefabe mark      # mark all books to current price (finer chart resolution)
@@ -104,11 +103,11 @@ Entry point: `tradefabe-app` (pywebview). **Not tracked in git** — hand-built 
 `Contents/`), so if it's ever rebuilt from scratch, recreate it with the launcher exporting
 `PYTHONPATH` before it execs `tradefabe-app` (see the gotcha below for why).
 
-> macOS + Python 3.14 gotcha: `site` skips *.pth files carrying the `hidden` flag, which some
-> sandboxed installers set — this can recur mid-session, not just after a reinstall. If
-> `import tradefabe` fails: `chflags nohidden .venv/lib/python*/site-packages/*.pth`, or more
-> reliably, run with `PYTHONPATH=<repo root>/src` set. A venv-level `sitecustomize.py` does
-> **not** fix this — Homebrew's own Python ships one earlier on `sys.path` that shadows it.
+> **macOS + iCloud gotcha (fixed):** this repo sits in `~/Documents`, which iCloud syncs.
+> iCloud flags files in that tree as `hidden`, and Python 3.14's `site` module silently
+> skips hidden `.pth` files — so an editable install stops resolving and `import tradefabe`
+> fails. The venv therefore lives at `~/.venvs/tradefabe` with `.venv` symlinked to it.
+> Recreate it with `ops/setup_venv.sh`, never with a bare `python3 -m venv .venv`.
 
 ## Principles
 - Strategies are deterministic; **no LLM in the trade loop** (LLMs are for research,
