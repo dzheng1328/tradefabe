@@ -88,6 +88,26 @@ def test_rebalance_still_works_on_a_complete_bar(book):
     assert all(math.isfinite(sh) for sh in book["positions"].values())
 
 
+# ------------------------------------------------------------------ save backstop
+def test_save_refuses_to_write_a_nan_token(book, tmp_path, monkeypatch):
+    # Python emits a bare `NaN`, which is NOT valid JSON -- JSON.parse and jq both reject
+    # the whole file. This is the backstop if some future path bypasses mark().
+    monkeypatch.setattr(books, "STATE_DIR", tmp_path)
+    book["history"] = [["2026-07-26T06:38", float("nan")]]
+    with pytest.raises(ValueError):
+        books.save(book)
+
+
+def test_save_writes_strict_json_normally(book, tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(books, "STATE_DIR", tmp_path)
+    book["history"] = [["2026-07-26T07:00", 1500.0]]
+    books.save(book)
+    text = (tmp_path / "test_book.json").read_text()
+    # parse_constant fires on NaN/Infinity, i.e. exactly the non-standard tokens
+    json.loads(text, parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))
+
+
 # ------------------------------------------------------- incomplete tail trimming
 def _frame(n=5):
     idx = pd.bdate_range("2026-07-20", periods=n)

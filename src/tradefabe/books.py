@@ -24,8 +24,12 @@ def load(name: str) -> dict:
 
 
 def save(book: dict) -> None:
+    """allow_nan=False on purpose: Python happily emits a bare `NaN` token, which is not
+    valid JSON -- `JSON.parse` and jq both reject the file outright. mark() already
+    refuses to record a non-finite equity; this is the backstop that makes any future
+    route to the same bug fail loudly at the write instead of silently on read."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    _path(book["name"]).write_text(json.dumps(book, indent=1))
+    _path(book["name"]).write_text(json.dumps(book, indent=1, allow_nan=False))
 
 
 def equity(book: dict, px: pd.Series) -> float:
