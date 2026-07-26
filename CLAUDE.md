@@ -182,6 +182,23 @@ machine-generated. Key things to know before touching this:
   ~20/day — bounded growth). **If you ever add a new source that can become a live
   book** (a new registry, a new promotion path), it needs its own persisted-curve story
   or this recurs. Regression test: `tests/test_book_panel_data.py`.
+- **A book's live history must be stamped to the MINUTE, not the date** (fixed
+  2026-07-25). `carry_live.run_carry()` used to key its history row on the bare date, so
+  the 30min `tradefabe mark` cron overwrote one row per day — the funding accrual was
+  recomputed every cycle but never recorded, and the dashboard's 5H/1D windows had a
+  single point to draw and rendered a bare dot. It now uses the same
+  `isoformat(timespec="minutes")` key shape `books.mark()` gives every equity book. Any
+  NEW book source must do the same. Belt-and-braces on the UI side:
+  `app.window_slice()` widens any range that would yield <2 points back to the last two
+  marks (and captions the fact) — which also covers the real gaps every book gets when
+  the Mac sleeps through the mark cron. Tests: `tests/test_carry_live_history.py`,
+  `tests/test_live_equity_chart.py`.
+- **Live-equity charts scale to the visible data, not to $0.** `app.padded_range()` puts
+  the y-axis 30% of the high-low span beyond each end; the `fill="tozeroy"` area is kept
+  only for the look (Plotly clips it to the axis). At $100k start capital a $0-anchored
+  axis flattened every book's real sub-percent moves into a straight line. Don't
+  "restore" a zero baseline here — `drawdown_chart()` is the one chart that legitimately
+  anchors at 0.
 
 ## Roadmap
 Tracked as GitHub issues, milestone **Engine v1** (`gh issue list`, `gh api

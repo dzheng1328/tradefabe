@@ -359,20 +359,60 @@ RANGE_WINDOWS = {
 }
 
 
+# Minimum points a range slice must yield before it's worth drawing as a chart -- one
+# point is a dot, not a line, and tells you nothing about direction.
+MIN_CHART_POINTS = 2
+# Fraction of the visible high-low span padded onto each end of the y-axis.
+Y_PAD = 0.30
+
+
+def window_slice(live_hist, window_label):
+    """Slice the live ledger to the selected range, returning (series, widened). Never
+    yields fewer than MIN_CHART_POINTS while the full series has that many: a book that
+    only records one mark per day has a single row inside a 5H window, which Plotly draws
+    as a lone dot. Widening back to the last two marks keeps it a LINE — and the caller
+    captions the fact rather than silently pretending the window was honored."""
+    if window_label == "ALL" or window_label not in RANGE_WINDOWS:
+        return live_hist, False
+    cutoff = live_hist.index[-1] - RANGE_WINDOWS[window_label]
+    win = live_hist[live_hist.index >= cutoff]
+    if len(win) >= MIN_CHART_POINTS or len(live_hist) < MIN_CHART_POINTS:
+        return win, False
+    return live_hist.tail(MIN_CHART_POINTS), True
+
+
+def padded_range(values, pad=Y_PAD):
+    """Y-axis bounds `pad` of the high-low span beyond each end, instead of Plotly's
+    default — which, with fill="tozeroy", anchors the axis at $0 and squashes a $100k
+    book's real ±0.3% moves into a dead-flat line. A perfectly flat series has no span to
+    scale, so fall back to a small proportional band around it. Returns None for an empty
+    series (let Plotly autorange rather than emit a degenerate range)."""
+    v = pd.Series(values).dropna()
+    if v.empty:
+        return None
+    lo, hi = float(v.min()), float(v.max())
+    span = hi - lo
+    if span <= 0:
+        span = abs(hi) * 0.001 or 1.0
+    return [lo - span * pad, hi + span * pad]
+
+
 def live_equity_chart(live_hist, color, window_label):
     """Primary panel chart: the real paper ledger's own dollar equity, on its own time
     axis, filtered to the selected range — decoupled from the backtest curve entirely so
-    ~2 days of live history is no longer an invisible sliver next to years of backtest."""
-    if window_label != "ALL" and window_label in RANGE_WINDOWS:
-        cutoff = live_hist.index[-1] - RANGE_WINDOWS[window_label]
-        live_hist = live_hist[live_hist.index >= cutoff]
+    ~2 days of live history is no longer an invisible sliver next to years of backtest.
+    The y-axis is scaled to the VISIBLE data (see padded_range), not to zero: at $100k
+    start capital every book's real day-to-day move is a rounding error against a $0
+    baseline. The tozeroy fill is kept for the area look — Plotly clips it to the axis."""
+    win, _ = window_slice(live_hist, window_label)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=live_hist.index, y=live_hist.values, name="Live paper equity",
+    fig.add_trace(go.Scatter(x=win.index, y=win.values, name="Live paper equity",
                              mode="lines+markers", line=dict(color=color, width=2.6),
-                             marker=dict(size=6 if len(live_hist) < 10 else 3),
+                             marker=dict(size=6 if len(win) < 10 else 3),
                              fill="tozeroy", fillcolor=_rgba(color, 0.08)))
     fig.update_layout(**themed_layout(height=340, yaxis_title="equity ($)",
-                                      yaxis_tickformat="$,.0f", showlegend=False))
+                                      yaxis_tickformat="$,.2f", showlegend=False,
+                                      yaxis_range=padded_range(win.values)))
     return fig
 
 
@@ -777,9 +817,16 @@ def render_strategy_panel(name, data, color):
     choice = st.segmented_control("Range", options, default="ALL", required=True,
                                   key=f"range_{name}", label_visibility="collapsed")
     st.plotly_chart(live_equity_chart(live_hist, color, choice), width="stretch")
+    win, widened = window_slice(live_hist, choice)
+    if widened:
+        st.caption(f"Only one mark falls inside the {choice} window — showing the last "
+                   f"{len(win)} marks ({win.index[0]:%Y-%m-%d %H:%M} → "
+                   f"{win.index[-1]:%Y-%m-%d %H:%M}) so this reads as a line rather than "
+                   "a single dot. This book marks less often than the 30min cron.")
     st.caption(f"Real paper fills since **{data['live_start'].date()}** (start "
-               f"${live_hist.iloc[0]:,.0f}). The ledger (`state/paper/{name}.json`) is "
-               f"never modified by this display.")
+               f"${live_hist.iloc[0]:,.0f}). Y-axis is scaled to the visible range "
+               f"(±{Y_PAD:.0%} padding), not to $0. The ledger "
+               f"(`state/paper/{name}.json`) is never modified by this display.")
 
     with st.expander("Backtest history (2018 → present) & live tracking check"):
         st.plotly_chart(backtest_chart(data["bt_curve"], INK2), width="stretch")

@@ -51,9 +51,14 @@ def run_carry(name: str = "carry_btc_eth") -> dict:
     eq = book.get("equity", books.START_CASH) if "equity" in book else books.START_CASH
     book["equity"] = round(eq * (1 + accrual), 2)
     book["last_ts"] = now_ms
-    today = dt.date.today().isoformat()
-    if not book["history"] or book["history"][-1][0] != today:
-        book["history"].append([today, book["equity"]])
+    # Minute-resolution stamp, same key shape books.mark() uses for the equity books.
+    # This used to key on the bare DATE, which collapsed every 30min mark cron call into
+    # a single overwritten row per day -- the accrual was already being computed every
+    # cycle, it just wasn't being RECORDED, so the dashboard's short ranges (5H/1D) had
+    # exactly one point to draw and rendered a bare dot.
+    stamp = dt.datetime.now().isoformat(timespec="minutes")
+    if not book["history"] or book["history"][-1][0] != stamp:
+        book["history"].append([stamp, book["equity"]])
     else:
         book["history"][-1][1] = book["equity"]
     book["last_run"] = dt.datetime.now().isoformat(timespec="seconds")
