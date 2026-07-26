@@ -99,6 +99,13 @@ public APIs.
 
 Trigger one by hand: `gh workflow run "paper engine" -f job=mark|run|factory`.
 
+**Measured cost (2026-07-26, first cloud cycles):** mark 43s, run ~60s, factory 68s.
+GitHub bills whole minutes, so ~720 + 30 + 60 = **~810 min/month against the 2,000 free
+private-repo allowance** — roughly 40% used, comfortable headroom. If it ever trends
+over, halve it by moving mark to `0 */2 * * *`. Note GitHub disables scheduled workflows
+on repos with no recent *human* activity (~60 days); the bot's own commits may not count,
+so if the schedule goes quiet that is the first thing to check.
+
 ### 2. CI (GitHub Actions, 1 workflow)
 `.github/workflows/tests.yml` — runs `pytest tests/` on GitHub's runners.
 **Trigger is `push` and `pull_request` on `main` ONLY.** A PR targeting any other branch
