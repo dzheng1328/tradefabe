@@ -196,22 +196,25 @@ machine-generated. Key things to know before touching this:
   Its plist is tracked in `ops/`; logs go to `~/Library/Logs/tradefabe/`, not `state/logs/`.
 
 ## Known gaps and gotchas — check these before assuming something's broken
-- **Python 3.14 + macOS sandbox pth bug:** a sandboxed shell can stamp new files
-  (including the editable-install `.pth`) with the macOS `hidden` flag, and Python
-  3.14's `site` module silently skips hidden `.pth` files → `ModuleNotFoundError:
-  tradefabe` after a perfectly good `pip install -e .`. This recurs mid-session, not
-  just after install — a sandboxed shell can re-hide the file between one tool call and
-  the next.
-  - **Reliable fix:** `chflags nohidden .venv/lib/python*/site-packages/*.pth` (needs
-    `dangerouslyDisableSandbox: true`), or sidestep it entirely with
-    `PYTHONPATH=<repo root>/src` on the command you're running — more reliable
-    mid-session since the flag doesn't need to hold across separate tool calls.
-  - **Dead end, don't retry it:** a venv-level `sitecustomize.py` does NOT fix this —
-    Homebrew's own Python ships a `sitecustomize.py` earlier on `sys.path` that shadows
-    it silently (confirmed 2026-07-23; `import sitecustomize` succeeds but resolves to
-    Homebrew's file, not the venv's).
-  - The `.app` desktop launcher hits this too (no `PYTHONPATH` by default) — see the
-    Commands section above for the fix baked into the launcher script.
+- **Python 3.14 hidden-`.pth` bug — ROOT CAUSE FOUND, FIXED (#60, 2026-07-26).** It was
+  never a sandbox quirk. This repo lives in `~/Documents`, which has **iCloud Desktop &
+  Documents sync ON**. iCloud stamps files in the synced tree with the macOS `hidden`
+  flag and leaves `"<name> 2"` conflict copies; Python 3.14's `site` module silently
+  skips hidden `.pth` files, so the editable install's path file stops working and
+  `import tradefabe` fails after a clean install. Evidence: essentially the WHOLE venv
+  was flagged hidden (`.so` files, `__pycache__`, not just `.pth`), plus three conflict
+  artifacts (`.venv/bin/tradefabe 2`, `tradefabe-app 2`, `__editable__...2.pth`).
+  - **Fix:** the venv now lives at `~/.venvs/tradefabe`, outside the synced tree, with
+    `.venv` a symlink to it — so every existing path still works unchanged. Rebuild it
+    with **`ops/setup_venv.sh`**, which refuses to create the venv anywhere under
+    `~/Documents` or `~/Desktop`.
+  - **`PYTHONPATH` is no longer required** — `import tradefabe`, `pytest`, and the CLI
+    all work with it unset. The plists and `.app` launcher still export it; that is now
+    belt-and-braces rather than load-bearing, and harmless.
+  - Dead end, don't retry: a venv-level `sitecustomize.py` does NOT help — Homebrew's
+    Python ships one earlier on `sys.path` that shadows it (confirmed 2026-07-23).
+  - If this ever recurs, check `ls -lO .venv/lib/python*/site-packages/*.pth` for the
+    `hidden` flag and `find . -name "* 2.*"` for conflict copies before suspecting Python.
 - **`congress_copy` is verdicted but has no `graveyard.csv` row.** `research/congress_backtest.py`
   now reproduces it (#59): NANC alpha −0.28%/yr, t = −0.12, R² 0.93 on SPY+QQQ — pure
   tech beta, DEAD confirmed. It is deliberately NOT in graveyard.csv: that schema is for
