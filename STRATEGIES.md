@@ -243,6 +243,45 @@ this" is an unverified before/after graphic and whose "comment stock to see what
 buying" is a lead-gen funnel. Neither counts as evidence either way — the mechanic was
 tested on its own merits, and it lost.
 
+### L. Intraday / hourly (edge claimed: signals that only exist at sub-daily horizons. #86)
+
+**PRE-REGISTRATION — specs frozen 2026-07-26, before any of the three was run.** Results
+land in a separate commit; this one deliberately carries none.
+
+**The regime limitation, accepted up front, doctrine unchanged.** DOCTRINE's OOS window is
+2018+. *Every* hourly source reachable here begins in 2023 — Hyperliquid funding
+2023-05-12, yfinance 1h equities 2023-08-25, yfinance 1h crypto 2024-07-27 (Binance klines
+return HTTP 451 from this location). So these three cannot span 2018's vol spike, COVID, or
+the 2022 bear. Sample SIZE is fine (5k–28k observations); regime DIVERSITY is not. Dave's
+explicit call (2026-07-26): accept it and label the verdicts regime-limited rather than
+amend doctrine to suit the data. **An ALIVE verdict in this family therefore means less
+than an ALIVE verdict elsewhere in this file, and must be read with that caveat attached.**
+
+**Evaluation frequency is DAILY, not hourly** — returns are generated hourly, then
+aggregated `(1+r).prod()-1` per day before the gates run. This is the same treatment
+`carry_hl.py` already gives the surviving carry book (`resample("D").sum()`), and it keeps
+`ANN=252`, the 60/40 benchmark, the noise floor, and CPCV all directly comparable to every
+other row in this file. The noise floor is matched: 500 random *hourly* strategies pushed
+through the identical cost path and the identical daily aggregation, so the null pays the
+same turnover drag the candidate does.
+
+| strategy | spec | freq | status |
+|---|---|---|---|
+| `funding_timing_1h` | delta-neutral BTC+ETH carry, notional scaled by the hourly funding rate: full size when the trailing 24h mean funding is positive, flat when negative | H | QUEUED |
+| `crypto_reversal_1h` | fade the trailing 6h return on BTC+ETH, equal weight, long/short | H | QUEUED |
+| `equity_tsmom_1h` | sign of the trailing 24-bar (≈5 session) return on the 15-ETF universe, long/short | H | QUEUED |
+
+Parameter choices are pre-committed here and are **not** to be tuned after seeing results —
+a different lookback is a NEW row and a NEW graveyard entry (rule 2 below). The three
+lookbacks (24h funding mean, 6h reversal, 24-bar trend) were fixed by analogy to the
+existing daily specs, not by scanning.
+
+`funding_timing_1h` is a variant of the one ALIVE strategy in this lab, which makes it the
+highest-risk row here for exactly the reason DOCTRINE's opening section warns about: tuning
+a survivor until it looks better. Its verdict is only meaningful because the spec above was
+frozen first. **Benchmark for it is cash** (absolute return), matching `carry_backtest.py`'s
+precedent for market-neutral books; the two directional rows are judged against 60/40.
+
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
 2. One verdict per spec. Tweaks = a NEW row and a NEW graveyard entry.
