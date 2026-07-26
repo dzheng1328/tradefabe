@@ -57,9 +57,11 @@ A launchd job that fails at *setup* exits **78 (EX_CONFIG)** and writes **nothin
 its log — there is no error message anywhere, because the log is exactly what could not
 be configured. Two separate causes bit this plist:
 
-**1. Log paths under `~/Documents` are TCC-protected.** This repo lives in
-`~/Documents/tradefabe`, and the Homebrew python binary the factory job execs has no
-permission to write there when spawned by launchd. The two older jobs get away with
+**1. Log paths under `~/Documents` are TCC-protected.** This repo *used to* live in
+`~/Documents/tradefabe` (it now lives at `~/tradefabe`), and the Homebrew python binary
+the factory job execs had no permission to write there when spawned by launchd. The
+finding is kept because the compatibility symlink at the old location still resolves into
+TCC territory for anything that follows it. The two older jobs get away with
 `state/logs/` because they exec the `tradefabe` console script, which holds that grant;
 a different binary does not inherit it. Confirmed by bisection — identical plist, only
 the log path changed:
@@ -80,9 +82,11 @@ comment is enough to do it.
 
 ## Two more things to know
 
-**Paths are absolute and hardcoded** to `/Users/dzheng/Documents/tradefabe`. launchd
-agents get no shell profile and no useful working directory by default, so there is no
-`$HOME`-relative form to fall back on. Moving the repo means editing all three files.
+**Paths are absolute and hardcoded** to `/Users/dzheng/tradefabe`. launchd agents get no
+shell profile and no useful working directory by default, so there is no `$HOME`-relative
+form to fall back on. Moving the repo means editing all three files — which is exactly
+what the 2026-07-26 move out of iCloud required. Point them at the real path, never at
+the `~/Documents/tradefabe` compatibility symlink.
 
 **`PYTHONPATH` is baked in on purpose.** It is not just convenience — it sidesteps the
 Python 3.14 hidden-`.pth` bug (CLAUDE.md's Known gaps, issue #60) that otherwise makes
