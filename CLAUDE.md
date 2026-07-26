@@ -35,7 +35,9 @@ same doctrine — no lower bar because "this one feels different" or "a machine 
 src/tradefabe/     installable engine: engine.py (data/sizing/returns core, single source
                    of truth), signals.py, books.py, piggyback.py, factory.py (template
                    library + live generation), carry_live.py, carry_risk.py, runner.py,
-                   cli.py, desktop.py, risk_register.py, paths.py
+                   cli.py, desktop.py, risk_register.py, hourly.py (family L signals +
+                   live monitor books — the STUDY imports its signals from here, so
+                   backtest and live book are the same function), paths.py
 app.py             Streamlit dashboard, port 8501. Two sidebar views: Paper Books (live
                    books, cards grouped by family) and Research Lab (verdicts, luck floor,
                    correlation, piggyback lab, DEAD-strategy detail). Plotly only, no
@@ -74,7 +76,7 @@ PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" \
 `PYTHONPATH` is not needed for anything but that last line (`factory_run.py` imports the
 repo-root `harness` and `research/piggyback_backtest`, which only pytest resolves for you).
 
-## Automations — nine things run without you
+## Automations — ten things run without you
 Know all of them before assuming a file changed by magic.
 
 **1–3. Scheduled** (`.github/workflows/paper-engine.yml`) — **the paper engine runs in the
@@ -97,7 +99,13 @@ schedule goes quiet.
 reports "no checks reported", which reads like a failure but means the workflow never
 fired. This bites stacked PRs — run the suite locally before trusting one is green.
 
-**5–7. In-process** (inside the scheduled jobs, so invisible in `launchctl list`):
+**5–8. In-process** (inside the scheduled jobs, so invisible in `launchctl list`):
+- **`run_hourly()`** (`hourly.py`) — family L's three monitor-only books (#86). Called by
+  both `run_daily()` and `run_mark()`, and it **rebalances on every mark**, unlike every
+  other book. They were tested on a strict 1h clock; the mark cadence (~2h in practice) is
+  the closest the engine gets, so **live results diverge from the backtest for reasons
+  unrelated to whether the edge is real** — expected, not a bug. Never raises. All three
+  are backtest-DEAD, hence monitor-only forever under v1.2.
 - **`run_carry()`** — accrues real Hyperliquid funding. Called by both `run_daily()` and
   `run_mark()`, so it stamps a minute-resolution history row ~48x/day.
 - **`check_carry_risk()`** — funding-flip + liquidation distance. Called by `run_daily()`
@@ -107,7 +115,7 @@ fired. This bites stacked PRs — run the suite locally before trusting one is g
   verdict, writing `state/paper/promoted*.json`. `runner.py` reads those at **import
   time**, so a promotion only takes effect in the next `run`/`mark` process.
 
-**8–9. Dev config** — `.claude/settings.json` (tracked; lets agents run `gh`/`git`
+**9–10. Dev config** — `.claude/settings.json` (tracked; lets agents run `gh`/`git`
 unprompted, denies `gh repo delete` and force-push) and `.claude/launch.json` (dashboard
 preview config). `.claude/settings.local.json` is Dave's gitignored overlay.
 
