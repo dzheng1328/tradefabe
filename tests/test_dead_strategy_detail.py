@@ -72,3 +72,24 @@ def test_every_graveyard_strategy_has_a_family_and_description():
         assert app.book_family(name) != "?", f"{name} has no resolvable family"
         assert not app.strategy_description(name).startswith("(no description yet"), \
             f"{name} has no resolvable description"
+
+
+def test_family_l_hourly_strategies_resolve_a_backtest_curve():
+    """Family L (#86) added a FOURTH curve source. Its returns live in
+    artifacts/hourly_returns.csv, not full/piggyback/factory, so without wiring it in
+    every hourly strategy fell through to the summary-stats-only fallback and showed no
+    chart at all in the detail view. Same class of gap as the live-book one CLAUDE.md
+    documents: a new source that can produce a graveyard row needs its own curve story."""
+    import os
+    hourly = app.load_hourly_backtest.__wrapped__()
+    if hourly is None:
+        pytest.skip("hourly study not run here")
+    empty = pd.DataFrame()
+    for name in ("funding_timing_1h", "crypto_reversal_1h", "equity_tsmom_1h"):
+        r = app._dead_strategy_returns(name, empty, None, None, hourly)
+        assert r is not None, f"{name} has no resolvable backtest curve"
+        assert len(r) > 100, f"{name} curve is suspiciously short: {len(r)}"
+
+
+def test_dead_strategy_returns_still_falls_back_to_none_for_an_unknown_name():
+    assert app._dead_strategy_returns("not_a_strategy", pd.DataFrame(), None, None, None) is None
