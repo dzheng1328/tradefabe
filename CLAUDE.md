@@ -214,6 +214,17 @@ machine-generated. Key things to know before touching this:
     Python ships one earlier on `sys.path` that shadows it (confirmed 2026-07-23).
   - If this ever recurs, check `ls -lO .venv/lib/python*/site-packages/*.pth` for the
     `hidden` flag and `find . -name "* 2.*"` for conflict copies before suspecting Python.
+- **iCloud also creates `"<name> 2.<ext>"` conflict copies of TRACKED files** — the venv
+  fix above does not cover this, because the repo itself is still under `~/Documents`.
+  One such copy of the paper-engine workflow got committed by `git add -A`, and GitHub
+  registered it as a SECOND active workflow that fired on every schedule: double billed
+  minutes and duplicate ledger commits. Nine more copies of `state/paper/*.json` and
+  `ops/setup_venv.sh` were tracked too. All removed 2026-07-26.
+  - **Guards now in place:** `* 2.*` / `* 3.*` in `.gitignore`, plus a CI step in
+    `tests.yml` that fails the build if any such file is tracked (ignore rules alone
+    don't stop `git add -f`).
+  - **Before `git add -A`, run `find . -name "* 2.*" -not -path "./.git/*"`.** The real
+    fix is moving the repo out of `~/Documents` entirely, the way brainclaude was moved.
 - **`congress_copy` is verdicted but has no `graveyard.csv` row.** `research/congress_backtest.py`
   now reproduces it (#59): NANC alpha −0.28%/yr, t = −0.12, R² 0.93 on SPY+QQQ — pure
   tech beta, DEAD confirmed. It is deliberately NOT in graveyard.csv: that schema is for

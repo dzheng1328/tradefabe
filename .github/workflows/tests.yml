@@ -11,6 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: no iCloud conflict duplicates
+        # A committed "<name> 2.<ext>" copy of a workflow made GitHub run the paper
+        # engine twice on every schedule. Cheap to check, expensive to miss.
+        run: |
+          DUPES=$(git ls-files | grep -E ' [0-9]+\.[A-Za-z0-9]+$' || true)
+          if [ -n "$DUPES" ]; then
+            echo "::error::iCloud conflict duplicates are tracked:"; echo "$DUPES"
+            exit 1
+          fi
+          echo "no duplicates tracked"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
