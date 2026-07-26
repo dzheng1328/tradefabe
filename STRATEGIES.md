@@ -193,6 +193,39 @@ practitioner would read them discretionarily and might disagree with any specifi
 threshold. That is exactly why they were pre-registered mechanically and tested rather
 than argued about.
 
+### K. Contribution-schedule overlays (edge claimed: hold cash back, deploy it into
+drawdowns. Not a signal strategy — it changes WHEN new money arrives, not what you hold. #25)
+
+| strategy | spec | freq | status |
+|---|---|---|---|
+| `dca_tiered_dipbuy` | 75% of contributions invested monthly; 25% to a reserve at the real T-bill rate; deploy 1× baseline extra at ≥20% off the 252-day high, 2× at ≥30% | M | **DEAD** — loses to plain 100% DCA in **5/5** windows on QQQ and **5/5** on SPY |
+
+`research/dca_backtest.py`, 2026-07-26. Both paths contribute identical dollars on
+identical dates, so terminal wealth compares directly.
+
+| window (QQQ) | plain | tiered | gap |
+|---|---|---|---|
+| full history (2000→) | $3,698,587 | $3,402,422 | **−8.0%** |
+| GFC onset (2007→) | $1,570,480 | $1,317,032 | **−16.1%** |
+| covid onset (2020→) | $118,329 | $115,935 | −2.0% |
+| 2022 bear onset | $66,614 | $62,550 | −6.1% |
+
+**The mechanism is cash drag, and the numbers name it: 83–92% of months sit within 20% of
+a 52-week high.** The reserve helps only in the months it deploys and idles the rest of
+the time. Windows that *start* at a crash flatter it most — and it still loses all of
+them, which is the strongest form of the result: the overlay fails even on the entry
+dates chosen to suit it.
+
+**Two things that would have flattered it, avoided:** the reserve earns the actual
+13-week T-bill (^IRX), whose mean over this sample is **~2.0%/yr**, not the ~4–5% a
+present-day HYSA quote suggests; and the reserve is capped at its balance, so it cannot
+deploy money it never had (the ≥30% tier ran dry in 32 months of the QQQ full history).
+
+Source note: the idea came from an Instagram reel whose "grew my portfolio from this to
+this" is an unverified before/after graphic and whose "comment stock to see what I'm
+buying" is a lead-gen funnel. Neither counts as evidence either way — the mechanic was
+tested on its own merits, and it lost.
+
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
 2. One verdict per spec. Tweaks = a NEW row and a NEW graveyard entry.
