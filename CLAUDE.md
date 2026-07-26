@@ -140,10 +140,11 @@ These have no plist of their own, so they're invisible in `launchctl list`:
 
 **Desktop app** (user-launched, NOT automated — listed here so the inventory above reads
 as complete): `~/Applications/tradefabe.app`, own Dock icon, native window, `tradefabe-app`
-entry point via pywebview. **Not tracked in git** — hand-built, 3 files under
-`~/Applications/tradefabe.app/Contents/` (issue #61). If you rebuild or move it, bake
-`export PYTHONPATH="$(repo root)/src"` into the launcher script before it execs
-`tradefabe-app` — see the Py3.14 gotcha below for why.
+entry point via pywebview. **Rebuild it with `ops/build_app.sh`** (#61) — the bundle
+itself isn't in git, but the script that generates it is, along with `ops/icon.icns`. The
+launcher must export `PYTHONPATH` before exec'ing `tradefabe-app`; the script does this,
+and a test asserts it, because a GUI app gets no shell profile and would otherwise hit the
+Py3.14 hidden-`.pth` bug below.
 
 ## Doctrine — read DOCTRINE.md before adding or judging any strategy
 Pre-registered, OOS-only (2018+), data-derived noise floor (500 random strategies per
