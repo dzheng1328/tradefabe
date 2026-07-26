@@ -25,7 +25,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          # pandas/numpy/streamlit/pyarrow from scratch was ~30s of a 37s Install step,
+          # on every run. pyproject.toml is the cache key, so a dependency change busts it.
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
       - name: Install
         run: pip install -e ".[dev]"
       - name: Run tests
-        run: pytest -v
+        # not -v: 285 lines of PASSED is noise, and the failure output is unchanged.
+        run: pytest

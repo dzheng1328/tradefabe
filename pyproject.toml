@@ -35,7 +35,11 @@ where = ["src"]
 # not a package) resolves the same way it does when run directly as a script.
 pythonpath = [".", "research"]
 
-# Parallel by default: the suite is run constantly and test_factory_run.py alone was
-# ~50s of a 55s serial run. Measured 54.4s -> 13s on 14 cores, stable across repeats.
-# Pass `-n0` to disable when you need readable tracebacks, --pdb, or -x.
-addopts = ["-n", "auto"]
+# Parallel by default: the suite is run constantly. Pass `-n0` to disable when you need
+# readable tracebacks, --pdb, or -x.
+#
+# `worksteal` rather than xdist's default `load`: CI gets only 2 workers and the static
+# split handed one of them 187 tests and the other 98, so the long pole decided the run.
+# worksteal reassigns queued tests when a worker runs dry, which matters most exactly
+# where cores are scarce.
+addopts = ["-n", "auto", "--dist", "worksteal"]

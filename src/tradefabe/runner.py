@@ -76,13 +76,13 @@ def _run_book(name, freq, get_weights, px, today, last, verbose):
             print(f"  {name:<18} {'':>19}  (SKIPPED — unpriceable, ledger untouched)")
 
 
-def run_hourly(verbose: bool = True) -> None:
+def run_hourly(verbose: bool = True, prefetched: dict | None = None) -> None:
     """Family L's monitor-only books (#86). Called from BOTH run_daily() and run_mark(),
     like run_carry() -- these were tested on a 1h clock, so the mark cadence is the closest
     the engine gets. Never raises: a data outage on one hourly book must not take down a
     cycle that also owns the daily ledger."""
     try:
-        hourly.run_price_books(verbose)
+        hourly.run_price_books(verbose, prefetched)
         hourly.run_funding_timing(verbose=verbose)
     except Exception as e:                       # noqa: BLE001 - deliberately broad
         if verbose:
@@ -103,7 +103,7 @@ def run_mark(verbose: bool = True) -> pd.DataFrame:
     # mark. GitHub's cron actually fires ~every 2.2h despite an hourly schedule, so marking
     # once per firing left multi-hour holes; backfilling makes chart resolution independent
     # of when the scheduler happened to run. See pricing.py.
-    hourly_px = pricing.fetch_for_books(ALL_BOOKS)
+    hourly_px = pricing.fetch_for_books(ALL_BOOKS + hourly.PRICE_BOOK_NAMES)
     for name in ALL_BOOKS:
         book = books.load(name)
         filled = books.backfill_marks(book, hourly_px.get(pricing.source_for(name)))
@@ -122,7 +122,7 @@ def run_mark(verbose: bool = True) -> pd.DataFrame:
     carry = run_carry()
     if verbose:
         print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
-    run_hourly(verbose)
+    run_hourly(verbose, hourly_px)
     return write_summary(last)
 
 

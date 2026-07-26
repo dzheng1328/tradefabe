@@ -73,24 +73,15 @@ PRICE_BOOK_NAMES = list(BOOKS)
 ALL_NAMES = PRICE_BOOK_NAMES + ["funding_timing_1h"]
 
 
-def fetch_hourly(tickers) -> pd.DataFrame:
-    """Recent hourly closes for the live loop. Trailing partial bars are dropped for the
-    same reason engine.drop_incomplete_tail() drops them: a row that exists but isn't a
-    complete cross-section is not a close, and marking against it produced NaN equity and
-    a phantom two-value square wave on the daily books (2026-07-26)."""
-    import yfinance as yf
-    raw = yf.download(tickers, period=LIVE_PERIOD, interval="1h", progress=False,
-                      threads=False, auto_adjust=True)
-    px = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]]
-    if not isinstance(raw.columns, pd.MultiIndex):
-        px.columns = list(tickers)
-    px = px[[t for t in tickers if t in px.columns]].dropna(how="all")
-    if px.index.tz is not None:          # tz-aware bar stamps leak into history keys
-        px.index = px.index.tz_convert("UTC").tz_localize(None)
-    complete = px.notna().all(axis=1)
-    if complete.any() and not complete.iloc[-1]:
-        px = px.loc[:complete[complete].index[-1]]
-    return px
+def fetch_hourly(name: str) -> pd.DataFrame:
+    """Hourly closes for one book, via the shared pricing layer.
+
+    This module used to own a second, near-identical yfinance fetcher, so a mark cycle
+    pulled the SAME bars twice -- five downloads where three would do. Beyond the wasted
+    time, every extra call is another chance for yfinance to hand back a partial bar,
+    which is the failure class that put NaN equity in the ledger on 2026-07-26."""
+    from . import pricing
+    return pricing.fetch(pricing.source_for(name))
 
 
 def target_weights(px: pd.DataFrame, name: str) -> pd.Series:
@@ -152,15 +143,22 @@ def run_funding_timing(name: str = "funding_timing_1h", verbose: bool = True) ->
     return book
 
 
-def run_price_books(verbose: bool = True) -> list[str]:
+def run_price_books(verbose: bool = True, prefetched: dict | None = None) -> list[str]:
     """Rebalance + mark the two hourly PRICE books. Called from both run_daily() and
     run_mark(), so the realised cadence is the mark cadence -- see the module docstring's
-    caveat about that being slower than the tested 1h spec."""
+    caveat about that being slower than the tested 1h spec.
+
+    `prefetched` is the {source: frame} dict run_mark() already built for backfilling;
+    reusing it is what takes the cycle from five yfinance downloads to three. Falls back
+    to fetching when absent, so run_daily() and direct calls still work."""
+    from . import pricing
     done = []
     stamp = books.utc_stamp()
     for name, spec in BOOKS.items():
         try:
-            px = fetch_hourly(spec["tickers"])
+            px = (prefetched or {}).get(pricing.source_for(name))
+            if px is None:
+                px = fetch_hourly(name)
         except Exception as e:                    # never kill a cycle over one book
             if verbose:
                 print(f"  {name:<22} (SKIPPED — hourly data unavailable: {str(e)[:60]})")
