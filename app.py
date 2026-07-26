@@ -14,6 +14,7 @@ import os
 import numpy as np
 import pandas as pd
 import streamlit as st
+from tradefabe import risk_register
 import plotly.graph_objects as go
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -883,6 +884,9 @@ def render_strategy_panel(name, data, color):
         st.markdown("**Risk monitor** — funding-flip alert + short-leg liquidation distance")
         render_carry_risk_panel()
 
+        st.divider()
+        render_risk_register()
+
 
 def render_carry_risk_panel():
     risk = load_carry_risk()
@@ -931,6 +935,38 @@ def render_carry_risk_panel():
                "each `tradefabe run`), not what this paper book actually holds — the book models "
                "pure funding yield with no leverage. This is a what-if overlay: if an operator ran "
                "the short leg at that leverage, how far could price pump before liquidation.")
+
+
+SEVERITY_BADGE = {"total loss": "dead", "severe": "warn", "moderate": "warn",
+                  "operational": "muted"}
+
+
+def render_risk_register():
+    """The tail risk the carry yield is payment for, shown next to the yield (#10).
+
+    Entries are either CITED (external base rate, real source + URL) or MEASURED (computed
+    from this lab's own curve). No invented probabilities."""
+    st.markdown("**Risk register** — what the ~12%/yr is actually paying for")
+    curve, _ = load_carry_backtest()
+    rows = risk_register.build(curve, load_carry_risk())
+
+    for r in rows:
+        sev = badge(r["category"], SEVERITY_BADGE.get(r["category"], "muted"))
+        tag = badge("measured" if r["measured"] else "cited",
+                    "alive" if r["measured"] else "muted")
+        with st.expander(r["title"]):
+            st.markdown(f"{sev} {tag}", unsafe_allow_html=True)
+            st.markdown(f"**How often:** {r['likelihood']}")
+            st.markdown(f"**If it happens:** {r['impact']}")
+            st.caption(r["detail"])
+            if r["source"]:
+                src = f"[{r['source']}]({r['url']})" if r["url"] else r["source"]
+                st.caption(f"Source: {src}")
+
+    st.caption("Cited entries carry a real source; measured entries are computed from this "
+               "lab's own data. Neither is a forecast — a base rate is what happened to a "
+               "population, not a probability for this book. Absence of a bad case in a "
+               "3-year sample is not evidence one cannot occur.")
 
 
 def _dead_strategy_returns(name, oos, piggy, factory_bt=None):
