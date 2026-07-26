@@ -291,24 +291,58 @@ backtest for a reason that has nothing to do with whether the edge is real.
 rows lose money outright, and the funding overlay loses to simply holding the position it
 was meant to improve.
 
-**Declared deviation from the pre-registration above.** `funding_timing_1h` was
-pre-registered to benchmark against CASH. Cash cannot be used: it has zero drawdown, so
-`calmar(bench)` is NaN and gate 3 reduces to `MaxDD >= 0`, which no strategy holding any
-risk can satisfy. It was benchmarked against **always-on carry** instead — the
-economically meaningful question (does timing beat holding?) and *strictly harder* than
-cash, since carry earns ~10%/yr and cash earns 0. A deviation that can only make ALIVE
-harder to reach is not a thumb on the scale, but it is a deviation and is logged as one.
+**Declared deviation from the pre-registration above — and this row's DEAD verdict is
+BENCHMARK-DEPENDENT.** `funding_timing_1h` was pre-registered against CASH. Cash cannot be
+used: it has zero drawdown, so `calmar(bench)` is NaN and gate 3 reduces to `MaxDD >= 0` —
+gates 2 and 3 are **unpassable by construction** for anything holding risk. It was
+benchmarked against **always-on carry** instead: the economically meaningful question
+(does timing beat holding?) and the hardest non-degenerate benchmark available.
+
+The honest accounting, which an earlier version of this section got wrong by claiming the
+substitution "can only make ALIVE harder":
+
+| benchmark | gate 2 | gate 3 | verdict |
+|---|---|---|---|
+| cash (pre-registered) | False (NaN) | False | DEAD — degenerate, unpassable by construction |
+| **always-on carry (used)** | **False** (Calmar 1.33 vs 15.22) | **False** (MaxDD −4.6% vs −0.7%) | **DEAD** |
+| 60/40 (this family's default) | True (Calmar 1.33 vs 1.02) | True (−4.6% vs −17.0%) | **ALIVE** |
+
+Cash made ALIVE *impossible*, so substituting anything at all made it **possible** — that
+is looser, not stricter. What defends the choice is not the direction of the deviation but
+that always-on carry is **strictly harder than the 60/40 this family uses for its other two
+rows**, and that under 60/40 this row would have been ALIVE. Stating that last clause is
+the point: the DEAD verdict here depends on the benchmark, and a reader is entitled to know
+which one was picked and what the alternative would have said.
+
+**The conclusion that survives every benchmark quibble:** with costs switched OFF, the
+overlay scores Sharpe 5.37 against a random on/off timing null averaging **12.11**. Random
+timing beats it before costs. No choice of benchmark rescues that.
 
 **Gate 1 is VACUOUS at hourly frequency — read these DSRs as uninformative, not as
 passes.** All three cleared gate 1 with DSR 1.000, including the two that lost 70%/yr and
 14%/yr. The matched null is the reason: random hourly trading pays so much turnover cost
 that its Sharpe is −79.5 / −9.8 / −18.3. "Beats luck" therefore only asks whether a
 strategy loses money *more slowly than random churn*, which is nearly free to satisfy.
-Gates 2 and 3 did all the work here. **A future hourly candidate that clears gate 1 has
-demonstrated almost nothing** — the noise-floor construction in DOCTRINE v1.0.1 was
-designed for monthly/weekly/daily rebalancing, where the cost term does not swamp the
-signal term. This is a limitation of applying it at high turnover, not a reason to relax
-it; the honest fix is to treat gate 2 as the binding constraint in this family and say so.
+
+The precise defect is that the null is matched on **frequency but not on turnover** — it
+trades far more than the candidates do:
+
+| | candidate turnover | null turnover | ratio |
+|---|---|---|---|
+| `crypto_reversal_1h` | 0.400/bar | 1.278/bar | 3.2× |
+| `equity_tsmom_1h` | 0.161/bar | 1.391/bar | 8.7× |
+| `funding_timing_1h` | 0.0074 flips/bar | 0.5007 flips/bar | **68×** |
+
+So gate 1's entire bar is a cost differential, not a signal comparison. Switch costs off and
+the nulls score +12.11 / +0.04 / −0.02 — at which point none of the three candidates clears
+anything. Gates 2 and 3 did all the real work.
+
+**A future hourly candidate that clears gate 1 has demonstrated almost nothing.** The
+noise-floor construction in DOCTRINE v1.0.1 was designed for monthly/weekly/daily
+rebalancing, where the cost term does not swamp the signal term. This is a limitation of
+applying it at high turnover, not a reason to relax it. **The owed fix, before any further
+hourly candidate is judged: match the null's DUTY CYCLE to the candidate's, not just its
+clock.** Until then, treat gate 2 as the binding constraint in this family and say so.
 
 Parameter choices are pre-committed here and are **not** to be tuned after seeing results —
 a different lookback is a NEW row and a NEW graveyard entry (rule 2 below). The three
