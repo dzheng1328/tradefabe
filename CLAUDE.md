@@ -1,7 +1,11 @@
 # tradefabe — orientation for agents working in this repo
 
 Read this first. It's the fast path to full context; `README.md` / `DOCTRINE.md` /
-`STRATEGIES.md` have the detail this file only points at.
+`STRATEGIES.md` / `ops/README.md` have the detail this file only points at.
+
+**This file is loaded into every session and re-injected after every compaction. Keep it
+short.** A fixed-and-guarded bug does not belong here — the guard is the memory. Write
+the one-line rule and the test that enforces it, not the post-mortem.
 
 ## What this is
 A doctrine-governed lab that tests trading strategies honestly, plus a paper-trading
@@ -11,301 +15,180 @@ engine that runs the survivors as autonomous simulated books. **Paper only.**
 real trade, never connect real money/credentials, never give personalized investment
 advice (state that boundary instead). This is a standing constraint, not a per-task one.
 
-**Git workflow:** branch + PR, not direct pushes to `main` (course-corrected 2026-07-23 —
-earlier work in this repo was pushed straight to `main`, which was a mistake, not the
-norm). One branch per issue, `gh pr create` with a body summarizing the change and test
-plan, merge after CI is green.
+**Git workflow:** branch + PR, never direct pushes to `main`. One branch per issue,
+`gh pr create` with a body summarizing the change and test plan, merge after CI is green.
+
+**The repo lives at `~/tradefabe`** (moved out of `~/Documents` 2026-07-26 — iCloud sync
+there corrupted the venv and wrote conflict copies of tracked files). A compatibility
+symlink remains at the old path. Never point new config at it; use the real path.
 
 ## The one-line finding
 49+ strategies tested (trend, congress-copy, insider-copy, thematic, day-trading wicks,
-and — as of 2026-07-25 — a growing automated factory of parametrized variants) — all DEAD
-against pre-registered kill rules. Two things survived: diversified buy-and-hold, and
+plus a growing automated factory of parametrized variants) — all DEAD against
+pre-registered kill rules. Two things survived: diversified buy-and-hold, and
 delta-neutral **crypto funding carry** (~12%/yr net 2023–26, paid for bearing real
-crypto-infra tail risk). Don't re-relitigate this; extend it. New candidates go through
-the same doctrine, not a lower bar because "this one feels different" or "a machine
-found it" — see Strategy factory below.
+crypto-infra tail risk). Don't relitigate this; extend it. New candidates go through the
+same doctrine — no lower bar because "this one feels different" or "a machine found it".
 
 ## Layout
 ```
-src/tradefabe/     installable engine: engine.py (data/sizing/returns core, single source of
-                   truth), signals.py, books.py, piggyback.py, factory.py (strategy-factory
-                   template library + live generation, #28/#28b), carry_live.py, carry_risk.py
-                   (funding-flip + liquidation monitor), runner.py, cli.py, desktop.py, paths.py
-app.py             Streamlit dashboard, port 8501. Two views (sidebar): Paper Books (live
-                   books + per-strategy interactive panel, landing view — cards grouped by
-                   family, click-to-select, no dropdown) and Research Lab (backtest summary —
-                   verdicts, luck floor, correlation, piggyback lab, and a per-strategy DEAD-
-                   strategy detail view, #31, for anything that never made it to a live book).
-                   Charts are Plotly throughout, no matplotlib in the runtime path. No emoji
-                   anywhere in the UI — use Material Symbols icons (`icon=":material/..."`) or
-                   the `.tf-badge` ledger-stamp component instead.
-harness.py         research evaluator: doctrine gates (DSR/CPCV as of v1.4), noise floors,
-                   graveyard.csv writer. Imports its core (data, sizing, signals) from
-                   src/tradefabe — no duplicated math.
-tsmom_backtest.py  standalone TSMOM study + plot, built on the same src/tradefabe core.
-combine.py         blending / piggyback-on-60/40 experiments
-research/          one-off studies: insider_backtest.py, carry_backtest.py, carry_hl.py,
-                   thematic_backtest.py, concentrate.py, sector_momentum.py, daytrade_tests.py,
-                   piggyback_backtest.py (family H verdicts), factory_run.py (the strategy
-                   factory's daily driver — daily 17:00 launchd job, see ops/)
-tests/             pytest suite — runs in CI on every push/PR to main. pyproject.toml's
-                   pythonpath = [".", "research"] so `import harness` / `import factory_run`
-                   (repo-root-script-style imports, not the installed package) resolve under pytest.
-.github/workflows/ tests.yml — pytest on GitHub's runners, not just local verification
-graveyard.csv      the verdict ledger — every strategy ever evaluated (hand-picked or
-                   factory-generated), alive or dead. 49+ rows as of 2026-07-25.
-generated_templates.csv   the strategy factory's OWN ledger (#28b) — every LIVE-GENERATED
-                   candidate's full spec (family/params/rationale), logged at generation
-                   time before its verdict is known. Same "count is the record" role
-                   graveyard.csv plays, one level up (for the generation process itself).
-artifacts/         generated curves/meta per study (tracked in git). full_returns.csv
-                   (harness.py), piggyback_returns.csv (piggyback_backtest.py),
-                   factory_returns.csv (factory_run.py — ONLY for promoted candidates, not
-                   all 20/day tested; see the Known gaps entry on this).
-state/paper/       paper-book ledgers, carry_risk.json, promoted.json + promoted_generated.json
-                   (strategy-factory promotion registries, #29/#28b) — all written by the
-                   runner/factory driver, gitignored, regenerated by `tradefabe run`/`mark`
-                   and `research/factory_run.py`.
+src/tradefabe/     installable engine: engine.py (data/sizing/returns core, single source
+                   of truth), signals.py, books.py, piggyback.py, factory.py (template
+                   library + live generation), carry_live.py, carry_risk.py, runner.py,
+                   cli.py, desktop.py, risk_register.py, paths.py
+app.py             Streamlit dashboard, port 8501. Two sidebar views: Paper Books (live
+                   books, cards grouped by family) and Research Lab (verdicts, luck floor,
+                   correlation, piggyback lab, DEAD-strategy detail). Plotly only, no
+                   matplotlib in the runtime path. No emoji in the UI — use Material
+                   Symbols (`icon=":material/..."`) or the `.tf-badge` component.
+harness.py         research evaluator: doctrine gates (DSR/CPCV), noise floors,
+                   graveyard.csv writer. Imports its core from src/tradefabe — no
+                   duplicated math.
+research/          one-off studies incl. factory_run.py (the strategy factory's driver)
+tests/             pytest suite. pyproject's `pythonpath = [".", "research"]` is what makes
+                   `import harness` / `import factory_run` resolve under pytest.
+ops/               launchd plists (retired, see Automations), build_app.sh, setup_venv.sh
+graveyard.csv      the verdict ledger — every strategy ever evaluated, alive or dead.
+generated_templates.csv   the factory's OWN ledger — every live-generated candidate's full
+                   spec, logged at generation time BEFORE its verdict is known.
+artifacts/         generated curves/meta per study (tracked in git)
+state/paper/       book ledgers, carry_risk.json, promotion registries. Tracked in git and
+                   OWNED BY THE ACTION — see Automations before writing here locally.
 ```
 
 ## Commands
 ```sh
-.venv/bin/pip install -e ".[dev]"   # editable install incl. pytest (see Py3.14 gotcha below)
-.venv/bin/tradefabe run             # one daily paper cycle: rebalance due books + carry risk monitor
-.venv/bin/tradefabe mark            # mark all books to current price, no rebalance (finer chart resolution)
+ops/setup_venv.sh                   # rebuild the venv (refuses to build inside a synced tree)
+.venv/bin/pip install -e ".[dev,desktop]"   # BOTH extras — see the pywebview trap below
+.venv/bin/tradefabe run             # one daily cycle: rebalance due books + carry risk monitor
+.venv/bin/tradefabe mark            # mark to current price, no rebalance
 .venv/bin/tradefabe status          # current book equities
 .venv/bin/tradefabe reset           # wipe paper state, restart at $100k/book
 .venv/bin/streamlit run app.py      # dashboard at localhost:8501
-.venv/bin/python harness.py         # re-run the doctrine evaluation, appends graveyard.csv
+.venv/bin/python harness.py         # re-run doctrine evaluation, appends graveyard.csv
+.venv/bin/pytest tests/             # test suite (also runs in CI on push/PR to main)
 PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" \
-  .venv/bin/python research/factory_run.py --n 20   # one strategy-factory cycle by hand
-                                                    # (also runs daily 17:00 via launchd, see ops/)
-.venv/bin/pytest tests/             # run the test suite locally (also runs in CI on push/PR)
+  .venv/bin/python research/factory_run.py --n 20   # one factory cycle by hand
 ```
-## Automations — everything that runs without you
-Nine things run on their own. Know all of them before assuming a file changed by magic.
+`PYTHONPATH` is not needed for anything but that last line (`factory_run.py` imports the
+repo-root `harness` and `research/piggyback_backtest`, which only pytest resolves for you).
 
-### 1. Scheduled (GitHub Actions — `.github/workflows/paper-engine.yml`)
-**The paper engine runs in the cloud, not on the Mac (#63).** launchd does not fire while
-the machine sleeps, which left multi-hour holes in the ledger. **The Action is the SOLE
-OWNER of `state/`** — it commits the ledger after every cycle, so `git pull` before
-reading the dashboard locally. The three launchd plists are retired to
-`*.plist.disabled`; re-enabling one would fork the ledger. No secrets: paper only,
-public APIs.
-- **mark** — hourly. Marks every book to current price, no rebalance.
-- **factory** — daily 21:00 UTC. `research/factory_run.py --n 20`.
+## Automations — nine things run without you
+Know all of them before assuming a file changed by magic.
+
+**1–3. Scheduled** (`.github/workflows/paper-engine.yml`) — **the paper engine runs in the
+cloud, not on the Mac.** launchd didn't fire while the machine slept. **The Action is the
+SOLE OWNER of `state/`**: it commits the ledger every cycle, so `git pull` before reading
+the dashboard locally, and don't commit local `state/` writes. The three launchd plists in
+`ops/` are retired to `*.plist.disabled`; re-enabling one forks the ledger.
+- **mark** — hourly (best-effort; GitHub often spaces these ~2h apart).
+- **factory** — daily 21:00 UTC, `research/factory_run.py --n 20`.
 - **run** — daily 22:00 UTC, an hour after factory so a promotion opens its book the same
   cycle (`runner.py` reads the promotion registries at import time).
 
-Trigger one by hand: `gh workflow run "paper engine" -f job=mark|run|factory`.
+By hand: `gh workflow run "paper engine" -f job=mark|run|factory`. Cost ~810 min/month
+against the 2,000 free allowance. GitHub disables schedules on repos with no *human*
+activity for ~60 days and the bot's own commits may not count — check that first if the
+schedule goes quiet.
 
-**Measured cost (2026-07-26, first cloud cycles):** mark 43s, run ~60s, factory 68s.
-GitHub bills whole minutes, so ~720 + 30 + 60 = **~810 min/month against the 2,000 free
-private-repo allowance** — roughly 40% used, comfortable headroom. If it ever trends
-over, halve it by moving mark to `0 */2 * * *`. Note GitHub disables scheduled workflows
-on repos with no recent *human* activity (~60 days); the bot's own commits may not count,
-so if the schedule goes quiet that is the first thing to check.
+**4. CI** (`.github/workflows/tests.yml`) — `pytest tests/`. **Trigger is push/PR on
+`main` ONLY.** A PR targeting any other branch gets no checks at all; `gh pr checks`
+reports "no checks reported", which reads like a failure but means the workflow never
+fired. This bites stacked PRs — run the suite locally before trusting one is green.
 
-### 2. CI (GitHub Actions, 1 workflow)
-`.github/workflows/tests.yml` — runs `pytest tests/` on GitHub's runners.
-**Trigger is `push` and `pull_request` on `main` ONLY.** A PR targeting any other branch
-gets *no checks at all* — `gh pr checks` reports "no checks reported", which reads like a
-failure but just means the workflow never fired. This bites stacked PRs: only the bottom
-of a stack is tested until each one is retargeted to `main` as the one below merges. Run
-the suite locally before relying on a stacked PR being green.
+**5–7. In-process** (inside the scheduled jobs, so invisible in `launchctl list`):
+- **`run_carry()`** — accrues real Hyperliquid funding. Called by both `run_daily()` and
+  `run_mark()`, so it stamps a minute-resolution history row ~48x/day.
+- **`check_carry_risk()`** — funding-flip + liquidation distance. Called by `run_daily()`
+  **only**, so `carry_risk.json` refreshes daily, not hourly; the dashboard prints its
+  `generated_at` and it lagging by up to a day is expected. Never raises.
+- **Factory auto-promotion** — every cycle promotes its best-DSR candidate regardless of
+  verdict, writing `state/paper/promoted*.json`. `runner.py` reads those at **import
+  time**, so a promotion only takes effect in the next `run`/`mark` process.
 
-### 3. In-process (run inside the scheduled jobs, not separately scheduled)
-These have no plist of their own, so they're invisible in `launchctl list`:
-- **`run_carry()`** (`carry_live.py`) — accrues real Hyperliquid funding on the
-  delta-neutral notional. Called by **both** `run_daily()` and `run_mark()`, so it fires
-  ~48x/day and stamps a minute-resolution history row each time.
-- **`check_carry_risk()`** (`carry_risk.py`) — funding-flip alert + short-leg liquidation
-  distance, sized against Hyperliquid's live margin tiers. Called by `run_daily()` **only**
-  (not by `mark`), so `state/paper/carry_risk.json` refreshes once a day, not every 30min
-  — the dashboard's risk panel prints its `generated_at`, and it lagging the other numbers
-  by up to a day is expected, not a bug. Never raises; a network failure yields a report
-  full of nulls rather than killing the run.
-- **Factory auto-promotion** (`factory_run.py` → `factory.promote()` /
-  `promote_generated()`) — every cycle promotes its best-DSR candidate to a live paper
-  book regardless of verdict, writing `state/paper/promoted*.json` and persisting the
-  winner's curve. `runner.py` reads those registries at **import time**, so a promotion
-  only takes effect on the next `run`/`mark` process.
+**8–9. Dev config** — `.claude/settings.json` (tracked; lets agents run `gh`/`git`
+unprompted, denies `gh repo delete` and force-push) and `.claude/launch.json` (dashboard
+preview config). `.claude/settings.local.json` is Dave's gitignored overlay.
 
-### 4. Dev-environment config (not runtime, but it acts on its own)
-- **`.claude/settings.json`** (tracked) — lets agents run `gh`/`git` without a prompt;
-  denies `gh repo delete` and force-push, since this repo's rule is branch-and-PR.
-  `.claude/settings.local.json` is Dave's personal, gitignored overlay.
-- **`.claude/launch.json`** — a `dashboard` preview config for `preview_start`.
-
-**Desktop app** (user-launched, NOT automated — listed here so the inventory above reads
-as complete): `~/Applications/tradefabe.app`, own Dock icon, native window, `tradefabe-app`
-entry point via pywebview. **Rebuild it with `ops/build_app.sh`** (#61) — the bundle
-itself isn't in git, but the script that generates it is, along with `ops/icon.icns`. The
-launcher must export `PYTHONPATH` before exec'ing `tradefabe-app`; the script does this,
-and a test asserts it, because a GUI app gets no shell profile and would otherwise hit the
-Py3.14 hidden-`.pth` bug below.
+**Desktop app** (user-launched, not automated): `~/Applications/tradefabe.app`. Rebuild
+with **`ops/build_app.sh`** — the bundle isn't in git but its build script is.
 
 ## Doctrine — read DOCTRINE.md before adding or judging any strategy
 Pre-registered, OOS-only (2018+), data-derived noise floor (500 random strategies per
 freq), fair 60/40 benchmark, three kill gates (beat luck / earn your place / not more
-painful). v1.0 + v1.0.1 (freq-matched noise floors) frozen. A v1.1 touching gate 2
-(diversifier clause) has been discussed but is **not approved** — don't apply it as if
-it were live doctrine. v1.2 defines paper-testing promote/kill criteria (a backtest-DEAD
-book stays monitor-only forever, never `paper-confirmed`, no matter how good its paper
-data looks). **v1.3 made Bonferroni the active gate-1 bar** (corrected for
-`family_n_tested()`, i.e. graveyard size) — since superseded for gate 1's DECISION by:
-**v1.4 (current, `harness.deflated_sharpe_ratio()`)** — Deflated Sharpe Ratio + Combinatorial
-Purged CV, motivated by exactly the high-volume automated search the factory below does.
-Bonferroni (`harness.bonferroni_bar()`) is still computed and logged for continuity, just
-no longer what decides ALIVE/DEAD.
+painful). **v1.4 is current**: gate 1 decides on Deflated Sharpe Ratio + Combinatorial
+Purged CV (`harness.deflated_sharpe_ratio()`), motivated by exactly the high-volume
+automated search the factory does. Bonferroni (`harness.bonferroni_bar()`) is still
+computed and logged for continuity but no longer decides ALIVE/DEAD. v1.2 defines paper
+promote/kill criteria: **a backtest-DEAD book stays monitor-only forever, never
+`paper-confirmed`, no matter how good its paper data looks.** A v1.1 touching gate 2
+(diversifier clause) was discussed and is **not approved** — don't apply it.
 
-Roster + evidence + family taxonomy (trend/reversal/calendar/defensive/carry/VRP/info/
-piggyback/breakout): `STRATEGIES.md`. Add new candidates there *before* running them, not
-after — this now also covers the factory's `GENERATION_RANGES` (the parameter range is
-the pre-registration; the specific value drawn is logged to `generated_templates.csv`).
+Roster, evidence, and family taxonomy: `STRATEGIES.md`. Add new candidates there *before*
+running them — including the factory's `GENERATION_RANGES` (the range is the
+pre-registration; the drawn value is logged to `generated_templates.csv`).
 
-## Strategy factory (#28/#28b) — automated, high-volume, still doctrine-gated
-`src/tradefabe/factory.py` (template library `TEMPLATES` + live parameter generation
-`GENERATION_RANGES`/`generate_candidate()`) and `research/factory_run.py` (the daily
-driver, `--n 20` by default) test many candidates per cycle instead of one hand-picked
-strategy at a time — same DSR/CPCV doctrine gate, no lighter bar for being
-machine-generated. Key things to know before touching this:
+## Strategy factory — automated, high-volume, still doctrine-gated
+`src/tradefabe/factory.py` + `research/factory_run.py` test ~20 candidates per cycle
+instead of one hand-picked strategy, through the same DSR/CPCV gate.
 - **Live generation is deliberately NOT free-form.** Only the parameter RANGE per family
-  is fixed in code (reviewed once); the specific value is drawn at runtime and logged to
-  `generated_templates.csv` **before** its verdict is known — the fix for the meta-level
-  p-hacking risk DOCTRINE.md's own opening section warns about.
-- **Promotion picks the single best-DSR candidate each cycle, regardless of verdict**
-  (`factory_run.py`'s `run_cycle()`, superseding an earlier "promote only if ALIVE" rule)
-  — Dave's explicit call: a DEAD winner still becomes a live monitor-only book (same
-  status DOCTRINE v1.2 already gives backtest-DEAD hand-picked books). This accumulates
-  one new book per cycle by design, not a rotating single slot.
-  - Verdict is deliberately not the ranking key: `paper-confirmed` is *never* possible
-    for a DEAD-verdict factory promotion, exactly like any other monitor-only book.
-- **A promoted book needs a persisted backtest curve or the dashboard crashes** — see
-  the Known gaps entry below. Only promoted candidates get one written
-  (`artifacts/factory_returns.csv`); the other ~19/cycle correctly don't.
-- **The correlation-picked combo competes in the same promotion ranking** (#64). It is
-  not promoted *in addition* to the best individual — one new book per cycle either way.
-  Promoted combos live in `state/paper/promoted_combos.json` (a third registry beside
-  `promoted.json`/`promoted_generated.json`), each carrying its legs' full specs so a
-  fresh `tradefabe run` can rebuild both signals. Weights use
-  `factory.combo_target_weights()`, the identical 70/30 construction
-  `piggyback.target_weights()` uses. Rebalance freq is the FINER of the two legs'.
-- Runs daily at 17:00 via `com.dzheng.tradefabe.factory` (issue #38, closed 2026-07-25).
-  Its plist is tracked in `ops/`; logs go to `~/Library/Logs/tradefabe/`, not `state/logs/`.
+  is fixed in code (reviewed once); the drawn value is logged to `generated_templates.csv`
+  **before** its verdict is known — the fix for the meta-level p-hacking risk DOCTRINE.md
+  warns about.
+- **Promotion picks the single best-DSR candidate each cycle regardless of verdict** —
+  Dave's explicit call. A DEAD winner still becomes a live monitor-only book. This
+  accumulates one new book per cycle by design, not a rotating slot.
+- **The correlation-picked combo competes in that same ranking** — not promoted *in
+  addition*. One new book per cycle either way. Combos live in `promoted_combos.json`,
+  carrying their legs' full specs so a fresh process can rebuild both signals. Rebalance
+  freq is the FINER of the two legs'.
 
-## Known gaps and gotchas — check these before assuming something's broken
-- **Python 3.14 hidden-`.pth` bug — ROOT CAUSE FOUND, FIXED (#60, 2026-07-26).** It was
-  never a sandbox quirk. This repo lives in `~/Documents`, which has **iCloud Desktop &
-  Documents sync ON**. iCloud stamps files in the synced tree with the macOS `hidden`
-  flag and leaves `"<name> 2"` conflict copies; Python 3.14's `site` module silently
-  skips hidden `.pth` files, so the editable install's path file stops working and
-  `import tradefabe` fails after a clean install. Evidence: essentially the WHOLE venv
-  was flagged hidden (`.so` files, `__pycache__`, not just `.pth`), plus three conflict
-  artifacts (`.venv/bin/tradefabe 2`, `tradefabe-app 2`, `__editable__...2.pth`).
-  - **Fix:** the venv now lives at `~/.venvs/tradefabe`, outside the synced tree, with
-    `.venv` a symlink to it — so every existing path still works unchanged. Rebuild it
-    with **`ops/setup_venv.sh`**, which refuses to create the venv anywhere under
-    `~/Documents` or `~/Desktop`.
-  - **Install BOTH extras: `pip install -e ".[dev,desktop]"`.** `[desktop]` provides
-    pywebview, which backs the `.app`. `desktop.py` imports `webview` *lazily inside
-    main()*, so omitting it leaves `import tradefabe.desktop` working and the app dead on
-    launch — that exact mistake broke the app on 2026-07-26. `ops/setup_venv.sh` and
-    `ops/build_app.sh` now both import `webview` explicitly as a check.
-  - **`PYTHONPATH` is no longer required** — `import tradefabe`, `pytest`, and the CLI
-    all work with it unset. The plists and `.app` launcher still export it; that is now
-    belt-and-braces rather than load-bearing, and harmless.
-  - Dead end, don't retry: a venv-level `sitecustomize.py` does NOT help — Homebrew's
-    Python ships one earlier on `sys.path` that shadows it (confirmed 2026-07-23).
-  - If this ever recurs, check `ls -lO .venv/lib/python*/site-packages/*.pth` for the
-    `hidden` flag and `find . -name "* 2.*"` for conflict copies before suspecting Python.
-- **iCloud also creates `"<name> 2.<ext>"` conflict copies of TRACKED files** — the venv
-  fix above does not cover this, because the repo itself is still under `~/Documents`.
-  One such copy of the paper-engine workflow got committed by `git add -A`, and GitHub
-  registered it as a SECOND active workflow that fired on every schedule: double billed
-  minutes and duplicate ledger commits. Nine more copies of `state/paper/*.json` and
-  `ops/setup_venv.sh` were tracked too. All removed 2026-07-26.
-  - **Guards now in place:** `* 2.*` / `* 3.*` in `.gitignore`, plus a CI step in
-    `tests.yml` that fails the build if any such file is tracked (ignore rules alone
-    don't stop `git add -f`).
-  - **Before `git add -A`, run `find . -name "* 2.*" -not -path "./.git/*"`.** The real
-    fix is moving the repo out of `~/Documents` entirely, the way brainclaude was moved.
-- **`congress_copy` is verdicted but has no `graveyard.csv` row.** `research/congress_backtest.py`
-  now reproduces it (#59): NANC alpha −0.28%/yr, t = −0.12, R² 0.93 on SPY+QQQ — pure
-  tech beta, DEAD confirmed. It is deliberately NOT in graveyard.csv: that schema is for
-  strategies scored through the doctrine gates (DSR/CPCV/noise floor), and this was judged
-  by factor regression, so a row would be mostly empty fields pretending to be a gate run.
-- **`graveyard.csv` is tracked in git** (fixed 2026-07-22 — it used to be gitignored,
-  which silently defeated its own stated purpose as "the multiple-testing record").
-  If you ever add strategies to the `.gitignore` block, don't let this one slip back in.
-- **`tsmom_12m` and `green_line_200d` paper books opened identical-to-the-cent on
-  2026-07-22.** Resolved as *plausible, not a bug* — issue #2 added
-  `test_tsmom_and_green_line_genuinely_diverge`, which constructs a price path where the
-  two signals must disagree and confirms `target_weights()` genuinely produces opposite
-  positions. The two CAN diverge; a uniform post-launch uptrend just happened to agree
-  on sign for both. Don't re-open this as a suspected bug without new evidence.
-- **`~/Applications/tradefabe.app` is hand-built and not tracked in git** — no build
-  script exists in the repo. If it's ever rebuilt from scratch, remember the
-  `PYTHONPATH` hardening (Commands section) or it'll hit the Py3.14 gotcha on launch.
-- **Any live paper book needs a persisted backtest curve, or `app.py` crashes with a
-  bare `KeyError`.** `book_panel_data()` looks a book's OOS return series up in, in
-  order: `piggyback_returns.csv` → `factory_returns.csv` → `full_returns.csv`. Hit this
-  for real (2026-07-25) the first time a factory-promoted book
-  (`turn_of_month_gen_5_7`) existed with no entry in any of the three — `factory_run.py`
-  computed its return series in-memory for evaluation only and never wrote it anywhere.
-  Fixed by `_persist_backtest_curve()` (only for the cycle's PROMOTED winner, not all
-  ~20/day — bounded growth). **If you ever add a new source that can become a live
-  book** (a new registry, a new promotion path), it needs its own persisted-curve story
-  or this recurs. Regression test: `tests/test_book_panel_data.py`.
-- **A book's live history must be stamped to the MINUTE, not the date** (fixed
-  2026-07-25). `carry_live.run_carry()` used to key its history row on the bare date, so
-  the 30min `tradefabe mark` cron overwrote one row per day — the funding accrual was
-  recomputed every cycle but never recorded, and the dashboard's 5H/1D windows had a
-  single point to draw and rendered a bare dot. It now uses the same
-  `isoformat(timespec="minutes")` key shape `books.mark()` gives every equity book. Any
-  NEW book source must do the same. Belt-and-braces on the UI side:
-  `app.window_slice()` widens any range that would yield <2 points back to the last two
-  marks (and captions the fact) — which also covers the real gaps every book gets when
-  the Mac sleeps through the mark cron. Tests: `tests/test_carry_live_history.py`,
-  `tests/test_live_equity_chart.py`.
-- **Live-equity charts scale to the visible data, not to $0.** `app.padded_range()` puts
-  the y-axis 30% of the high-low span beyond each end; the `fill="tozeroy"` area is kept
-  only for the look (Plotly clips it to the axis). At $100k start capital a $0-anchored
-  axis flattened every book's real sub-percent moves into a straight line. Don't
-  "restore" a zero baseline here — `drawdown_chart()` is the one chart that legitimately
+## Live gotchas — check these before assuming something's broken
+- **Install BOTH extras: `pip install -e ".[dev,desktop]"`.** `desktop.py` imports
+  `webview` *lazily inside main()*, so omitting `[desktop]` leaves
+  `import tradefabe.desktop` succeeding and the app dead on launch. Verifying by module
+  import will not catch it; `setup_venv.sh` and `build_app.sh` now import `webview`
+  explicitly for this reason.
+- **Any live paper book needs a persisted backtest curve, or `app.py` crashes with a bare
+  `KeyError`.** `book_panel_data()` looks the book up in `piggyback_returns.csv` →
+  `factory_returns.csv` → `full_returns.csv`. Only the cycle's promoted winner gets one
+  written (bounded growth). **A new source that can become a live book needs its own
+  persisted-curve story** or this recurs. Test: `tests/test_book_panel_data.py`.
+- **A book's live history must be stamped to the MINUTE, not the date.** Keying on the
+  bare date makes the hourly mark overwrite one row per day, leaving charts a single point
+  to draw. Any new book source must use `isoformat(timespec="minutes")`, matching
+  `books.mark()`. Tests: `test_carry_live_history.py`, `test_live_equity_chart.py`.
+- **Live-equity charts scale to the visible data, not to $0.** At $100k start capital a
+  $0-anchored axis flattens every real sub-percent move into a straight line. Don't
+  "restore" a zero baseline — `drawdown_chart()` is the one chart that legitimately
   anchors at 0.
+- **`congress_copy` is verdicted but deliberately has no `graveyard.csv` row.**
+  `research/congress_backtest.py` reproduces it (NANC alpha −0.28%/yr, t = −0.12, R² 0.93
+  on SPY+QQQ — pure tech beta). It's judged by factor regression, not the doctrine gates,
+  so a row would be mostly empty fields pretending to be a gate run.
+- **`graveyard.csv` is tracked in git** — it used to be gitignored, which silently
+  defeated its own purpose as the multiple-testing record. Don't let it slip back.
+- **`tsmom_12m` and `green_line_200d` opening identical-to-the-cent is not a bug.**
+  Resolved: `test_tsmom_and_green_line_genuinely_diverge` proves they can disagree; a
+  uniform uptrend just happened to agree on sign. Don't re-open without new evidence.
+- **iCloud conflict copies (`"<name> 2.<ext>"`)** are guarded three ways now (`.gitignore`,
+  a CI step, `tests/test_repo_location.py`) — one such copy of the paper-engine workflow
+  once ran as a second live workflow. The guards only hold while the repo stays outside
+  `~/Documents`.
 
 ## Roadmap
-**Check the Projects board first** — https://github.com/users/dzheng1328/projects/1
-("tradefabe — lab board"). It holds every issue this repo has ever had (45 items incl.
-one in-flight PR) with four fields: **Status** (Todo/In Progress/Done), **Phase**,
-**Area**, **Priority**. `gh project item-list 1 --owner dzheng1328` reads it; needs a
-token with the `project` scope (`gh auth refresh -s project` — the plain `repo` scope is
-not enough, and the error message's suggested `read:project` can't write).
+**The Projects board is the source of truth** —
+https://github.com/users/dzheng1328/projects/1. Reading it needs a token with the
+`project` scope (`gh auth refresh -s project`; plain `repo` is not enough, and the error
+message's suggested `read:project` can't write). Don't hand-maintain issue numbers here —
+they go stale within a day.
 
-Don't hand-maintain a roster of issue numbers here — it goes stale within a day. This
-section describes the SHAPE of the work; the board is the source of truth for status.
+**Currently open: #5 (Alpaca paper integration)** — blocked on Dave's API keys, which an
+agent must not handle. Everything else is closed.
 
-**Phases** (the board's `Phase` field): `Lab v0` (14, the founding 2026-07-21/22 research
-run — doctrine v1.0/v1.0.1, the congress/insider/thematic/day-trading/carry studies, src
-restructure, first dashboard), `Engine v1` (12, paper engine + CI + scheduling + DOCTRINE
-v1.2/v1.3), `Dashboard v2` (4), `Strategy factory` (7, #27–31/#38/#64), `Ongoing` (8,
-live research + standing gaps).
-
-**Backfill note:** issues **#41–58** were created 2026-07-25 to record work that was
-really done *before* the tracker existed (or that merged as a PR with no tracking issue —
-#55/#56/#57/#58). They were opened and closed in the same breath. They are history, not a
-queue; don't "re-do" one because it looks freshly filed.
-
-**The P0 currently open:** **#62** migrate off `st.components.v1.html` (Streamlit's stated removal date, 2026-06-01,
-has already passed — the dashboard works only because the installed version still ships
-the shim).
-
-**The `Ongoing` gaps worth knowing before you touch related code:** #59 `congress_copy`
-has no reproducible script (its DEAD verdict is prose-only), #60 the Py3.14 hidden-`.pth`
-bug, #61 `tradefabe.app` is hand-built and untracked, #63 the 30min mark cron doesn't
-fire while the Mac sleeps (so `history.csv` has legitimate multi-hour holes — not a bug),
-#64 the factory's correlation-picked combo is evaluated but can never be promoted.
+**Backfill note:** issues **#41–58** were created 2026-07-25 to record work done before
+the tracker existed. They were opened and closed in the same breath. They are history, not
+a queue — don't "re-do" one because it looks freshly filed.
 
 ## Explicitly off-limits
 - `~/Documents/daily tickers` — a separate, unrelated project Dave deliberately stopped.
