@@ -74,6 +74,23 @@ rare cycle that finds a real winner.
 | `turn_of_month_wide` (factory) | long all assets, last 5 + first 5 trading days | D | **DEAD** — clears DSR (1.00) but fails gate 2 (Calmar 0.18 vs bench 0.45) |
 | overnight effect | hold close→open only | D | QUEUED — needs Open prices in cache |
 
+**Overnight effect (#23, 2026-07-26, `research/overnight_backtest.py`):** **DEAD** — and
+the most instructive DEAD in the roster, because the anomaly itself is *real*.
+
+Decomposing 2004–2026 across the 15-ETF universe, gross of costs: **overnight
++8.45%/yr (Sharpe 1.06), intraday +0.01%/yr (Sharpe 0.00)** — the close→open window
+accounts for **99%** of the full-day return. The documented effect is not a mirage.
+
+It is also not harvestable. A close-to-open book trades **two sides every session**:
+504 sides/yr, which at the engine's 5bps is **25.2%/yr of turnover drag**. Net Sharpe
+−2.02 vs +1.05 with costs switched off. Gate 1 passes only because the matched null pays
+the same crippling cost — i.e. it beats random twice-daily trading, which is a low bar
+when the whole category loses money. Gates 2 and 3 kill it.
+
+**Break-even is 1.72 bps per side.** Below that it makes money; above, it loses. That
+number is the honest answer to "your cost assumption is too pessimistic": you would need
+sub-2bp execution on both sides, every session, indefinitely.
+
 ### D. Defensive anomaly (edge: leverage-constrained investors overpay for volatility)
 | strategy | spec | freq | status |
 |---|---|---|---|
