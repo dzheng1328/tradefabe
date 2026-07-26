@@ -275,6 +275,18 @@ same turnover drag the candidate does.
 `artifacts/hourly_bars_*.csv` because yfinance's intraday window is a rolling 730 days —
 without the snapshot these verdicts could not be reproduced in six months.
 
+**All three now run as LIVE monitor-only paper books** (opened 2026-07-26, Dave's call).
+Backtest-DEAD, so under DOCTRINE v1.2 they are monitor-only *forever* and can never become
+`paper-confirmed` no matter how the live data looks — identical status to every factory
+promotion. Their signals live in `src/tradefabe/hourly.py` and the study **imports them
+from there**, so the code that produced the verdicts above and the code running the books
+is the same function; two-line signal definitions duplicated across the two is exactly how
+a live book silently drifts from the spec it was judged on.
+**Cadence caveat:** they were tested on a strict 1h clock, but the engine's tightest loop
+is `tradefabe mark` (~2h in practice), so `run_hourly()` rebalances on every mark and the
+realised cadence is SLOWER than the tested spec. Live results will diverge from the
+backtest for a reason that has nothing to do with whether the edge is real.
+
 **The one-line result: none of the three survives its own turnover.** The two directional
 rows lose money outright, and the funding overlay loses to simply holding the position it
 was meant to improve.

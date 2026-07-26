@@ -43,17 +43,18 @@ import pandas as pd
 import requests
 
 from tradefabe.engine import UNIVERSE, COST_BPS, ANN, stats, calmar
+# Signals and their frozen parameters live in the PACKAGE, not here, so the code that
+# produced these verdicts and the code running the live monitor books (#86) is literally
+# the same function -- see src/tradefabe/hourly.py. Duplicating two-line signal
+# definitions across the two is exactly how a live book silently drifts from its spec.
+from tradefabe.hourly import (FUNDING_LOOKBACK_H, REVERSAL_LOOKBACK_H, TSMOM_LOOKBACK_BARS,
+                              CRYPTO_TICKERS, equal_weight,
+                              sig_crypto_reversal, sig_equity_tsmom)
 from harness import (evaluate, family_n_tested, benchmark_returns, OOS_START, ART)
 
 HL_API = "https://api.hyperliquid.xyz/info"
 COINS = ("BTC", "ETH")
-CRYPTO_TICKERS = ["BTC-USD", "ETH-USD"]
 NULL_TRIALS = 500
-
-# --- pre-registered parameters. DO NOT TUNE. See STRATEGIES.md family L. ---
-FUNDING_LOOKBACK_H = 24     # trailing hours of funding averaged for the on/off decision
-REVERSAL_LOOKBACK_H = 6     # trailing hours faded
-TSMOM_LOOKBACK_BARS = 24    # trailing bars (~5 sessions of ~4.8 usable hourly bars)
 
 BAR_CACHE = os.path.join(ART, "hourly_bars_{tag}.csv")
 FUNDING_CACHE = os.path.join(ART, "hourly_funding.csv")
@@ -159,24 +160,7 @@ def net_hourly(px: pd.DataFrame, weights: pd.DataFrame, cost_bps=COST_BPS) -> pd
     return gross - turnover * (cost_bps / 1e4)
 
 
-def equal_weight(sig: pd.DataFrame) -> pd.DataFrame:
-    """Equal weight across active names, as pre-registered. Deliberately NOT vol-targeted:
-    engine.sized_weights()'s VOL_WINDOW/TARGET_VOL are calibrated for daily bars."""
-    n = sig.abs().sum(axis=1).replace(0, np.nan)
-    return sig.div(n, axis=0).fillna(0.0)
-
-
 # ------------------------------------------------------------------ the three strategies
-def sig_crypto_reversal(px: pd.DataFrame) -> pd.DataFrame:
-    """Fade the trailing 6h move."""
-    return -np.sign(px / px.shift(REVERSAL_LOOKBACK_H) - 1).fillna(0.0)
-
-
-def sig_equity_tsmom(px: pd.DataFrame) -> pd.DataFrame:
-    """Sign of the trailing 24-bar return."""
-    return np.sign(px / px.shift(TSMOM_LOOKBACK_BARS) - 1).fillna(0.0)
-
-
 def funding_timing_returns(funding: pd.DataFrame, cost_bps=COST_BPS) -> pd.Series:
     """Delta-neutral carry whose notional is ON when the trailing 24h mean funding is
     positive and OFF when negative. Return per hour = funding received on the live
