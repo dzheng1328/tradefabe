@@ -66,7 +66,8 @@ ops/setup_venv.sh                   # rebuild the venv (refuses to build inside 
 .venv/bin/tradefabe reset           # wipe paper state, restart at $100k/book
 .venv/bin/streamlit run app.py      # dashboard at localhost:8501
 .venv/bin/python harness.py         # re-run doctrine evaluation, appends graveyard.csv
-.venv/bin/pytest tests/             # test suite (also runs in CI on push/PR to main)
+.venv/bin/pytest tests/             # test suite, parallel by default (~13s); also runs in CI
+.venv/bin/pytest tests/ -n0         # serial — use when you need readable tracebacks/--pdb/-x
 PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" \
   .venv/bin/python research/factory_run.py --n 20   # one factory cycle by hand
 ```
