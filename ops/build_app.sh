@@ -76,8 +76,12 @@ touch "$APP"
 /usr/bin/plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
 echo "==> built. verifying it can import the package the same way the app will:"
-env -i PATH=/usr/bin:/bin PYTHONPATH="$REPO/src" "$VENV_BIN/python" \
-  -c "from tradefabe.desktop import main; print('    desktop entry point imports OK')"
+env -i PATH=/usr/bin:/bin PYTHONPATH="$REPO/src" "$VENV_BIN/python" -c "
+from tradefabe.desktop import main
+import webview          # deferred inside main(), so import it explicitly here --
+                        # otherwise a missing pywebview passes this check and the
+                        # bundle still fails to open
+print('    desktop entry point + webview import OK')"
 
 echo
 echo "done: $APP"
