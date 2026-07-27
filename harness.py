@@ -277,8 +277,31 @@ def _prices_fingerprint(prices):
             int(pd.util.hash_pandas_object(prices, index=True).sum()))
 
 
-def noise_floor(prices, freq, trials=NULL_TRIALS, rv=None):
+def sig_rotated(signal, rng):
+    """A random circular time-shift of `signal`.
+
+    This is the duty-cycle-matched null. `sig_random()` re-draws every bar, so a random
+    strategy flips sign at nearly every rebalance while a real trend signal mostly holds
+    its position -- measured 3.7x the turnover of `tsmom_12m` monthly and 19.9x daily.
+    Since cost scales with turnover, that hands the null a penalty the candidate never
+    pays and makes gate 1 systematically LENIENT.
+
+    A rotation preserves the signal's turnover and persistence EXACTLY (same sequence,
+    different offset) while destroying any alignment with future returns -- which is
+    precisely the null hypothesis gate 1 is supposed to test: "could a strategy that
+    trades like this one produce this Sharpe with no predictive content?" """
+    k = int(rng.integers(1, len(signal)))
+    return pd.DataFrame(np.roll(signal.values, k, axis=0),
+                        index=signal.index, columns=signal.columns)
+
+
+def noise_floor(prices, freq, trials=NULL_TRIALS, rv=None, like=None):
     """Sharpe distribution of `trials` random strategies at this rebalance frequency.
+
+    `like`: the candidate's own signal frame. When given, nulls are random rotations of it
+    (duty-cycle matched -- see sig_rotated). When None, the historical per-bar random
+    signal is used; that path is retained because every verdict in graveyard.csv was
+    scored against it and changing it silently would make old and new rows incomparable.
 
     MEMOIZED per (prices, freq, trials). The internal rng is seeded to 0 and consumed
     sequentially, so the result is a pure function of those three -- recomputing it is
@@ -288,7 +311,8 @@ def noise_floor(prices, freq, trials=NULL_TRIALS, rv=None):
 
     Keyed on a CONTENT fingerprint, not object identity, so a caller that mutates its price
     frame gets a fresh floor instead of a silently stale one."""
-    key = (_prices_fingerprint(prices), freq, trials)
+    like_fp = None if like is None else _prices_fingerprint(like)
+    key = (_prices_fingerprint(prices), freq, trials, like_fp)
     hit = _NULL_CACHE.get(key)
     if hit is not None:
         return hit
@@ -297,7 +321,8 @@ def noise_floor(prices, freq, trials=NULL_TRIALS, rv=None):
     rng = np.random.default_rng(0)
     out = []
     for _ in range(trials):
-        r = net_returns(prices, size_and_rebalance(prices, sig_random(prices, rng), freq, rv))
+        sig = sig_random(prices, rng) if like is None else sig_rotated(like, rng)
+        r = net_returns(prices, size_and_rebalance(prices, sig, freq, rv))
         v = stats(r[r.index >= OOS_START])["Sharpe"]
         if np.isfinite(v):
             out.append(v)

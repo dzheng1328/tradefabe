@@ -196,7 +196,8 @@ def test_noise_floor_is_memoized_and_returns_identical_values():
     a = harness.noise_floor(px, "M", 20)
     b = harness.noise_floor(px, "M", 20)
     assert np.array_equal(a, b)
-    assert (harness._prices_fingerprint(px), "M", 20) in harness._NULL_CACHE
+    # key carries the `like` fingerprint too (#101), None for the unmatched null
+    assert (harness._prices_fingerprint(px), "M", 20, None) in harness._NULL_CACHE
 
 
 def test_a_mutated_price_frame_misses_the_cache():
