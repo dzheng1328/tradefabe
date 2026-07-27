@@ -355,6 +355,144 @@ a survivor until it looks better. Its verdict is only meaningful because the spe
 frozen first. **Benchmark for it is cash** (absolute return), matching `carry_backtest.py`'s
 precedent for market-neutral books; the two directional rows are judged against 60/40.
 
+### M. Learned forecaster / Kronos (edge claimed: a pretrained sequence model extracts
+structure from raw OHLCV that hand-written signals miss. #105)
+
+**PRE-REGISTRATION — specs frozen 2026-07-26, before any of the three was run.** Results
+land in a separate commit; this one deliberately carries none.
+
+**The model.** [Kronos](https://github.com/shiyu-coder/Kronos) (AAAI 2026, MIT licence) is
+a decoder-only transformer over hierarchically-tokenized OHLCV K-lines, pretrained
+autoregressively on 12B bars from 45 exchanges. We use `Kronos-base` (102.3M params) with
+`Kronos-Tokenizer-base` — the largest *open* checkpoint; `Kronos-large` (499.2M) is not
+released. Base weights are **frozen**: this family tunes inference knobs only. Fine-tuning
+is deliberately out of scope because it does not fix the contamination below — the base
+weights already saw 2018–2025 regardless of what we fine-tune on afterwards.
+
+Kronos forecasts **full OHLCV**, not just close. That is the one capability no other signal
+in this roster has, and `kronos_wick_agg` exists specifically to use it; a family that only
+consumed the forecast close would be a worse-tested version of family A.
+
+#### Declared deviation 1: this family's OOS window is not 2018
+
+DOCTRINE's `OOS_START` is 2018-01-01. **That window is contaminated for this family** and
+cannot be used. Kronos's pretraining corpus ends at approximately **2025-06-05** — inferred
+from the authors' own `finetune/config.py` (`dataset_end_time = '2025-06-05'`, and a
+`test_time_range` closing the same day), corroborated by the repo's 2025-07-01 creation and
+the paper's 2025-08-02 arXiv date. A backtest over 2018–2025 asks the model to "predict"
+bars whose successors are in its weights. No purge, embargo, or CPCV fold can undo that;
+it is not leakage in the data pipeline, it is leakage in the parameters.
+
+So family M declares **`KRONOS_OOS_START = 2025-06-05`**. Pre-cutoff results are computed
+and reported for completeness, labelled **CONTAMINATED**, and are **never eligible for an
+ALIVE verdict** or a `graveyard.csv` ALIVE row. Direction of this deviation: it makes ALIVE
+strictly *harder* (a 1.1-year window versus 7.5), which is the defensible direction per the
+`new-strategy` skill's rule.
+
+#### Declared deviation 2: the accepted regime limitation, and what a win here is worth
+
+The clean window is 2025-06-05 → today: **~287 trading days, ~1.14 years, one macro
+regime.** Measured 2026-07-26: SPY +26.3% (Sharpe 1.73), QQQ +33.0% (Sharpe 1.48), BTC-USD
+−38.6% (Sharpe −0.82). Equities went one way and crypto went the other, with no vol event
+comparable to 2018, 2020, or 2022.
+
+Two consequences, both accepted before running anything:
+
+1. **"Profitable" is close to free on the long side and close to impossible on the short.**
+   Any long-biased equity book clears zero return here without the model contributing
+   anything; any long-biased crypto book fails for the same reason. This is exactly what
+   the 60/40 benchmark gate is for, and it is why **profitability is not the promotion
+   criterion in this family — the gates are.**
+2. **At n≈287 the best-of-N effect is the same size as the result.** The standard error on
+   an annualized Sharpe is ≈0.94 over 1.14 years, so selecting the best of 4 zero-skill
+   candidates yields ≈0.96 Sharpe and the best of 10 yields ≈1.44, from noise alone. This
+   is precisely the quantity DSR deflates, which is why gate 1 is left exactly as it is and
+   `family_n_tested` continues to count all prior graveyard rows rather than being reset
+   for a "new" family.
+
+**An ALIVE verdict in family M therefore means less than an ALIVE verdict elsewhere in this
+file** — same caveat family L (#86) carries, for a different reason — and must be read with
+this attached. The expected outcome of this study is DEAD across the board; that is
+information about the window, not a failure of the study.
+
+#### Why the live books, not the backtest, are the real test here
+
+For every other family in this roster the backtest is the primary evidence and the paper
+book is confirmation. **Family M inverts that.** Its backtest window is short *and*
+selectable — we choose which candidates to report. Forward paper-trading is neither: every
+day past today is guaranteed post-cutoff, uncontaminated, and unselected by construction.
+The monitor-only books accumulate the only evidence about Kronos that cannot be gamed.
+
+This does not buy a doctrine exemption. Under **DOCTRINE v1.2 a backtest-DEAD book is
+monitor-only forever and can never become `paper-confirmed`**, and on a 1.14-year window
+that is the likely permanent status of everything below. Accepted up front.
+
+#### Frozen inference parameters — provenance stated, not scanned
+
+Per the `new-strategy` skill: a parameter chosen by analogy is legitimate, one chosen by
+scanning requires the *range* to be pre-registered instead. None of these was scanned.
+
+| param | value | where it came from |
+|---|---|---|
+| checkpoint | `NeoQuasar/Kronos-base` | largest open checkpoint; not selected by comparing performance |
+| tokenizer | `NeoQuasar/Kronos-Tokenizer-base` | the matching tokenizer, forced |
+| `max_context` | 512 | hard architectural ceiling for `base`, not a choice |
+| `clip` | 5 | library default |
+| `T` | 0.6 | **the authors' own** backtest value (`finetune/config.py: inference_T`) |
+| `top_p` | 0.9 | authors' own (`inference_top_p`) |
+| `top_k` | 0 (off) | authors' own (`inference_top_k`) |
+| `sample_count` | 30 | the conventional n≥30 floor for an empirical quantile; the authors' 5 is enough for a point forecast but not for the predictive *spread* that `carry_kronos_vol` and `kronos_null` consume |
+| `pred_len` | 5 bars | by analogy to the existing 5-day specs in this repo — `sig_str_reversal`'s 5-day fade and `daytrade_tests.wick_study`'s `fwd5` horizon |
+
+Adopting the authors' sampling values wholesale, rather than picking our own, is
+deliberate: it removes three degrees of freedom we would otherwise have to pre-register as
+ranges. **Any change to a value above is a NEW row and a NEW graveyard entry** (rule 2).
+
+| strategy | spec | freq | status |
+|---|---|---|---|
+| `kronos_dir_daily` | the vanilla use of the model. Sign of the Kronos-forecast 5-day return over the standard 15-ETF `UNIVERSE`, long/short, vol-targeted and capped through `engine.sized_weights` exactly like every other daily book | D | **QUEUED** |
+| `kronos_wick_agg` | **predicted hammer** — the OHLC-only signal. On the 14-name universe of `research/daytrade_tests.py`, long a name when its forecast bars satisfy the *same* hammer test that study applied to realized bars (`lower_wick > 2 × body` and `(close − low)/range > 0.66`, after a 5-bar pullback), held 5 bars. **Aggressive by pre-registered construction:** long-only, equal-weight across triggering names, gross 1.0 whenever ≥1 name fires and flat otherwise — *no* vol targeting, *no* `MAX_LEG` cap, unlike every other daily book here | D | **QUEUED** |
+| `carry_kronos_vol` | delta-neutral BTC+ETH funding carry with notional scaled by Kronos's forecast vol: `notional = min(1, TARGET_VOL / forecast_vol)`, where `forecast_vol` is the cross-path SD of the 5-bar cumulative return over the 30 sampled paths. **Capped at 1.0 — it may de-risk but never lever past always-on carry**, or it could beat the benchmark on leverage rather than timing | D | **QUEUED** |
+
+**`carry_kronos_vol`'s benchmark is always-on carry, pre-registered here rather than
+declared afterwards.** Family L already established that cash is unusable as a benchmark
+for a market-neutral book — cash has zero drawdown, so `calmar(bench)` is NaN and gate 3
+degenerates to `MaxDD >= 0`, making gates 2 and 3 unpassable by construction for anything
+holding risk. `funding_timing_1h` had to declare that as a post-hoc deviation; there is no
+excuse for repeating it as a surprise, so it is fixed in advance. This is also the hardest
+non-degenerate benchmark available and asks the economically real question: **does
+vol-scaling beat simply holding the position it is meant to improve?**
+
+`carry_kronos_vol` is a variant of the one ALIVE strategy in this lab and therefore carries
+the same warning `funding_timing_1h` did: it is the highest-risk row here precisely because
+the temptation is to tune a survivor until it looks better. Its verdict is only meaningful
+because the spec above was frozen first.
+
+**Null: duty-cycle matched (#101) from the start.** Nulls are random circular rotations of
+each candidate's own signal (`harness.sig_rotated`, passed as `like=`), not per-bar random
+signals. The opt-in caveat on #101 exists to keep old graveyard rows comparable to the
+per-bar null they were scored against; family M has no prior rows, so it takes the better
+null immediately. `kronos_wick_agg`'s long-only, sparse duty cycle makes this
+non-negotiable — a per-bar null would trade far more than it does and hand it a cost
+advantage it never earned, which is the exact failure family L documented at 68×.
+
+**Not a strategy row: `harness.kronos_null()`.** Kronos's third published capability is
+*generation* (the paper claims +22% fidelity on synthetic K-lines). A generator of
+realistic synthetic price paths — preserving fat tails, vol clustering, and cross-asset
+correlation — is a strictly better null than rotating one real history, because it samples
+many plausible worlds instead of re-cutting one. It is being built as **opt-in harness
+infrastructure alongside the #101 rotation null, not as a candidate**, and it needs no
+alpha to be useful: a null generator is allowed to be a mediocre forecaster. Prerequisite
+before it is trusted anywhere: a check that generated paths are not recognizably memorized
+real windows, since the contamination above applies to generation too.
+
+Reproducibility: Kronos inference is stochastic and the weights are a 400MB external
+download, so every forecast used by a verdict is **snapshotted to `artifacts/kronos_*.csv`**
+— same requirement family L's rolling-window hourly bars carry, for the same reason. The
+signal functions and frozen params live in `src/tradefabe/kronos.py` and the study imports
+them from there, so the code that produces the verdict and the code running any live book
+are the same function.
+
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
 2. One verdict per spec. Tweaks = a NEW row and a NEW graveyard entry.
