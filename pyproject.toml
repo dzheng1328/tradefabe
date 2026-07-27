@@ -21,6 +21,12 @@ dependencies = [
 [project.optional-dependencies]
 desktop = ["pywebview"]
 dev = ["pytest", "pytest-xdist"]
+# Family M (#105). Kept OPTIONAL and lazily imported: torch is ~110MB plus ~400MB of
+# weights, and the paper engine must keep running without any of it. Mirrors upstream
+# Kronos's requirements.txt, with floors rather than their exact pins so this does not
+# fight the rest of the environment. The model CODE is vendored (src/tradefabe/vendor/),
+# so nothing here reaches for a git clone.
+kronos = ["torch>=2.0", "einops>=0.8", "huggingface_hub>=0.33", "safetensors>=0.6", "tqdm>=4.67"]
 
 [project.scripts]
 tradefabe = "tradefabe.cli:main"
@@ -28,6 +34,11 @@ tradefabe-app = "tradefabe.desktop:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# MIT requires the copyright notice travel with the code, so the vendored LICENSE has to be
+# installed alongside it, not just sit in the repo.
+[tool.setuptools.package-data]
+"tradefabe.vendor.kronos_model" = ["LICENSE"]
 
 [tool.pytest.ini_options]
 # "." so `import harness` (repo-root script) resolves; "research" so factory_run.py's
