@@ -14,8 +14,21 @@ on:
     # UTC. ET equivalents drift an hour with DST; harmless, and the two daily jobs
     # shift together so factory still lands before the rebalance.
     - cron: "0 * * * *"      # mark, hourly
-    - cron: "0 21 * * *"     # factory cycle  (17:00 EDT)
     - cron: "0 22 * * *"     # daily rebalance (18:00 EDT)
+    # FACTORY CYCLE PAUSED 2026-07-27 (#98). Was: - cron: "0 21 * * *"
+    #
+    # Not deleted, and not because the code is wrong -- the factory works exactly as
+    # designed. It is paused because the DESIGN has no exit condition: it promotes its
+    # best-DSR candidate regardless of verdict, and a DEAD promotion is monitor-only
+    # forever under v1.2, so finding something and finding nothing produce the same
+    # outcome (another monitor-only book). Meanwhile every draw it logs raises
+    # family_n_tested() for every future candidate: 124 draws, 0 survivors, required
+    # Sharpe 1.58 -> 2.52, heading for 3.63 within a year. Real equity edges are 0.5-1.5.
+    #
+    # Un-pause once the ledger-segregation question in RUNDOWN.md is decided and
+    # PRE-REGISTERED. Until then a manual burst is still available:
+    #     gh workflow run "paper engine" -f job=factory
+    # workflow_dispatch is deliberately left intact so this is a pause, not a removal.
   workflow_dispatch:
     inputs:
       job:
