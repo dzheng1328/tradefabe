@@ -49,12 +49,116 @@ def graveyard_strategy_names():
     return set(pd.read_csv(GRAVEYARD)["strategy"].unique())
 
 
+GENERATED_LEDGER = os.path.join(BASE, "generated_templates.csv")
+
+
+def _factory_ledger_names() -> set[str]:
+    """Names recorded as factory-origin in a ledger written at GENERATION time.
+
+    `factory.TEMPLATES` is source code reviewed once; `generated_templates.csv` is
+    append-only and written when a candidate is DRAWN, before its verdict is known. Both
+    predate any result, which is what stops origin from being assigned after the fact to
+    flatter one."""
+    out: set[str] = set()
+    try:
+        from tradefabe import factory
+        out |= set(factory.TEMPLATES)
+    except Exception:                                    # noqa: BLE001
+        pass
+    if os.path.exists(GENERATED_LEDGER):
+        try:
+            gt = pd.read_csv(GENERATED_LEDGER)
+            for col in ("name", "strategy"):
+                if col in gt.columns:
+                    out |= set(gt[col].dropna().astype(str))
+                    break
+        except Exception:                                # noqa: BLE001
+            pass
+    return out
+
+
+def is_factory_origin(name: str) -> bool:
+    """Whether `name` came out of the automated search (DOCTRINE v1.5, #112).
+
+    A PREDICATE on the name, deliberately -- not a lookup restricted to rows already in
+    graveyard.csv. Classification happens at EVALUATION time, when a brand-new candidate
+    has no row yet, so a ledger-only test silently misfiled every first-time candidate
+    into the hand-picked family. `factory_combo_*` was the case that caught it.
+
+    Naming conventions (`_gen_`, `combo`) are fixed in `factory.py` before any candidate is
+    drawn, so they carry the same before-the-result guarantee the ledgers do.
+    """
+    return ("_gen_" in name or "combo" in name.lower()
+            or name in _factory_ledger_names())
+
+
+def factory_origin_names() -> set[str]:
+    """Every known factory-origin name: the generation-time ledgers, plus any graveyard row
+    matching the naming conventions."""
+    return _factory_ledger_names() | {n for n in graveyard_strategy_names()
+                                      if is_factory_origin(n)}
+
+
+def promoted_names() -> set[str]:
+    """Factory candidates PROMOTED to live paper books.
+
+    These rejoin the hand-picked family: promotion IS selection-on-result, which is exactly
+    the thing a multiple-testing correction exists to price. A draw nobody acted on is
+    search; the one that got a book is a hypothesis."""
+    out: set[str] = set()
+    try:
+        from tradefabe import factory
+        for loader in ("load_promoted", "load_promoted_generated", "load_promoted_combos"):
+            fn = getattr(factory, loader, None)
+            if fn is None:
+                continue
+            for item in (fn() or []):
+                name = item.get("name") if isinstance(item, dict) else item
+                if isinstance(name, str):
+                    out.add(name)
+    except Exception:                                    # noqa: BLE001
+        pass
+    return out
+
+
 def family_n_tested(candidate_names):
-    """Size of the multiple-testing family a Bonferroni correction should be judged
-    against: every strategy ever logged to graveyard.csv, unioned with the names about
-    to be evaluated in this run (so a strategy's FIRST run counts itself, and a re-run of
-    an already-logged strategy doesn't double-count)."""
-    return len(graveyard_strategy_names() | set(candidate_names))
+    """Size of the multiple-testing family, SEGREGATED BY ORIGIN (DOCTRINE v1.5, #112).
+
+    Family-wise correction assumes you would have ACCEPTED any hypothesis you tested. The
+    factory's draws fail that premise -- they are steps in a search, not candidates anyone
+    would trade, and nobody Bonferroni-corrects gradient descent for every step it visited.
+    Counting them against hand-picked candidates took the required Sharpe from 1.58 (12
+    tested) to 2.52 (136) and was heading for 3.63, pricing out every real strategy.
+
+    So:
+      * a FACTORY candidate is corrected against factory-origin rows only;
+      * a HAND-PICKED candidate against hand-picked rows plus PROMOTED factory rows;
+      * a mixed set gets the union, which is the conservative reading rather than a
+        convenient one.
+
+    Pre-v1.5 this was `len(graveyard ∪ candidates)` -- the all-time union. Rows scored
+    before v1.5 keep that number and are NOT comparable to rows scored after; the change is
+    forward-only and no historical verdict is ever re-scored under it.
+    """
+    gy = graveyard_strategy_names()
+    factory_rows = factory_origin_names()
+    promoted = promoted_names()
+    cands = set(candidate_names)
+
+    fam_factory = (gy & factory_rows) - promoted
+    fam_hand = (gy - factory_rows) | (gy & promoted)
+
+    # Classify each candidate by PREDICATE, not by graveyard membership -- a first-time
+    # candidate has no row yet, and a lookup would misfile every one of them.
+    cand_factory = {c for c in cands if is_factory_origin(c) and c not in promoted}
+    cand_hand = cands - cand_factory
+    if cand_factory and cand_hand:
+        family = fam_factory | fam_hand
+    elif cand_factory:
+        family = fam_factory
+    else:
+        family = fam_hand
+    return len(family | cands)
 
 
 def last_verdict(name):
@@ -417,18 +521,27 @@ def main():
     rv    = realized_vol(prices)
     bench = benchmark_returns(prices)
 
-    freqs = sorted({f for _, f in STRATEGIES.values()})
-    nulls = {}
-    for f in freqs:
-        print(f"computing {f}-rebalanced noise floor ({NULL_TRIALS} random strategies)...")
-        nulls[f] = noise_floor(prices, f, NULL_TRIALS, rv)
-
+    # DOCTRINE v1.5 (#112): the null is DUTY-CYCLE matched, so it is per-STRATEGY rather
+    # than per-frequency. v1.0.1 matched the null's clock; #101 measured that this is not
+    # enough -- a per-bar random signal flips at nearly every rebalance while a real trend
+    # signal holds, so the null traded 3.7x more monthly and 19.9x more daily and paid a
+    # turnover cost the candidate never did. Gate 1 was systematically LENIENT. Rotating
+    # the candidate's OWN signal preserves its turnover exactly while destroying any
+    # alignment with future returns, which is the hypothesis gate 1 is supposed to test.
+    #
+    # Cost: one floor per strategy instead of one per frequency. noise_floor() is memoized
+    # on a content fingerprint of (prices, freq, trials, like), so a re-run is free, but a
+    # cold run does len(STRATEGIES) x NULL_TRIALS instead of len(freqs) x NULL_TRIALS.
     n_tested = family_n_tested(STRATEGIES.keys())
-    returns_full = {}
+    returns_full, nulls = {}, {}
     for name, (fn, freq) in STRATEGIES.items():
-        r = net_returns(prices, size_and_rebalance(prices, fn(prices), freq, rv))
+        sig = fn(prices)
+        r = net_returns(prices, size_and_rebalance(prices, sig, freq, rv))
         returns_full[name] = r
-        evaluate(name, r, bench, nulls[freq], freq, n_tested)
+        print(f"computing duty-cycle-matched noise floor for {name} "
+              f"({NULL_TRIALS} rotations, {freq}-rebalanced)...")
+        nulls[name] = noise_floor(prices, freq, NULL_TRIALS, rv, like=sig)
+        evaluate(name, r, bench, nulls[name], freq, n_tested)
 
     # ---- artifacts for the dashboard ----
     os.makedirs(ART, exist_ok=True)
@@ -442,7 +555,11 @@ def main():
             "start": str(prices.index.min().date()), "end": str(prices.index.max().date()),
             "n_assets": int(prices.shape[1]), "universe": list(prices.columns),
             "oos_start": str(OOS_START.date()),
-            "null_bars": {f: round(float(np.percentile(v, NULL_PCTILE)), 3) for f, v in nulls.items()},
+            # v1.5: keyed by STRATEGY, not frequency -- each candidate now has its own
+            # duty-cycle-matched floor. app.py detects which style a saved npz uses so an
+            # older artifact still renders.
+            "null_kind": "duty_cycle",
+            "null_bars": {k: round(float(np.percentile(v, NULL_PCTILE)), 3) for k, v in nulls.items()},
             "strategy_freq": {k: v[1] for k, v in STRATEGIES.items()},
             "generated_at": datetime.datetime.now().isoformat(timespec="seconds")}
     with open(os.path.join(ART, "meta.json"), "w") as fh:

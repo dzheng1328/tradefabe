@@ -1269,15 +1269,34 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
 
     st.subheader("The luck floor — is anything distinguishable from random?")
     freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
-    present = [f for f in ("M", "W", "D") if f in nulls]
-    tabs = st.tabs([freq_names[f] for f in present])
-    for tab, f in zip(tabs, present):
-        with tab:
-            arr = nulls[f]
-            marks = [(s_name, float(gy_last.loc[s_name, "oos_sharpe"]))
-                     for s_name, s_freq in meta["strategy_freq"].items()
-                     if s_freq == f and s_name in gy_last.index]
-            st.plotly_chart(luck_floor_chart(arr, freq_names[f], marks, color_of), width="stretch")
+    # DOCTRINE v1.5 (#112) made the null DUTY-CYCLE matched, so it is per-STRATEGY: each
+    # candidate is scored against random rotations of its OWN signal, which preserves its
+    # turnover exactly. A per-frequency chart would therefore be showing a distribution
+    # that did not decide any of the verdicts marked on it. Older artifacts are keyed by
+    # frequency, so detect which style is on disk rather than crashing on one of them.
+    per_strategy = not set(nulls).issubset({"M", "W", "D"})
+    if per_strategy:
+        st.caption("Each strategy is scored against random **rotations of its own signal** "
+                   "(DOCTRINE v1.5) — same turnover, no predictive content — so the floor "
+                   "below is that strategy's own, not a shared per-frequency one.")
+        pick_null = st.selectbox("Strategy", sorted(nulls), key="luckfloor")
+        arr = nulls[pick_null]
+        freq = meta.get("strategy_freq", {}).get(pick_null, "")
+        marks = ([(pick_null, float(gy_last.loc[pick_null, "oos_sharpe"]))]
+                 if pick_null in gy_last.index else [])
+        label = f"{freq_names.get(freq, freq)} — {pick_null}" if freq else pick_null
+        st.plotly_chart(luck_floor_chart(arr, label, marks, color_of), width="stretch")
+    else:
+        present = [f for f in ("M", "W", "D") if f in nulls]
+        tabs = st.tabs([freq_names[f] for f in present])
+        for tab, f in zip(tabs, present):
+            with tab:
+                arr = nulls[f]
+                marks = [(s_name, float(gy_last.loc[s_name, "oos_sharpe"]))
+                         for s_name, s_freq in meta["strategy_freq"].items()
+                         if s_freq == f and s_name in gy_last.index]
+                st.plotly_chart(luck_floor_chart(arr, freq_names[f], marks, color_of),
+                                width="stretch")
 
     st.subheader("Underwater — drawdown from peak")
     pick = st.selectbox("Strategy", strats + ["60/40", "SPY"])
