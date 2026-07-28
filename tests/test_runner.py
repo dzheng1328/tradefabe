@@ -51,12 +51,18 @@ def test_run_book_rebalances_a_factory_template_identically_to_a_hand_picked_one
     name = "donchian_20d"
     freq = factory.TEMPLATES[name][1]
 
-    runner._run_book(name, freq, factory.target_weights, px, "2024-06-01", px.iloc[-1], verbose=False)
+    runner._run_book(name, freq, factory.target_weights, px, "2024-06-01", px.iloc[-1],
+                     verbose=False, stamp="2024-06-01T22:00")
 
     book = books.load(name)
     assert book["last_rebalance"] == "2024-06-01"     # fresh book -> always rebalances on first run
     assert book["positions"]                          # donchian_20d on a strong uptrend takes a real position
-    assert book["history"] == [["2024-06-01", pytest.approx(books.equity(book, px.iloc[-1]), rel=1e-6)]]
+    # The BAR date and the CLOCK key are deliberately different since #109: run_daily()
+    # used to pass one string for both, so its history key was a bare date, which parses
+    # to midnight and sorted the cycle's result to the START of the day it belonged at the
+    # end of. `last_rebalance` still answers "which bar", history answers "when".
+    assert book["history"] == [["2024-06-01T22:00",
+                                pytest.approx(books.equity(book, px.iloc[-1]), rel=1e-6)]]
 
 
 # ---------------------------------------------------------------- GENERATED_BOOKS (#28b)
