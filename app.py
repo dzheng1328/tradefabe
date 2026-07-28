@@ -214,7 +214,18 @@ def load_paper_state():
     # history.csv mixes bare-date rows (tradefabe run) with full-timestamp rows
     # (tradefabe mark, every 30min) -- read_csv's own parse_dates can't infer a single
     # format across that mix, so parse explicitly with format="mixed" instead.
-    phist["date"] = pd.to_datetime(phist["date"], format="mixed")
+    raw = phist["date"].astype(str)
+    bare = ~raw.str.contains("T| ", regex=True)
+    phist["date"] = pd.to_datetime(raw, format="mixed")
+    # LEGACY REPAIR (#109). run_daily() used to key history on a bare date; that parses to
+    # MIDNIGHT, so once sorted, the daily cycle's post-rebalance equity -- written around
+    # 22:00-23:10 UTC -- was drawn at the START of the day it belonged at the END of,
+    # producing a one-minute-wide V-notch on every chart at every daily boundary.
+    # run_daily() now stamps minutes like run_mark(), but ~47 rows already exist and the
+    # Action owns state/, so they are corrected on READ rather than by rewriting a ledger
+    # this process does not own. End-of-day is the honest placement: a bare date can only
+    # have come from the daily cycle, which never runs before 22:00 UTC.
+    phist.loc[bare, "date"] += pd.Timedelta(hours=23, minutes=59)
     return psum, phist
 
 
@@ -268,6 +279,65 @@ def fmt(v, kind="ratio"):
     if v is None or (isinstance(v, float) and not np.isfinite(v)):
         return "—"
     return f"{v:.2f}" if kind == "ratio" else f"{v:.1%}"
+
+
+def render_trade_log(data):
+    """The fill log: what was traded, when, at what price (#109).
+
+    Before this, `rebalance_to()` computed target shares, turnover and cost and then kept
+    only the resulting position — so a book could be watched but never seen ACTING. Every
+    row here is one real simulated fill from the ledger.
+
+    Deliberately no per-book branching: any ledger carrying a `trades` list renders, so a
+    new book source needs no change here (same contract as `pricing.BOOK_SOURCE`)."""
+    tdf = data.get("trades_df")
+    if tdf is None:
+        return
+    st.markdown("**Trade log**")
+    if tdf.empty:
+        st.caption("No fills recorded yet. The log starts at this book's next rebalance — "
+                   "earlier trades happened before the ledger recorded them (#109) and "
+                   "cannot be reconstructed, since only the resulting position was kept.")
+        return
+
+    st.dataframe(tdf, width="stretch", hide_index=True, column_config={
+        "ts": st.column_config.DatetimeColumn("When (UTC)", format="YYYY-MM-DD HH:mm"),
+        "ticker": st.column_config.TextColumn("Ticker"),
+        "side": st.column_config.TextColumn("Side"),
+        "shares": st.column_config.NumberColumn("Δ units", format="%+.2f"),
+        "price": st.column_config.NumberColumn("Fill price", format="$%.2f"),
+        "notional": st.column_config.NumberColumn("Notional", format="$%.0f"),
+        "position_after": st.column_config.NumberColumn("Position after", format="%.2f"),
+    })
+    last_ts = tdf["ts"].max()
+    st.caption(
+        f"{len(tdf)} fill(s), newest first; last {last_ts:%Y-%m-%d %H:%M} UTC. "
+        "Sides are named from the POSITION's view, not the order's: BUY/SELL open or "
+        "grow a long, SHORT/COVER open or reduce a short. Simulated fills at the mark "
+        f"close with a {signals_cost_bps():.0f}bp per-side cost, capped at the most "
+        "recent 500 — these ledgers are committed to git every cycle, so the log is "
+        "bounded on purpose.")
+
+
+def signals_cost_bps():
+    """The engine's per-side cost, read rather than hardcoded so the caption cannot drift
+    from the number actually charged."""
+    try:
+        from tradefabe.engine import COST_BPS
+        return float(COST_BPS)
+    except Exception:                                    # noqa: BLE001
+        return float("nan")
+
+
+def money(v):
+    """Whole dollars, or an em dash when the value genuinely isn't known (#109).
+
+    `f"${nan:,.0f}"` renders as "$nan" and `f"${-0.08:,.0f}"` renders as "$-0" — both read
+    as "this book is empty" when the truth is "we could not price it". A figure we cannot
+    compute must never be typeset as a number."""
+    if v is None or (isinstance(v, float) and not np.isfinite(v)):
+        return "—"
+    return f"${v:,.0f}"
 
 
 def badge(text, kind="muted"):
@@ -351,29 +421,72 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
     if kind == "equity":
         book = load_book_json(name)
         cash = float((book or {}).get("cash", 0.0))
+        # The LEDGER's own prices first (#109). data/prices.csv is gitignored, so it is
+        # local-only and can be arbitrarily stale while the ledger arrives fresh from the
+        # Action every cycle -- and it holds only the 15 daily ETFs, so crypto_reversal_1h's
+        # BTC-USD/ETH-USD priced to NaN and the panel rendered $-0 for a fully-deployed
+        # $100k book. books.record_prices() now stores whatever actually priced each mark.
+        ledger_px = (book or {}).get("last_prices") or {}
         rows = []
         for t, sh in sorted((book or {}).get("positions", {}).items(), key=lambda kv: -abs(kv[1])):
-            p = float(price_now.get(t)) if price_now is not None and t in price_now.index else np.nan
-            rows.append({"ticker": t, "units": sh, "last_price": p, "value": sh * p if pd.notna(p) else np.nan})
+            p = ledger_px.get(t)
+            if p is None and price_now is not None and t in price_now.index:
+                p = price_now.get(t)
+            p = float(p) if p is not None and pd.notna(p) else np.nan
+            rows.append({"ticker": t, "units": sh, "last_price": p,
+                         "value": sh * p if pd.notna(p) else np.nan})
         positions_df = pd.DataFrame(rows)
+        held = len(positions_df)
+        n_unpriced = int(positions_df["value"].isna().sum()) if held else 0
+        # Series.sum() skips NaN, so an ALL-unpriceable book summed to 0.0 and equity
+        # collapsed to cash -- rendering "$0 gross, $-0 equity" for a book that is fully
+        # deployed. A number we cannot compute must read as unknown, never as zero.
+        all_unpriced = held > 0 and n_unpriced == held
         # equity = cash + net position value (books.equity()'s own formula) -- the
         # denominator for "weight" must be TOTAL equity, not sum of position values, or
         # the weight column always sums to 100% and silently hides how much is in cash.
-        priced_val = positions_df["value"].sum() if len(positions_df) else 0.0
-        equity = cash + (priced_val if pd.notna(priced_val) else 0.0)
-        if len(positions_df) and positions_df["value"].notna().any() and equity:
+        priced_val = float(positions_df["value"].sum()) if held else 0.0
+        equity = np.nan if all_unpriced else cash + priced_val
+        if held and positions_df["value"].notna().any() and equity and pd.notna(equity):
             positions_df["weight"] = positions_df["value"] / equity
-        gross = float(positions_df["value"].abs().sum()) if len(positions_df) else 0.0
-        net = float(priced_val) if pd.notna(priced_val) else 0.0
+        gross = np.nan if all_unpriced else (
+            float(positions_df["value"].abs().sum()) if held else 0.0)
+        net = np.nan if all_unpriced else priced_val
+        pct = lambda v: (v / equity if pd.notna(equity) and equity else np.nan)  # noqa: E731
         deployment = dict(cash=cash, equity=equity, gross=gross, net=net,
-                          cash_pct=(cash / equity if equity else np.nan),
-                          gross_pct=(gross / equity if equity else np.nan),
-                          net_pct=(net / equity if equity else np.nan))
+                          cash_pct=pct(cash), gross_pct=pct(gross), net_pct=pct(net),
+                          n_unpriced=n_unpriced, n_held=held,
+                          priced_at=(book or {}).get("last_prices_at"),
+                          # A long/short book holds cash ABOVE equity because the short
+                          # proceeds are cash. Callers caption on this rather than
+                          # asserting vol-targeting, which family L books do not use.
+                          is_short_funded=bool(pd.notna(net) and net < 0))
 
     return dict(kind=kind, bt_curve=bt_curve, live_start=live_start,
                 handoff=handoff, live_hist=live_hist, stats=stats, positions_df=positions_df,
                 deployment=deployment, positions_asof=price_date,
+                trades_df=trades_frame(load_book_json(name)),
                 book_json=load_book_json(name), **extra)
+
+
+def trades_frame(book):
+    """The book's fill log as a display frame, newest first (#109).
+
+    Modular in the same sense `pricing.BOOK_SOURCE` is: any book whose ledger carries a
+    `trades` list renders here with no per-book branch, so a future source needs no change.
+    Returns an EMPTY frame (not None) when a book predates the log, so callers distinguish
+    "no trades recorded yet" from "this book cannot have trades" via `book_json`.
+    """
+    cols = ["ts", "ticker", "side", "shares", "price", "notional", "position_after"]
+    rows = (book or {}).get("trades") or []
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(rows)
+    for c in cols:                       # tolerate a row written by an older schema
+        if c not in df.columns:
+            df[c] = np.nan
+    df["ts"] = pd.to_datetime(df["ts"], format="mixed", errors="coerce")
+    return df[cols].sort_values("ts", ascending=False, kind="stable").reset_index(drop=True)
 
 
 # ==================================================================== chart builders
@@ -887,14 +1000,29 @@ def render_strategy_panel(name, data, color):
         st.markdown("**Capital deployed**")
         dep = data["deployment"]
         d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Cash (undeployed)", f"${dep['cash']:,.0f}", fmt(dep["cash_pct"], "pct") + " of equity")
-        d2.metric("Gross exposure", f"${dep['gross']:,.0f}", fmt(dep["gross_pct"], "pct") + " of equity")
-        d3.metric("Net exposure", f"${dep['net']:,.0f}", fmt(dep["net_pct"], "pct") + " of equity")
-        d4.metric("Total equity", f"${dep['equity']:,.0f}")
-        st.caption("Gross = sum of |position value| (both legs of a long/short book); net = "
-                   "long minus short (directional tilt). Vol-targeted sizing deliberately "
-                   "leaves room in cash rather than forcing 100% deployment — that's a "
-                   "feature of the sizing (see `engine.py`'s `sized_weights`), not a bug.")
+        d1.metric("Cash (undeployed)", money(dep["cash"]), fmt(dep["cash_pct"], "pct") + " of equity")
+        d2.metric("Gross exposure", money(dep["gross"]), fmt(dep["gross_pct"], "pct") + " of equity")
+        d3.metric("Net exposure", money(dep["net"]), fmt(dep["net_pct"], "pct") + " of equity")
+        d4.metric("Total equity", money(dep["equity"]))
+        if dep.get("n_unpriced"):
+            st.warning(
+                f"{dep['n_unpriced']} of {dep['n_held']} held position(s) could not be "
+                "priced, so the figures above are incomplete. This is shown rather than "
+                "silently summed to $0 — an unpriceable book is not an empty one.",
+                icon=":material/warning:")
+        cap = ("Gross = sum of |position value| (both legs of a long/short book); net = "
+               "long minus short (directional tilt).")
+        if dep.get("is_short_funded"):
+            cap += (" **Cash exceeds equity because this book is net short** — the short "
+                    "proceeds are cash, so cash = equity − net exposure. Nothing is "
+                    "borrowed and nothing is wrong.")
+        else:
+            cap += (" Vol-targeted sizing deliberately leaves room in cash rather than "
+                    "forcing 100% deployment — that's a feature of the sizing (see "
+                    "`engine.py`'s `sized_weights`), not a bug.")
+        if dep.get("priced_at"):
+            cap += f" Priced from the ledger's own marks as of {dep['priced_at']} UTC."
+        st.caption(cap)
 
         st.markdown("**Current positions**")
         pdf = data["positions_df"]
@@ -912,6 +1040,8 @@ def render_strategy_panel(name, data, color):
             st.caption(f"Priced as of the cached data date ({asof.date() if asof is not None else 'unknown'}), "
                        "not a live quote. Weight is % of TOTAL equity (cash + positions), "
                        "not % of invested value — it no longer always sums to 100%.")
+
+        render_trade_log(data)
     else:
         bj = data["book_json"] or {}
         st.markdown("**Book state**")
