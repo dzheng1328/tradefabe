@@ -147,6 +147,11 @@ promote/kill criteria: **a backtest-DEAD book stays monitor-only forever, never
 `paper-confirmed`, no matter how good its paper data looks.** A v1.1 touching gate 2
 (diversifier clause) was discussed and is **not approved** — don't apply it.
 
+**v1.5 is PRE-REGISTERED but NOT YET IN FORCE (#112).** It segregates `n_tested` by origin
+(factory draws stop inflating the bar for hand-picked candidates) and makes the
+duty-cycle-matched null the default. Judge under v1.4 until the implementation lands. It is
+**forward-only**: no historical verdict is ever re-scored under it.
+
 Roster, evidence, and family taxonomy: `STRATEGIES.md`. Add new candidates there *before*
 running them — including the factory's `GENERATION_RANGES` (the range is the
 pre-registration; the drawn value is logged to `generated_templates.csv`).

@@ -136,6 +136,58 @@ the null bar, and the verdict. The graveyard *is* the multiple-testing record.
   Bonferroni bar) still clears gate 1 under DSR too, still dies on gate 2 (Calmar/
   diversification) exactly as before — no regression in either direction.
 
+- **v1.5 (PRE-REGISTERED 2026-07-28, #112 — no verdict has been computed under it yet).**
+  Two changes to gate 1's calibration, shipped **together** because they move the bar in
+  opposite directions and settling only one leaves it knowingly mis-calibrated.
+
+  **(a) The multiple-testing family is SEGREGATED by origin.** `family_n_tested()` currently
+  returns `len(graveyard_names ∪ candidates)` — the all-time union, measured at **139**
+  today, of which **121 are factory-origin**. Every automated draw therefore raises the bar
+  for every future hand-picked candidate, permanently. The #98 council resolved this and the
+  resolution was never implemented:
+
+  > a draw you would never act on is search; the promoted winner is a hypothesis
+
+  Family-wise correction assumes you would have *accepted* any hypothesis you tested. The
+  factory's draws fail that premise — they are steps in a search, not candidates anyone
+  would trade. Nobody Bonferroni-corrects gradient descent for every step it visited. So:
+
+  - a **factory** candidate is corrected against factory-origin rows only;
+  - a **hand-picked** candidate is corrected against hand-picked rows only;
+  - a **promoted** factory candidate joins the hand-picked family, because promotion *is*
+    selection-on-result and that is exactly what the correction exists to price.
+
+  Origin is determined by `factory.TEMPLATES` membership, a `_gen_` name, presence in
+  `generated_templates.csv`, or combo status — all four are recorded at generation time,
+  **before** any verdict, so origin can never be assigned to flatter a result. Measured
+  split: 121 factory-origin, 15 hand-picked, 5 promoted-generated joining the main family.
+
+  **(b) The duty-cycle-matched null becomes the DEFAULT, not opt-in.** v1.0.1 matched the
+  null's *clock*; #101 showed matching the clock is not enough. Re-drawing a random signal
+  every bar makes the null trade 3.7× more than a real monthly signal and 19.9× more daily,
+  so it pays a turnover cost the candidate never does and gate 1 is systematically
+  **lenient**. `noise_floor(..., like=)` has existed since #101 but defaults to `None`, and
+  as of this pre-registration exactly one study passes it. Corrected, the monthly bar moves
+  from p95 0.293 to **1.532**, and `tsmom_12m` (Sharpe 0.499) flips from clearing gate 1 to
+  failing it.
+
+  **Direction, stated honestly.** (a) makes ALIVE easier; (b) makes it harder. That is the
+  point — the two errors were compounding, and correcting one alone would have replaced a
+  known bias with a different known bias. Neither was chosen to produce a particular verdict:
+  (a) was decided by the #98 council before family M existed, and (b) was measured in #101
+  and left un-shipped.
+
+  **Forward-only, and never re-scored.** Existing `graveyard.csv` rows keep the numbers they
+  were given, exactly as v1.4 was not applied retroactively. Recomputing historical verdicts
+  under v1.5 is legitimate **only as a diagnostic** — to learn whether the bar inflation was
+  theoretical or buried something real — and its output is a finding to discuss, never a
+  silent re-verdict. Adjusting the bar and then re-scoring is precisely the failure this lab
+  exists to prevent.
+
+  **Rows evaluated under v1.5 record `n_tested` under the segregated count and are not
+  comparable to earlier rows' `n_tested` column.** That discontinuity is the cost of the fix
+  and is stated here rather than left for a reader to discover.
+
 ## Paper-testing verdicts (v1.2)
 
 Pre-registered the day after the paper engine launched (oldest book: 2026-07-22), before
