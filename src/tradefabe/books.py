@@ -10,6 +10,15 @@ from .paths import STATE_DIR
 
 START_CASH = 100_000.0
 
+# Trade log depth (#109). Capped for the same reason backfill_marks() caps: these ledgers
+# are committed to git every cycle by the Action, so an unbounded list grows the repo
+# forever. 500 fills is months of history for a monthly book and weeks for a daily one.
+MAX_TRADES = 500
+
+# A share delta below this is rounding, not a fill. Vol-targeted weights drift by tiny
+# fractions every rebalance; logging those would bury the real trades in noise.
+MIN_FILL_SHARES = 1e-9
+
 
 def _path(name):
     return STATE_DIR / f"{name}.json"
@@ -49,6 +58,69 @@ def equity(book: dict, px: pd.Series) -> float:
             return float("nan")
         pos_val += sh * p
     return book["cash"] + pos_val
+
+
+def record_prices(book: dict, px: pd.Series, when: str) -> None:
+    """Remember the prices this book was actually valued at, inside the ledger itself.
+
+    The dashboard used to price open positions from `data/prices.csv`, which is (a)
+    gitignored, so it is local-only and can be arbitrarily stale while the ledger arrives
+    fresh from the Action every cycle, and (b) the DAILY equity universe only -- it has no
+    BTC-USD or ETH-USD, so `crypto_reversal_1h`'s positions all priced to NaN and the
+    Capital-deployed panel rendered `$-0` for a fully-deployed $100k book (#109).
+
+    Storing them here makes the ledger self-describing: whatever source priced the book is
+    the source the UI reports, with no second data path to keep in sync. Only held names
+    are kept, so this does not grow with the universe.
+    """
+    keep = {}
+    for t in book["positions"]:
+        v = px.get(t, None)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(v):
+            keep[t] = round(v, 6)
+    book["last_prices"] = keep
+    book["last_prices_at"] = when
+
+
+def log_trades(book: dict, new_pos: dict, px: pd.Series, when: str) -> list[dict]:
+    """Append one record per fill implied by moving `positions` -> `new_pos` (#109).
+
+    `rebalance_to()` computed target shares, turnover, and cost and then threw all of it
+    away, leaving only the resulting position -- so there was no way to see WHAT was traded
+    or WHEN. Each record is self-contained (price and notional included) so the log stays
+    readable without re-deriving anything from a price frame that may no longer exist.
+
+    Sides are named from the position's perspective, not the order's, because that is what
+    a reader of a long/short book actually wants to know: BUY/SELL open or grow a long,
+    SHORT/COVER open or reduce a short, and a sign flip is reported as the side it ends in.
+    """
+    old = dict(book.get("positions", {}))
+    trades = []
+    for t in sorted(set(old) | set(new_pos)):
+        before, after = float(old.get(t, 0.0)), float(new_pos.get(t, 0.0))
+        delta = after - before
+        if abs(delta) < MIN_FILL_SHARES:
+            continue
+        p = _px(px, t)
+        if p <= 0:                      # unpriceable: turnover already skipped it
+            continue
+        if after >= 0 and before >= 0:
+            side = "BUY" if delta > 0 else "SELL"
+        elif after <= 0 and before <= 0:
+            side = "SHORT" if delta < 0 else "COVER"
+        else:                            # crossed zero -- name it by where it landed
+            side = "BUY" if after > 0 else "SHORT"
+        trades.append({"ts": when, "ticker": t, "side": side,
+                       "shares": round(delta, 6), "price": round(p, 6),
+                       "notional": round(abs(delta) * p, 2),
+                       "position_after": round(after, 6)})
+    if trades:
+        book["trades"] = (book.get("trades", []) + trades)[-MAX_TRADES:]
+    return trades
 
 
 def utc_stamp(when=None) -> str:
@@ -114,6 +186,9 @@ def mark(book: dict, date: str, px: pd.Series) -> bool:
         book["history"].append([date, round(eq, 2)])
     book["last_run"] = dt.datetime.now(dt.UTC).replace(tzinfo=None).isoformat(timespec="seconds")
     book["last_price_bar"] = bar_date(px) or book.get("last_price_bar")
+    # Self-describing ledger (#109): whatever priced this book is what the dashboard shows,
+    # instead of a second, gitignored, equity-only cache that silently NaN'd crypto books.
+    record_prices(book, px, date)
     return True
 
 
@@ -174,12 +249,19 @@ def _finite(v) -> bool:
 
 
 def rebalance_to(book: dict, weights: pd.Series, date: str, px: pd.Series,
-                 cost_bps: float) -> bool:
+                 cost_bps: float, stamp: str | None = None) -> bool:
     """Trade to target weights at today's close; charge cost on turnover.
 
     Returns False without trading if the book or any target name can't be priced. Note
     `p <= 0` does NOT screen NaN (`nan <= 0` is False), so a partial price bar would
-    otherwise size positions off a NaN and corrupt the book permanently."""
+    otherwise size positions off a NaN and corrupt the book permanently.
+
+    `date` is the PRICE BAR's date and is what `last_rebalance` records -- "which bar did
+    we trade on". `stamp` is the minute-resolution clock key for the history and trade log
+    (#109); it defaults to `date` only so existing callers keep working. The two are
+    genuinely different questions, and conflating them is what put a bare date into a
+    minute-stamped history and produced a midnight V-notch on every chart."""
+    stamp = stamp or date
     stale = _regressed(book, px)
     if stale:
         print(f"[warn] {book['name']}: skipping rebalance at {date} — price bar {stale} is "
@@ -214,9 +296,12 @@ def rebalance_to(book: dict, weights: pd.Series, date: str, px: pd.Series,
     cost = turnover * (cost_bps / 1e4)
     pos_val = sum(sh * _px(px, t) for t, sh in new_pos.items())
     book["cash"] = eq - pos_val - cost
+    # Log BEFORE positions are replaced -- the fill is the difference between the two, and
+    # once `book["positions"]` is overwritten that difference is unrecoverable.
+    log_trades(book, new_pos, px, stamp)
     book["positions"] = new_pos
     book["last_rebalance"] = date
-    mark(book, date, px)
+    mark(book, stamp, px)
     return True
 
 

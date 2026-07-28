@@ -59,14 +59,24 @@ def _make_generated_get_weights(sig_fn):
     return get_weights
 
 
-def _run_book(name, freq, get_weights, px, today, last, verbose):
+def _run_book(name, freq, get_weights, px, today, last, verbose, stamp=None):
+    """`today` is the price BAR's date (what `last_rebalance` means); `stamp` is the
+    minute-resolution history key (#109).
+
+    They used to be the same string, so run_daily() keyed history on a bare date while
+    run_mark() keyed on a full timestamp. A bare date parses to MIDNIGHT, so once the
+    dashboard sorted the series the daily run's post-rebalance equity -- written around
+    22:00-23:10 UTC -- was drawn at the START of that same day, ~23h before it happened.
+    The result was a one-minute-wide V-notch at every daily boundary on every chart."""
+    stamp = stamp or books.utc_stamp()
     book = books.load(name)
     fresh = not book["positions"] and book["last_rebalance"] is None
     due = fresh or freq == "D" or signals.is_month_first_trading_day(px.index)
     if due:
-        ok = books.rebalance_to(book, get_weights(px, name), today, last, signals.COST_BPS)
+        ok = books.rebalance_to(book, get_weights(px, name), today, last,
+                                signals.COST_BPS, stamp=stamp)
     else:
-        ok = books.mark(book, today, last)
+        ok = books.mark(book, stamp, last)
     books.save(book)
     if verbose:
         if ok:
@@ -94,8 +104,9 @@ def run_mark(verbose: bool = True) -> pd.DataFrame:
     WITHOUT rebalancing, so the live-equity chart gets more than one point per day. Meant
     for a tighter cron (e.g. every 30min) alongside the once-daily run_daily(), which still
     owns the actual rebalance -- each strategy's registered M/W/D frequency is untouched.
-    books.mark()'s dedup key is a full timestamp here (vs. run_daily()'s bare date), so the
-    two interleave in the same history list without colliding."""
+    Both cycles now key history on the SAME minute-resolution clock (#109); run_daily() used
+    to key on a bare date, which parses to midnight and sorted its post-rebalance equity to
+    the start of the day it belonged at the end of."""
     px = _prices()
     now = books.utc_stamp()
     last = px.iloc[-1]
@@ -129,22 +140,26 @@ def run_mark(verbose: bool = True) -> pd.DataFrame:
 def run_daily(verbose: bool = True) -> pd.DataFrame:
     px = _prices()
     today = str(px.index[-1].date())
+    # One clock for the whole cycle, minute resolution, matching run_mark() (#109). Every
+    # book in this pass shares it, so a cycle is one point on the chart rather than a
+    # smear -- and it can never sort to midnight the way a bare date did.
+    stamp = books.utc_stamp()
     last = px.iloc[-1]
     for name in EQUITY_BOOKS:
         _, freq = signals.REGISTRY[name]
-        _run_book(name, freq, signals.target_weights, px, today, last, verbose)
+        _run_book(name, freq, signals.target_weights, px, today, last, verbose, stamp)
     for name in PIGGYBACK_BOOKS:
         _, freq = piggyback.REGISTRY[name]
-        _run_book(name, freq, piggyback.target_weights, px, today, last, verbose)
+        _run_book(name, freq, piggyback.target_weights, px, today, last, verbose, stamp)
     for name in FACTORY_BOOKS:
         _, freq, _, _ = factory.TEMPLATES[name]
-        _run_book(name, freq, factory.target_weights, px, today, last, verbose)
+        _run_book(name, freq, factory.target_weights, px, today, last, verbose, stamp)
     for g in GENERATED_BOOKS:
         sig_fn = factory.rebuild_signal(g["family"], g["params"])
         get_weights = _make_generated_get_weights(sig_fn)
-        _run_book(g["name"], g["freq"], get_weights, px, today, last, verbose)
+        _run_book(g["name"], g["freq"], get_weights, px, today, last, verbose, stamp)
     for c in COMBO_BOOKS:
-        _run_book(c["name"], c["freq"], _make_combo_get_weights(c), px, today, last, verbose)
+        _run_book(c["name"], c["freq"], _make_combo_get_weights(c), px, today, last, verbose, stamp)
     carry = run_carry()
     if verbose:
         print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
