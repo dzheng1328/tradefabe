@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import functools
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -50,6 +51,12 @@ from .engine import ANN, TARGET_VOL
 MODEL_REPO = "NeoQuasar/Kronos-base"           # largest OPEN checkpoint (large is unreleased)
 TOKENIZER_REPO = "NeoQuasar/Kronos-Tokenizer-base"
 MAX_CONTEXT = 512        # hard architectural ceiling for `base` -- not a choice
+# How many bars we actually FEED, which is NOT the ceiling above. Amended 2026-07-27
+# (deviation 3): feeding the full 512 on daily bars made 88% of the forecast's variance a
+# function of where the last bar sat in its own normalization window -- see
+# research/kronos_context_diagnostic.py and _assert_context_is_sane() below. 90 is the
+# authors' own finetune/config.py lookback_window, chosen on provenance, not on score.
+DAILY_CONTEXT = 90
 CLIP = 5                 # library default
 T_SAMPLING = 0.6         # authors' own backtest value (finetune/config.py: inference_T)
 TOP_P = 0.9              # authors' own (inference_top_p)
@@ -144,6 +151,50 @@ def _seed(seed: int):
     np.random.seed(seed % (2**32 - 1))
 
 
+# ------------------------------------------------------ context sizing (deviation 3 guard)
+def context_zscore(hist: pd.DataFrame) -> float:
+    """Where the last bar sits in its own context window, in window SDs.
+
+    This is precisely the quantity `predict()` normalizes by, and — at long daily contexts —
+    the thing that turns out to DRIVE the forecast rather than merely scale it. Measured
+    2026-07-27 over 8 tickers: at 512 daily bars, `corr(z, forecast) = -0.939`, R² 0.88,
+    slope -7.44% of 5-day return per z. The model was walking back to its window mean and
+    calling it a forecast.
+    """
+    c = hist["close"].astype(float)
+    sd = float(c.std())
+    return float("nan") if not np.isfinite(sd) or sd == 0 else float((c.iloc[-1] - c.mean()) / sd)
+
+
+def is_daily(index: pd.DatetimeIndex) -> bool:
+    """True for daily-or-slower bars. Intraday series are exempt from the daily context cap:
+    over 512 intraday bars a price barely moves relative to its window mean, `z` stays small,
+    and the artifact is negligible — the regime every published Kronos example lives in."""
+    idx = pd.DatetimeIndex(index)
+    if len(idx) < 3:
+        return True
+    return pd.Series(idx).diff().median() >= pd.Timedelta(hours=20)
+
+
+def trim_context(hist: pd.DataFrame, bars: int | None = None) -> pd.DataFrame:
+    """Slice history to the frozen context length. Call this rather than hand-slicing —
+    getting it wrong is not a crash, it is a plausible-looking forecast that is mostly
+    normalization drift, which is the worst failure mode available here."""
+    if bars is None:
+        bars = DAILY_CONTEXT if is_daily(hist.index) else MAX_CONTEXT
+    return hist.iloc[-min(bars, MAX_CONTEXT):]
+
+
+def _warn_long_daily_context(hist: pd.DataFrame):
+    n = len(hist)
+    if is_daily(hist.index) and n > DAILY_CONTEXT:
+        z = context_zscore(hist)
+        print(f"[warn] kronos: {n} DAILY bars fed, over the frozen DAILY_CONTEXT="
+              f"{DAILY_CONTEXT} (deviation 3). |z_last| = {abs(z):.2f}; at 512 bars the "
+              f"forecast became 88% a function of this number. Use trim_context().",
+              file=sys.stderr)
+
+
 # ------------------------------------------------------------------------------ forecasting
 def forecast_paths(hist: pd.DataFrame, y_timestamp: pd.DatetimeIndex,
                    n_paths: int = SAMPLE_COUNT, seed: int = 0) -> np.ndarray:
@@ -160,6 +211,7 @@ def forecast_paths(hist: pd.DataFrame, y_timestamp: pd.DatetimeIndex,
     _require()
     _seed(seed)
     p = predictor()
+    _warn_long_daily_context(hist)
     hist = hist[_OHLCV_COLS].astype(float)
     x_ts = pd.Series(hist.index)
     out = p.predict_batch(
