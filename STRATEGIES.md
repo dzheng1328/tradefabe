@@ -437,6 +437,7 @@ scanning requires the *range* to be pre-registered instead. None of these was sc
 | checkpoint | `NeoQuasar/Kronos-base` | largest open checkpoint; not selected by comparing performance |
 | tokenizer | `NeoQuasar/Kronos-Tokenizer-base` | the matching tokenizer, forced |
 | `max_context` | 512 | hard architectural ceiling for `base`, not a choice |
+| **`daily_context`** | **90 bars** | **AMENDED — see deviation 3.** The authors' own `finetune/config.py: lookback_window`. This is how many bars we FEED, distinct from `max_context`, which is only the ceiling on what the model can accept |
 | `clip` | 5 | library default |
 | `T` | 0.6 | **the authors' own** backtest value (`finetune/config.py: inference_T`) |
 | `top_p` | 0.9 | authors' own (`inference_top_p`) |
@@ -447,6 +448,56 @@ scanning requires the *range* to be pre-registered instead. None of these was sc
 Adopting the authors' sampling values wholesale, rather than picking our own, is
 deliberate: it removes three degrees of freedom we would otherwise have to pre-register as
 ranges. **Any change to a value above is a NEW row and a NEW graveyard entry** (rule 2).
+
+#### Declared deviation 3 (2026-07-27): the fed context is 90 bars, not 512
+
+**The original pre-registration was defective and this amendment supersedes it. No verdict
+was rendered under the old value — the defect was found by a model diagnostic run
+deliberately BEFORE the study, and `graveyard.csv` still contains no family M row.**
+
+`KronosPredictor.predict()` z-scores its context window (`x = (x - x_mean) / (x_std + 1e-5)`)
+and generates in that normalized space. On a trending *daily* series the final bar sits far
+from a long window's mean, and autoregressive generation drifts back toward zero — which
+denormalizes into a large fabricated return. Measured 2026-07-27 on `Kronos-base`, 8
+tickers, 5-bar horizon, 30 sampled paths, regressing the forecast return on `z_last` (the
+last bar's z-score inside its own context window):
+
+| fed context | corr(`z_last`, `fc_ret`) | R² | slope | \|mean forecast\| | \|mean actual\| |
+|---|---|---|---|---|---|
+| 64 | +0.193 | 0.04 | +0.22% per z | 0.76% | 1.35% |
+| **90 (adopted)** | −0.376 | 0.14 | −0.56% per z | **1.17%** | 1.35% |
+| 128 | +0.642 | 0.41 | +0.88% per z | — | — |
+| 512 (original) | **−0.939** | **0.88** | **−7.44% per z** | — | — |
+
+At 512, **88% of the forecast's variance is explained by where the last bar sits in its own
+normalization window.** SPY forecast −11.7% against a realized −0.06%; BTC-USD, sitting
+*below* its 512-day mean, forecast +13.3% — same mechanism, opposite sign. Across 20 SPY
+dates every forecast was negative, mean −8.69%, sign agreement 45%. `sig_kronos_dir` at 512
+would have been a dressed-up mean-reversion factor, and its verdict would have been a
+verdict on a normalization artifact.
+
+**Why 90 and not the best-scoring value.** At n=8 the standard error on a correlation is
+≈0.38, so only the 512 row is decisively different from zero — 64, 90, and 128 are
+statistically indistinguishable from clean, and choosing among them on their R² would be
+fitting noise. So the value is chosen on **provenance, exactly as every other row in the
+table above**: 90 is the authors' own `lookback_window` for fine-tuning, the one context
+length they publish for non-intraday use. That it also happens to put the forecast magnitude
+(1.17%) closest to realized (1.35%) is a confirmation, not the reason.
+
+**This is out of the authors' tested regime, not a bug in their code.** Every published
+Kronos example is intraday — 5-minute A-share bars, an hourly BTC/USDT demo — where 512 bars
+span little price movement, `z_last` stays small, and the artifact is negligible. Confirmed
+directly: BTC-USD hourly forecast +0.09% against a realized +0.17%. It also implies the
+paper's headline RankIC would not surface this: a cross-sectional *rank* metric rewards
+ranking assets by distance below their trailing mean, which is a coherent mean-reversion
+factor that can score respectably while being useless as a return forecast.
+
+Direction of this deviation: **neutral-to-harder.** It removes a large spurious signal
+rather than adding one; whatever remains has to stand on its own. Reproduced by
+`research/kronos_context_diagnostic.py`, which renders no verdict and evaluates no returns.
+
+**`sample_count`, `T`, `top_p`, `top_k`, `pred_len`, the checkpoint, and all three strategy
+specs are UNCHANGED.** This amendment moves exactly one number.
 
 | strategy | spec | freq | status |
 |---|---|---|---|
