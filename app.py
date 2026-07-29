@@ -814,6 +814,10 @@ def render_book_status(psum, gy_last=None):
                             st.button(name, key=f"book_btn_{name}", on_click=_select_book, args=(name,))
                         label_name = name.replace("_", "\\_")
                         st.metric(label_name, fmt_full_dollars(r["equity"]), f"{r['return']:+.2%}")
+                        # summary.csv gained retired_at in #113; .get() keeps a card
+                        # rendering against a summary written before the column existed.
+                        if pd.notna(r.get("retired_at")) and r.get("retired_at"):
+                            st.markdown(badge("retired", "muted"), unsafe_allow_html=True)
 
 
 # ==================================================================== Paper Books view
@@ -951,10 +955,27 @@ def strategy_description(name):
     return "(no description yet — add one to STRATEGY_DESCRIPTIONS in app.py)"
 
 
+def retirement_note(book_json):
+    """The ledger's own retirement block, or None (#113). Reads the book JSON rather than
+    summary.csv so the panel keeps working on a ledger written before the column existed."""
+    r = (book_json or {}).get("retired")
+    if not r:
+        return None
+    return {"at": r.get("at"), "reason": r.get("reason") or "(no reason recorded)"}
+
+
 def render_strategy_panel(name, data, color):
     st.markdown(f"### {name}")
     blurb = strategy_description(name)
     st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
+    retired = retirement_note(data.get("book_json"))
+    if retired:
+        st.info(f"**Retired {retired['at']}** — {retired['reason']}\n\n"
+                f"The ledger is frozen: no further rebalances or marks. Everything below "
+                f"is the record as of that moment, kept deliberately — a monitor-only "
+                f"book's forward history is the evidence it was opened to collect. "
+                f"Retirement here is always a human decision; nothing in the engine "
+                f"retires a book on its own.", icon=":material/pause_circle:")
     s = data["stats"]
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Sharpe", fmt(s["Sharpe"]))
