@@ -693,6 +693,9 @@ BOOK_FAMILY = {
     "donchian_20d": "I", "donchian_55d": "I",
     # family L, hourly (#86) -- all DEAD, all regime-limited to 2023+ by data availability
     "funding_timing_1h": "L", "crypto_reversal_1h": "L", "equity_tsmom_1h": "L",
+    # family M, Kronos learned forecaster (#105) -- all DEAD, window is 2025-06-05+ only
+    # (the model's pretraining cutoff), so these are NOT comparable to a 2018+ row
+    "kronos_dir_daily": "M", "kronos_wick_agg": "M", "carry_kronos_vol": "M",
 }
 
 
@@ -911,6 +914,21 @@ STRATEGY_DESCRIPTIONS = {
     "equity_tsmom_1h": "Hourly: sign of the trailing 24-bar (~5 session) return on the 15-ETF "
                        "universe, long/short. DEAD — lost 14.4%/yr against 14%/yr of turnover "
                        "drag. Regime-limited to 2023-08+.",
+    "kronos_dir_daily": "Learned forecaster: sign of Kronos-base's 5-day forecast return on the "
+                        "15-ETF universe, long/short, vol-targeted. DEAD — the forecast has NO "
+                        "directional skill post-cutoff: 47.6% 5-day sign agreement (below a coin "
+                        "flip) and corr −0.031 with realized over 4,245 pairs. Window is "
+                        "2025-06-05+ only, the model's pretraining cutoff.",
+    "kronos_wick_agg": "Learned forecaster, OHLC-only: long a name whose FORECAST bars form a "
+                       "hammer (lower wick > 2× body, close in the top third) after a 5-day "
+                       "pullback, held 5 bars, equal-weight, no vol targeting. DEAD — in-market "
+                       "21% of bars for a sub-benchmark 0.69 Sharpe while SPY did 1.73. Window is "
+                       "2025-06-05+ only.",
+    "carry_kronos_vol": "Learned forecaster on the one ALIVE edge: delta-neutral BTC+ETH funding "
+                        "carry with notional scaled by Kronos's forecast vol, capped at 1.0. "
+                        "DEAD — strictly WORSE than always-on carry (Calmar 1.01 vs 32.71, and a "
+                        "deeper drawdown), because every scale move pays cost on both legs. "
+                        "Benchmark is always-on carry, not 60/40. Window is 2025-06-05+ only.",
 }
 
 
