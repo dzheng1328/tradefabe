@@ -136,13 +136,19 @@ the null bar, and the verdict. The graveyard *is* the multiple-testing record.
   Bonferroni bar) still clears gate 1 under DSR too, still dies on gate 2 (Calmar/
   diversification) exactly as before — no regression in either direction.
 
-- **v1.5 (PRE-REGISTERED 2026-07-28, #112 — no verdict has been computed under it yet).**
+- **v1.5 — CURRENT, IN FORCE since 2026-07-29 (#112, implemented in #120).** Pre-registered
+  2026-07-28, one day before the implementation landed and *after* the last verdict scored
+  under v1.4 (family M, #111) was recorded — deliberately, so v1.5 could not be the thing
+  that decided a verdict. Family M's segregated `n_tested` would have been **23** against the
+  v1.4 union of **139**; it would not have changed any of its three verdicts (gate 2 fails on
+  all three and has no `n_tested` term), but that was established after the fact, not relied
+  on beforehand.
   Two changes to gate 1's calibration, shipped **together** because they move the bar in
   opposite directions and settling only one leaves it knowingly mis-calibrated.
 
-  **(a) The multiple-testing family is SEGREGATED by origin.** `family_n_tested()` currently
-  returns `len(graveyard_names ∪ candidates)` — the all-time union, measured at **139**
-  today, of which **121 are factory-origin**. Every automated draw therefore raises the bar
+  **(a) The multiple-testing family is SEGREGATED by origin.** `family_n_tested()` previously
+  returned `len(graveyard_names ∪ candidates)` — the all-time union, measured at **139** at
+  pre-registration, of which **121 were factory-origin**. Every automated draw therefore raises the bar
   for every future hand-picked candidate, permanently. The #98 council resolved this and the
   resolution was never implemented:
 
@@ -162,7 +168,7 @@ the null bar, and the verdict. The graveyard *is* the multiple-testing record.
   **before** any verdict, so origin can never be assigned to flatter a result. Measured
   split: 121 factory-origin, 15 hand-picked, 5 promoted-generated joining the main family.
 
-  **(b) The duty-cycle-matched null becomes the DEFAULT, not opt-in.** v1.0.1 matched the
+  **(b) The duty-cycle-matched null is the DEFAULT, not opt-in.** v1.0.1 matched the
   null's *clock*; #101 showed matching the clock is not enough. Re-drawing a random signal
   every bar makes the null trade 3.7× more than a real monthly signal and 19.9× more daily,
   so it pays a turnover cost the candidate never does and gate 1 is systematically
