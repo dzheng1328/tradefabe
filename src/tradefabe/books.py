@@ -123,6 +123,57 @@ def log_trades(book: dict, new_pos: dict, px: pd.Series, when: str) -> list[dict
     return trades
 
 
+# ---------------------------------------------------------------- retirement (#113)
+# Retirement is MANUAL-ONLY, by Dave's explicit call. There is deliberately no performance
+# trigger, no drawdown threshold, and no code path anywhere in the engine that sets this
+# key on its own -- only retire() does, and only the CLI reaches it.
+#
+# The reason is in DOCTRINE.md's v1.2 retirement clause: a monitor-only book exists to
+# accumulate forward evidence, and auto-retiring the losers would filter that record on
+# results. That is survivorship bias in the ONE dataset in this lab that doesn't have any,
+# and it would quietly turn the honest forward record into a curated one.
+#
+# Guard: tests/test_retirement.py asserts a full run_daily()/run_mark() cycle never writes
+# this key on any book, so the property survives future engine changes.
+RETIRE_REASON_MAX = 300
+
+
+def is_retired(book: dict) -> bool:
+    return bool(book.get("retired"))
+
+
+def retire(name: str, reason: str, when: str | None = None) -> dict:
+    """Freeze a book: no further rebalances, no further marks, history preserved exactly.
+
+    Refuses a book with no ledger on disk. load() synthesizes a fresh $100k book for any
+    unknown name, so without this check a typo would CREATE a retired phantom book that
+    then shows up in the dashboard forever."""
+    if not _path(name).exists():
+        raise KeyError(f"no ledger at {_path(name)} -- nothing to retire")
+    book = load(name)
+    if is_retired(book):
+        return book
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("a retirement needs a reason -- it is a human decision on the "
+                         "record, not a status flag")
+    book["retired"] = {"at": when or utc_stamp(), "reason": reason[:RETIRE_REASON_MAX]}
+    save(book)
+    return book
+
+
+def unretire(name: str) -> dict:
+    """Reverse a retirement. The book resumes on the next cycle; its history was never
+    touched, so the gap between the retire and un-retire stamps is visible on the chart
+    rather than papered over."""
+    if not _path(name).exists():
+        raise KeyError(f"no ledger at {_path(name)} -- nothing to un-retire")
+    book = load(name)
+    book.pop("retired", None)
+    save(book)
+    return book
+
+
 def utc_stamp(when=None) -> str:
     """The ONE clock every history key uses: naive UTC, minute resolution.
 

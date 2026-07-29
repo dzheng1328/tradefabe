@@ -194,7 +194,42 @@ the null bar, and the verdict. The graveyard *is* the multiple-testing record.
   comparable to earlier rows' `n_tested` column.** That discontinuity is the cost of the fix
   and is stated here rather than left for a reader to discover.
 
-## Paper-testing verdicts (v1.2)
+- **v1.6 (2026-07-29, #113). Retirement is manual-only. The kill criteria are ADVISORY.**
+  Resolves the tension #113 raised and refused to paper over: v1.2 defines four kill
+  criteria for a paper book, but a monitor-only book exists to accumulate forward evidence,
+  so acting on them automatically would destroy exactly what the book was opened to collect.
+
+  Dave's call, and now the rule: **a paper book is retired only by explicit human
+  instruction (`tradefabe retire <book> --reason "..."`), for every book, at any age, no
+  exceptions.** No performance trigger, no drawdown threshold, no age rule, and no code path
+  in the engine that sets the flag on its own.
+
+  The v1.2 kill criteria are **unchanged in content and demoted in force**: they fire as
+  *findings* — reported, discussed, recorded — never as actions. That keeps their real value,
+  which was mostly diagnostic anyway. Criterion 1 (divergence) detects an implementation bug
+  and is worth acting on the *code*; criteria 2 and 3 say "this book is losing", which for a
+  monitor-only book is the observation, not a fault.
+
+  **Why automatic retirement would have been a doctrine violation, not merely a bad
+  default.** Auto-retiring the losers filters the forward record on results. The paper
+  ledgers are the one dataset in this lab with no survivorship bias in them — no backfill, no
+  selection, every book that was ever opened still reporting. Killing the bad ones would
+  manufacture the bias this entire file exists to prevent, in the only place currently free
+  of it, and would do it invisibly: the surviving books would look better as a group with no
+  record of what was removed. A backtest curated that way would be rejected instantly here.
+
+  **Retired means frozen, not deleted.** No further rebalances, no further marks; the history
+  is preserved exactly, the book still appears in `summary.csv`, in `status`, and on the
+  dashboard flagged `retired` with its reason and timestamp. `tradefabe unretire` reverses it
+  and the gap stays visible on the equity chart rather than being filled in.
+
+  **The accepted cost:** book count grows monotonically until Dave prunes it, and cycle time
+  and ledger size grow with it (#113 measured 16 → ~46/month → ~381/year before the factory
+  pause). That is a real operational cost, accepted deliberately in exchange for an unfiltered
+  forward record. If it becomes binding the answer is to slow *promotion*, not to start
+  culling — the factory pause (#98) is already that lever.
+
+## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 
 Pre-registered the day after the paper engine launched (oldest book: 2026-07-22), before
 any book had accumulated enough history to tempt reading a verdict into it. This is gate
@@ -260,7 +295,15 @@ where it was actually checked against a Monte Carlo simulation (empirical SE wit
 | 24 months - T_required | **Kill-eligible; provisional-confirm only** (only reachable by books whose formula `T_required` exceeds the 2-year floor, i.e. `SR_bt` < 1.0). "Behaving as expected, nothing's wrong" is a valid status (`provisional`) but is explicitly not `paper-confirmed` — a good 18 months doesn't get read as proof. |
 | ≥ T_required (book-specific, see formula) | **Statistical window.** The earliest point a genuine `paper-confirmed` verdict is legitimate. |
 
-### Kill criteria (can fire any time after month 3)
+### Kill criteria (can fire any time after month 3) — ADVISORY ONLY since v1.6
+**These are findings, not actions.** A book that meets a criterion below is flagged,
+reported, and discussed; it is **not** retired, and nothing in the engine retires it. Only
+`tradefabe retire <book> --reason "..."`, run by Dave, stops a book. See v1.6 above for why:
+auto-killing the losers would filter the forward record on results, which is the one place in
+this lab currently free of survivorship bias.
+
+Criterion 1 is the one that should usually provoke *action*, and the action is on the code —
+a divergence means a live bug, and fixing the bug is not the same as retiring the book.
 1. **Divergence kill** — cumulative live-paper return minus backtest-implied return
    (the backtest strategy re-run on the *same realized market dates*, exactly what the
    dashboard's splice chart already plots) over the trailing 2 months exceeds

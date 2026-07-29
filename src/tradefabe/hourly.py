@@ -103,6 +103,10 @@ def run_funding_timing(name: str = "funding_timing_1h", verbose: bool = True) ->
     from .carry_live import _funding_since, FEE_DRAG_YR
 
     book = books.load(name)
+    if books.is_retired(book):           # #113 -- frozen; no gate decision, no accrual
+        if verbose:
+            print(f"  {name:<22} (retired — ledger frozen)")
+        return None
     now_ms = int(dt.datetime.now(dt.UTC).timestamp() * 1000)
     start = book.get("last_ts") or (now_ms - 24 * 3600 * 1000)
 
@@ -155,6 +159,10 @@ def run_price_books(verbose: bool = True, prefetched: dict | None = None) -> lis
     done = []
     stamp = books.utc_stamp()
     for name, spec in BOOKS.items():
+        if books.is_retired(books.load(name)):    # #113 -- checked before any fetch
+            if verbose:
+                print(f"  {name:<22} (retired — ledger frozen)")
+            continue
         try:
             px = (prefetched or {}).get(pricing.source_for(name))
             if px is None:

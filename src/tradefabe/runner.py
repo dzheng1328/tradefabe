@@ -70,6 +70,10 @@ def _run_book(name, freq, get_weights, px, today, last, verbose, stamp=None):
     The result was a one-minute-wide V-notch at every daily boundary on every chart."""
     stamp = stamp or books.utc_stamp()
     book = books.load(name)
+    if books.is_retired(book):
+        if verbose:
+            print(f"  {name:<18} {'':>19}  (retired — ledger frozen)")
+        return
     fresh = not book["positions"] and book["last_rebalance"] is None
     due = fresh or freq == "D" or signals.is_month_first_trading_day(px.index)
     if due:
@@ -117,6 +121,10 @@ def run_mark(verbose: bool = True) -> pd.DataFrame:
     hourly_px = pricing.fetch_for_books(ALL_BOOKS + hourly.PRICE_BOOK_NAMES)
     for name in ALL_BOOKS:
         book = books.load(name)
+        if books.is_retired(book):       # #113 -- frozen, not marked, history preserved
+            if verbose:
+                print(f"  {name:<18} {'':>19}  (retired — ledger frozen)")
+            continue
         filled = books.backfill_marks(book, hourly_px.get(pricing.source_for(name)))
         # The daily-frame mark is now only a FALLBACK, for when the hourly source was
         # unavailable. When backfill ran it has already marked through the latest complete
@@ -132,7 +140,10 @@ def run_mark(verbose: bool = True) -> pd.DataFrame:
                 print(f"  {name:<18} {'':>19}  (SKIPPED — unpriceable, ledger untouched)")
     carry = run_carry()
     if verbose:
-        print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
+        if books.is_retired(carry):
+            print(f"  {'carry_btc_eth':<18} {'':>19}  (retired — ledger frozen)")
+        else:
+            print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
     run_hourly(verbose, hourly_px)
     return write_summary(last)
 
@@ -162,7 +173,10 @@ def run_daily(verbose: bool = True) -> pd.DataFrame:
         _run_book(c["name"], c["freq"], _make_combo_get_weights(c), px, today, last, verbose, stamp)
     carry = run_carry()
     if verbose:
-        print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
+        if books.is_retired(carry):
+            print(f"  {'carry_btc_eth':<18} {'':>19}  (retired — ledger frozen)")
+        else:
+            print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
     check_carry_risk()   # writes state/paper/carry_risk.json; never raises, dashboard-only surface
     run_hourly(verbose)
     return write_summary(last)
@@ -177,9 +191,13 @@ def write_summary(last_px: pd.Series) -> pd.DataFrame:
     for name in ALL_BOOKS + ["carry_btc_eth"] + hourly_live:
         b = books.load(name)
         eq = b.get("equity") or books.equity(b, last_px)
+        # A retired book is STILL reported (#113). It stopped trading, it did not stop
+        # existing -- its forward record is the evidence it was opened to collect, and
+        # dropping it from the summary would delete that from every downstream view.
         rows.append({"book": name, "equity": round(eq, 2),
                      "return": round(eq / books.START_CASH - 1, 4),
-                     "last_run": b.get("last_run")})
+                     "last_run": b.get("last_run"),
+                     "retired_at": (b.get("retired") or {}).get("at")})
         for d, e in b["history"]:
             hist.append({"date": d, "book": name, "equity": e})
     STATE_DIR.mkdir(parents=True, exist_ok=True)

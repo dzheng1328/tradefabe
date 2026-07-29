@@ -81,6 +81,8 @@ ops/setup_venv.sh                   # rebuild the venv (refuses to build inside 
 .venv/bin/tradefabe mark            # mark to current price, no rebalance
 .venv/bin/tradefabe status          # current book equities
 .venv/bin/tradefabe reset           # wipe paper state, restart at $100k/book
+.venv/bin/tradefabe retire <book> --reason "..."   # freeze one book; DAVE ONLY, see Doctrine
+.venv/bin/tradefabe unretire <book> # resume a retired book on the next cycle
 .venv/bin/streamlit run app.py      # dashboard at localhost:8501
 .venv/bin/python harness.py         # re-run doctrine evaluation, appends graveyard.csv
 .venv/bin/pytest tests/             # test suite, parallel by default (~13s); also runs in CI
@@ -153,6 +155,15 @@ origin (factory draws no longer inflate the bar for hand-picked candidates — 2
 family M) and the duty-cycle-matched null is the default. It is **forward-only**: no
 historical verdict is ever re-scored under it, so **the `n_tested` column is discontinuous
 at 2026-07-29** and pre-v1.5 rows are not comparable to later ones on that field.
+
+**v1.6 (#113): retiring a paper book is Dave's decision alone.** No performance trigger, no
+drawdown threshold, no age rule — v1.2's four kill criteria are **advisory findings, never
+actions**. Auto-killing losers would filter the forward record on results, i.e. manufacture
+survivorship bias in the one dataset here that has none. Retired = frozen (no rebalance, no
+mark; history, `summary.csv` row and dashboard card all preserved), set only by
+`tradefabe retire`. **Never add an automatic path** — `tests/test_retirement.py` fails if you
+do, from two directions: a 40-cycle crashing book must come out un-retired, and exactly one
+line in the package may assign `book["retired"]`.
 
 Roster, evidence, and family taxonomy: `STRATEGIES.md`. Add new candidates there *before*
 running them — including the factory's `GENERATION_RANGES` (the range is the

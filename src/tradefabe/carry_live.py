@@ -41,6 +41,8 @@ def _funding_since(coin: str, start_ms: int) -> list[tuple[int, float]]:
 
 def run_carry(name: str = "carry_btc_eth") -> dict:
     book = books.load(name)
+    if books.is_retired(book):           # #113 -- frozen; accrue nothing, stamp nothing
+        return book
     now_ms = int(dt.datetime.now(dt.UTC).timestamp() * 1000)
     start = book.get("last_ts") or (now_ms - 24 * 3600 * 1000)
     # Hyperliquid pays funding EVERY HOUR, so accrue and stamp per hourly point rather
