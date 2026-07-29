@@ -54,6 +54,23 @@ The body should carry the reasoning: what broke, why, what proves it fixed. Note
 only fires for PRs targeting `main` — a PR onto another branch reports "no checks reported",
 which reads like failure but means the workflow never ran.
 
+**Pass every multi-line body through a quoted heredoc, never `--body "$(cat <<'EOF' ...)"`
+and never an inline double-quoted string.** Bodies here are full of backticks, and the shell
+executes them: a commit message once had `` `date` `` expand to a timestamp, and an issue
+comment lost two lines to `command not found: UNINFORMATIVE` / `no matches found: SR*`. Both
+needed an amend-and-force or an `--edit-last` to repair. The forms that are safe:
+
+```sh
+gh pr create --base main --title "..." --body-file - <<'EOF'
+body with `backticks` and SR* and $vars, all literal
+EOF
+git commit -F - <<'EOF'
+same
+EOF
+```
+
+`<<'EOF'` (quoted delimiter) is what disables expansion — `<<EOF` does not.
+
 ## 5. Merge, then VERIFY, then clean up — three separate commands
 
 ```sh
