@@ -501,9 +501,9 @@ specs are UNCHANGED.** This amendment moves exactly one number.
 
 | strategy | spec | freq | status |
 |---|---|---|---|
-| `kronos_dir_daily` | the vanilla use of the model. Sign of the Kronos-forecast 5-day return over the standard 15-ETF `UNIVERSE`, long/short, vol-targeted and capped through `engine.sized_weights` exactly like every other daily book | D | **QUEUED** |
-| `kronos_wick_agg` | **predicted hammer** — the OHLC-only signal. On the 14-name universe of `research/daytrade_tests.py`, long a name when its forecast bars satisfy the *same* hammer test that study applied to realized bars (`lower_wick > 2 × body` and `(close − low)/range > 0.66`, after a 5-bar pullback), held 5 bars. **Aggressive by pre-registered construction:** long-only, equal-weight across triggering names, gross 1.0 whenever ≥1 name fires and flat otherwise — *no* vol targeting, *no* `MAX_LEG` cap, unlike every other daily book here | D | **QUEUED** |
-| `carry_kronos_vol` | delta-neutral BTC+ETH funding carry with notional scaled by Kronos's forecast vol: `notional = min(1, TARGET_VOL / forecast_vol)`, where `forecast_vol` is the cross-path SD of the 5-bar cumulative return over the 30 sampled paths. **Capped at 1.0 — it may de-risk but never lever past always-on carry**, or it could beat the benchmark on leverage rather than timing | D | **QUEUED** |
+| `kronos_dir_daily` | the vanilla use of the model. Sign of the Kronos-forecast 5-day return over the standard 15-ETF `UNIVERSE`, long/short, vol-targeted and capped through `engine.sized_weights` exactly like every other daily book | D | **DEAD** |
+| `kronos_wick_agg` | **predicted hammer** — the OHLC-only signal. On the 14-name universe of `research/daytrade_tests.py`, long a name when its forecast bars satisfy the *same* hammer test that study applied to realized bars (`lower_wick > 2 × body` and `(close − low)/range > 0.66`, after a 5-bar pullback), held 5 bars. **Aggressive by pre-registered construction:** long-only, equal-weight across triggering names, gross 1.0 whenever ≥1 name fires and flat otherwise — *no* vol targeting, *no* `MAX_LEG` cap, unlike every other daily book here | D | **DEAD** |
+| `carry_kronos_vol` | delta-neutral BTC+ETH funding carry with notional scaled by Kronos's forecast vol: `notional = min(1, TARGET_VOL / forecast_vol)`, where `forecast_vol` is the cross-path SD of the 5-bar cumulative return over the 30 sampled paths. **Capped at 1.0 — it may de-risk but never lever past always-on carry**, or it could beat the benchmark on leverage rather than timing | D | **DEAD** |
 
 **`carry_kronos_vol`'s benchmark is always-on carry, pre-registered here rather than
 declared afterwards.** Family L already established that cash is unusable as a benchmark
@@ -543,6 +543,64 @@ download, so every forecast used by a verdict is **snapshotted to `artifacts/kro
 signal functions and frozen params live in `src/tradefabe/kronos.py` and the study imports
 them from there, so the code that produces the verdict and the code running any live book
 are the same function.
+
+#### RESULTS (2026-07-29): all three DEAD. The forecast has no directional skill.
+
+Judged under **DOCTRINE v1.4** on the clean window **2025-06-05 → 2026-07-29 (288 bars)**,
+from a snapshot of **9,185 forecasts** (449 dates × 29 tickers, `artifacts/kronos_forecasts.csv`,
+~2.4h of `Kronos-base` inference at ~1.05 forecasts/s on Apple silicon MPS). `n_tested = 139`.
+
+| candidate | Sharpe | Calmar | MaxDD | corr→bench | DSR (gate 1) | gate 2 | gate 3 | verdict |
+|---|---|---|---|---|---|---|---|---|
+| `kronos_dir_daily` | −1.17 | −0.86 | −5.0% | −0.19 | 0.000 vs SR\* 4.28 | ✗ (−0.86 vs 2.21) | ✓ | **DEAD** |
+| `kronos_wick_agg` | +0.69 | 1.32 | −6.5% | +0.34 | 0.008 vs SR\* 2.82 | ✗ (1.32 vs 2.34) | ✓ | **DEAD** |
+| `carry_kronos_vol` | +3.10 | 1.01 | −0.7% | +0.81 | 1.000 vs SR\* **−11.42** | ✗ (1.01 vs 32.71) | ✗ | **DEAD** |
+
+**The single most useful number in this family is not in the table.** Over the 4,245 clean
+(ticker, date) pairs where a forecast and a realized 5-day return both exist:
+
+- **5-day sign agreement: 47.6%** — below a coin flip.
+- **corr(forecast, realized) = −0.031.**
+- mean |forecast| 1.76% vs mean |realized| 1.95%.
+
+So after deviation 3 the forecasts are *well calibrated in magnitude* — the 90-bar fix did
+remove the normalization artifact, which is exactly what it was for — and carry **no
+directional information whatever** on daily US ETF bars past the pretraining cutoff. That is
+a statement about the model on this data at this horizon, not about the gates: `kronos_dir_daily`'s
+−1.17 Sharpe is what a zero-skill signal plus turnover cost looks like, and no gate
+configuration would or should rescue it.
+
+`kronos_wick_agg` was in-market on 21.2% of bars, averaging 1.26 names when it fired, and
+returned a positive but sub-benchmark 0.69 Sharpe in a window where SPY did 1.73. Long-only
+and long-biased in a rising market is precisely the "profitable is close to free" case
+deviation 2 pre-committed to discounting; it cleared zero and nothing else.
+
+`carry_kronos_vol` answers its pre-registered question cleanly and negatively: scaling notional
+by Kronos's forecast vol made the carry book **strictly worse than holding it** — lower Calmar
+(1.01 vs 32.71) and a *deeper* drawdown (−0.7% vs −0.2%) than always-on carry, because the
+scale moves and each move pays cost on both legs. The vol forecast is not timing anything.
+
+**Gate 1 was vacuous on `carry_kronos_vol` and its "True" must not be read as a pass** (#114).
+`SR* = −11.42` annualized: the CPCV path Sharpes (mean 2.54, SD 4.45) put the deflated
+threshold below zero, so *any* positive Sharpe clears it. The verdict rests entirely on gates
+2 and 3. This is the first non-synthetic instance of the #114 pathology and is logged as such.
+Two reporting defects surfaced alongside it, both cosmetic and both filed: `harness.evaluate()`
+hardcodes the string `(60/40)` on its benchmark line even when the study passes a different
+benchmark (here always-on carry), and the Bonferroni bar prints as `−10.81` for the same
+reason it prints at all — continuity only, it decides nothing under v1.4.
+
+**Not re-scored under v1.5.** v1.5 (#112) was pre-registered before this run and is
+forward-only; family M is judged under v1.4 and stays there. Segregated `n_tested` would have
+been **23** rather than 139 for these rows (measured with #120's `family_n_tested` against
+this same ledger), which raises `DSR` but cannot change any of the three verdicts: **gate 2
+fails on all three and has no `n_tested` term at all.** Recorded as a diagnostic, never as a
+verdict.
+
+**What this does and does not close.** It closes the *backtest* question for these three specs
+under DOCTRINE rule 2 — any tweak is a new row. It does not close the family: per "Why the
+live books, not the backtest, are the real test here" above, forward paper data is the
+uncontaminated, unselected evidence, and DOCTRINE v1.2 permits these as **monitor-only books
+forever, never `paper-confirmed`.**
 
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.

@@ -78,3 +78,27 @@ next cycle.
 git log --oneline -1
 gh pr list --state open --json number -q '.[].number' | wc -l
 ```
+
+## 7. Put the issue on the board
+
+The board is a VIEW, not the record — `gh issue list` is authoritative — but a view that
+lags is worse than no view. It drifted 13 issues behind before #117 backfilled it, and an
+agent reading it concluded the lab had been idle for a week.
+
+```sh
+gh project item-add 1 --owner dzheng1328 --url https://github.com/dzheng1328/tradefabe/issues/<N>
+```
+
+Then set Status (`Todo` / `In Progress` / `Done`):
+
+```sh
+gh project item-list 1 --owner dzheng1328 --limit 200 --format json   # find the item id
+gh project item-edit --id <ITEM_ID> --project-id PVT_kwHOBJZqms4BeMQn \
+  --field-id PVTSSF_lAHOBJZqms4BeMQnzhYoUes \
+  --single-select-option-id <98236657=Done | f75ad846=Todo | 47fc9ee4=In Progress>
+```
+
+Needs `project` scope (`gh auth refresh -s project`). **Skipping this costs accuracy in a
+view, never in the record** — so don't block a merge on it, and don't add a workflow that
+does it automatically: that would need a PAT with `project` scope as a repo secret, and
+this repo deliberately holds no secrets (paper only, public APIs).

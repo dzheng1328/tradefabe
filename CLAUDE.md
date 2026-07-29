@@ -214,14 +214,23 @@ instead of one hand-picked strategy, through the same DSR/CPCV gate.
   `~/Documents`.
 
 ## Roadmap
-**The Projects board is the source of truth** —
-https://github.com/users/dzheng1328/projects/1. Reading it needs a token with the
-`project` scope (`gh auth refresh -s project`; plain `repo` is not enough, and the error
-message's suggested `read:project` can't write). Don't hand-maintain issue numbers here —
-they go stale within a day.
+**`gh issue list` is authoritative. The board is the planning VIEW** —
+https://github.com/users/dzheng1328/projects/1. When they disagree, the issues win.
 
-**Currently open: #5 (Alpaca paper integration)** — blocked on Dave's API keys, which an
-agent must not handle. Everything else is closed.
+This used to say the board was the source of truth, and by 2026-07-28 it had drifted 13
+issues behind — every one since #64, including #98, whose council verdict paused the
+factory. An agent following the old wording saw nothing newer than #64 and concluded the
+lab had been idle for a week. Backfilled and re-statused in #117; it will drift again,
+because keeping it current is a manual step. Hence the ordering above. Adding a new issue
+to the board is step 7 of the `ship` skill — cheap, and skipping it costs only accuracy in
+a view, not in the record.
+
+Reading the board needs a token with the `project` scope (`gh auth refresh -s project`;
+plain `repo` is not enough, and the error message's suggested `read:project` can't write).
+
+**Don't hand-maintain issue numbers in this file — they go stale within a day.** This
+section previously listed "currently open: #5, everything else is closed" and was wrong
+within days, which is the same trap one paragraph up. Run `gh issue list`.
 
 **Backfill note:** issues **#41–58** were created 2026-07-25 to record work done before
 the tracker existed. They were opened and closed in the same breath. They are history, not
