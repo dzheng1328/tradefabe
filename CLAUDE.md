@@ -38,8 +38,9 @@ symlink remains at the old path. Never point new config at it; use the real path
 
 ## The one-line finding
 49+ strategies tested (trend, congress-copy, insider-copy, thematic, day-trading wicks,
-plus a growing automated factory of parametrized variants) — all DEAD against
-pre-registered kill rules. Two things survived: diversified buy-and-hold, and
+a pretrained OHLCV foundation model, plus a growing automated factory of parametrized
+variants) — all DEAD against pre-registered kill rules. Two things survived:
+diversified buy-and-hold, and
 delta-neutral **crypto funding carry** (~12%/yr net 2023–26, paid for bearing real
 crypto-infra tail risk). Don't relitigate this; extend it. New candidates go through the
 same doctrine — no lower bar because "this one feels different" or "a machine found it".
@@ -139,18 +140,19 @@ with **`ops/build_app.sh`** — the bundle isn't in git but its build script is.
 ## Doctrine — read DOCTRINE.md before adding or judging any strategy
 Pre-registered, OOS-only (2018+), data-derived noise floor (500 random strategies per
 freq), fair 60/40 benchmark, three kill gates (beat luck / earn your place / not more
-painful). **v1.4 is current**: gate 1 decides on Deflated Sharpe Ratio + Combinatorial
-Purged CV (`harness.deflated_sharpe_ratio()`), motivated by exactly the high-volume
-automated search the factory does. Bonferroni (`harness.bonferroni_bar()`) is still
-computed and logged for continuity but no longer decides ALIVE/DEAD. v1.2 defines paper
-promote/kill criteria: **a backtest-DEAD book stays monitor-only forever, never
-`paper-confirmed`, no matter how good its paper data looks.** A v1.1 touching gate 2
-(diversifier clause) was discussed and is **not approved** — don't apply it.
+painful). Gate 1 decides on Deflated Sharpe Ratio + Combinatorial Purged CV
+(`harness.deflated_sharpe_ratio()`, v1.4), motivated by exactly the high-volume automated
+search the factory does. Bonferroni (`harness.bonferroni_bar()`) is still computed and
+logged for continuity but no longer decides ALIVE/DEAD. v1.2 defines paper promote/kill
+criteria: **a backtest-DEAD book stays monitor-only forever, never `paper-confirmed`, no
+matter how good its paper data looks.** A v1.1 touching gate 2 (diversifier clause) was
+discussed and is **not approved** — don't apply it.
 
-**v1.5 is PRE-REGISTERED but NOT YET IN FORCE (#112).** It segregates `n_tested` by origin
-(factory draws stop inflating the bar for hand-picked candidates) and makes the
-duty-cycle-matched null the default. Judge under v1.4 until the implementation lands. It is
-**forward-only**: no historical verdict is ever re-scored under it.
+**v1.5 is CURRENT, in force since 2026-07-29 (#112/#120).** `n_tested` is segregated by
+origin (factory draws no longer inflate the bar for hand-picked candidates — 23 vs 139 on
+family M) and the duty-cycle-matched null is the default. It is **forward-only**: no
+historical verdict is ever re-scored under it, so **the `n_tested` column is discontinuous
+at 2026-07-29** and pre-v1.5 rows are not comparable to later ones on that field.
 
 Roster, evidence, and family taxonomy: `STRATEGIES.md`. Add new candidates there *before*
 running them — including the factory's `GENERATION_RANGES` (the range is the
