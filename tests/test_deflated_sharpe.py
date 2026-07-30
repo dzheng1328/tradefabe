@@ -168,6 +168,26 @@ def test_evaluate_kills_pure_noise_against_a_wide_null(monkeypatch, tmp_path):
     assert row["verdict"] == "DEAD"
 
 
+def test_evaluate_prints_the_caller_supplied_bench_label(monkeypatch, tmp_path, capsys):
+    """#122: the benchmark print used to say "(60/40)" unconditionally, even for callers
+    passing a non-60/40 series (e.g. always-on carry). bench_label lets each caller say
+    what it actually passed instead of a misleading constant."""
+    gy = tmp_path / "graveyard.csv"
+    monkeypatch.setattr(harness, "GRAVEYARD", str(gy))
+    rng = np.random.default_rng(0)
+    null = rng.normal(0.0, 0.06, 500)
+    strat, bench = _synthetic_strategy_and_bench(seed=3, drift=0.0)
+
+    harness.evaluate("test_default_label", strat, bench, null, "D", n_tested=1)
+    assert "(60/40)" in capsys.readouterr().out
+
+    harness.evaluate("test_custom_label", strat, bench, null, "D", n_tested=1,
+                      bench_label="always-on carry")
+    out = capsys.readouterr().out
+    assert "(always-on carry)" in out
+    assert "(60/40)" not in out
+
+
 # ---------------------------------------------------------------- last_verdict (#29)
 def test_last_verdict_none_when_never_evaluated(monkeypatch, tmp_path):
     monkeypatch.setattr(harness, "GRAVEYARD", str(tmp_path / "does_not_exist.csv"))

@@ -241,7 +241,7 @@ def main():
     null_ft = funding_null(funding, args.trials, rng, OOS_START)
     print(f"  null Sharpe: mean {null_ft.mean():.2f}, p95 {np.percentile(null_ft, 95):.2f}")
     evaluate("funding_timing_1h", r_ft, hold, null_ft, "H",
-             n_tested=family_n_tested(["funding_timing_1h"]))
+             n_tested=family_n_tested(["funding_timing_1h"]), bench_label="always-on carry")
     rows.append(("funding_timing_1h", r_ft))
 
     # ---------------- 2. crypto_reversal_1h ----------------
