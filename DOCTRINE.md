@@ -257,6 +257,28 @@ the null bar, and the verdict. The graveyard *is* the multiple-testing record.
   limit) inputs, never gate 1 (DSR, which only ever depended on the candidate's own
   `r_oos` — unaffected, see above) — so only future gate-2/3 comparisons are affected.
 
+- **v1.8 (2026-07-29, #114). Gate 1 requires the candidate's own Sharpe be positive, not
+  just that it beats the null.** DSR compares the candidate's Sharpe to the expected best of
+  `n_tested` draws from the noise floor; it has no floor requiring the candidate itself be
+  profitable. When both the candidate and the null are negative and the null is the *more*
+  negative of the two, DSR saturates at 1.0 — "beats luck" reads as a pass beside a strategy
+  that is losing money. `.claude/agents/doctrine-auditor.md` already named this pathology;
+  reproduced 2026-07-29: `carry_kronos_vol` scored Sharpe **−3.41** against a null with
+  SR\* **−11.09** — DSR 1.000, `beats_luck` True. Gates 2 and 3 killed it correctly (no wrong
+  verdict was ever issued), but gate 1 carried zero information on that row while reading as
+  a pass. `graveyard.csv` has 75 rows with negative `oos_sharpe`; several already show
+  `dsr=1.000` under the same pathology (the `donchian_gen_*` factory draws,
+  `crypto_reversal_1h`, `equity_tsmom_1h`) — all correctly DEAD via gates 2/3.
+
+  **Fix:** `dsr_gate1()`'s `beats_luck` is now `dsr > 0.95 AND oos_sharpe > 0`.
+
+  **Direction: strictly tightens gate 1** — can only turn a previous True into False, never
+  the reverse (`dsr > 0.95` is still required either way). **Checked against the full
+  ledger: 0 of 75 negative-`oos_sharpe` rows are ALIVE**, so this closes an informational gap
+  (a misleading "pass" on an already-DEAD row), not a decision gap — no historical verdict
+  would flip under it. Forward-only, per every prior amendment: no `graveyard.csv` row is
+  re-scored.
+
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 
 Pre-registered the day after the paper engine launched (oldest book: 2026-07-22), before

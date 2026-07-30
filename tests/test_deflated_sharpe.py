@@ -125,6 +125,31 @@ def test_cpcv_oos_sharpes_empty_for_too_short_a_series():
     assert len(harness.cpcv_oos_sharpes(r, n_groups=6)) == 0
 
 
+# ---------------------------------------------------------------- dsr_gate1 (#114)
+def test_dsr_gate1_does_not_pass_a_losing_candidate_beside_a_worse_null():
+    """#114: DSR alone has no floor requiring the candidate's own Sharpe be positive --
+    reproduces the vacuous-gate-1 pathology (carry_kronos_vol: Sharpe -3.41, DSR 1.000).
+    A losing candidate must not clear gate 1 merely by losing less than the null did."""
+    rng = np.random.default_rng(0)
+    # native-frequency daily return series, annualized Sharpe ~ -3 (clearly a loser)
+    r_oos = pd.Series(rng.normal(-0.003, 0.0158, 800))
+    # null (annualized Sharpe sample) centered far more negative -- the null "loses worse"
+    null = rng.normal(-20.0, 2.0, 500)
+
+    result = harness.dsr_gate1(r_oos, null, n_tested=1)
+    assert result["dsr"] > 0.95           # the pathology: DSR alone would say "beats luck"
+    assert result["beats_luck"] is False  # the positive-Sharpe precondition blocks it
+
+
+def test_dsr_gate1_still_passes_a_genuine_positive_edge():
+    rng = np.random.default_rng(1)
+    r_oos = pd.Series(rng.normal(0.0015, 0.01, 1200))   # strong, real positive drift
+    null = rng.normal(0.0, 3.0, 500)
+    result = harness.dsr_gate1(r_oos, null, n_tested=1)
+    assert result["dsr"] > 0.95
+    assert result["beats_luck"] is True
+
+
 # ---------------------------------------------------------------- evaluate() end-to-end
 def _synthetic_strategy_and_bench(seed, drift, n=1200):
     """Independent (uncorrelated) strategy/benchmark return series with OOS_START in the
