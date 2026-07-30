@@ -229,6 +229,34 @@ the null bar, and the verdict. The graveyard *is* the multiple-testing record.
   forward record. If it becomes binding the answer is to slow *promotion*, not to start
   culling — the factory pause (#98) is already that lever.
 
+- **v1.7 (2026-07-29, #115). The benchmark window is aligned to the candidate's own OOS
+  start, not just the flat `OOS_START`.** `evaluate()` sliced both series at the doctrine-wide
+  `OOS_START` (2018-01-01) — which bounds how early either series' window may *start*, but
+  does nothing for a candidate whose own data already starts later. That candidate's slice is
+  a no-op (there's nothing earlier to exclude), while the benchmark still runs from whatever
+  its own history allows, so the two end up scored over windows of different length covering
+  different market regimes. Measured: `crypto_reversal_1h` (real data 2024-07+) was scored
+  against a 60/40 measured from 2023-08 (Sharpe 1.189 vs 0.959 over its actual window) —
+  immaterial to that DEAD verdict, but exactly the kind of gap that would decide a marginal
+  one (RUNDOWN.md).
+
+  **Fix:** both `r_oos` and `b_oos` are now sliced at `max(OOS_START, candidate's own first
+  non-null observation)`, so the benchmark can never cover more calendar time than the
+  candidate it's being compared to. This only ever narrows the benchmark window — a
+  candidate's own OOS slice is unchanged, since `r_full[r_full.index >= OOS_START]` was
+  already a no-op whenever the candidate's true start is later than `OOS_START`.
+
+  **Orthogonal to family M's `OOS_START` override** (`kronos_backtest.py`'s
+  `_use_kronos_window()`), which exists to keep the candidate, benchmark, AND the *null*
+  (`noise_floor()`, computed separately from `evaluate()`) on Kronos's pretraining-cutoff
+  window. This amendment only touches what `evaluate()` itself does with the benchmark;
+  the override is still required and unchanged.
+
+  **Forward-only, same as every prior amendment: no historical `graveyard.csv` row is
+  re-scored.** The realignment changes gate 2 (Calmar/correlation) and gate 3 (drawdown
+  limit) inputs, never gate 1 (DSR, which only ever depended on the candidate's own
+  `r_oos` — unaffected, see above) — so only future gate-2/3 comparisons are affected.
+
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 
 Pre-registered the day after the paper engine launched (oldest book: 2026-07-22), before

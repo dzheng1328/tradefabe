@@ -478,11 +478,20 @@ def evaluate(name, r_full, bench_full, null, freq, n_tested=None, bench_label="6
     Gate 1 ("beats luck") is decided by the Deflated Sharpe Ratio (DOCTRINE v1.4,
     `dsr_gate1()`), not the Bonferroni bar -- `bonferroni_bar()` is still computed and
     logged to graveyard.csv for continuity/comparison, same as v1.0's flat p95 stayed
-    visible after v1.3 stopped deciding with it."""
+    visible after v1.3 stopped deciding with it.
+
+    DOCTRINE v1.7 (#115): both series are sliced at max(OOS_START, the candidate's own
+    first non-null observation), not just OOS_START. A candidate whose own data starts
+    later than OOS_START (every hourly/crypto family so far) made that slice a no-op for
+    r_full while the benchmark still ran from OOS_START -- a longer, different window.
+    This only ever narrows b_oos; r_oos is unaffected, since r_full[index >= OOS_START]
+    was already a no-op whenever the candidate's true start postdates OOS_START."""
     if n_tested is None:
         n_tested = family_n_tested([name])
-    r_oos = r_full[r_full.index >= OOS_START]
-    b_oos = bench_full[bench_full.index >= OOS_START]
+    r_dropna = r_full.dropna()
+    oos_start = max(OOS_START, r_dropna.index.min()) if len(r_dropna) else OOS_START
+    r_oos = r_full[r_full.index >= oos_start]
+    b_oos = bench_full[bench_full.index >= oos_start]
     s, b  = stats(r_oos), stats(b_oos)
     both  = pd.concat([r_oos, b_oos], axis=1).dropna()
     corr  = both.iloc[:, 0].corr(both.iloc[:, 1])
