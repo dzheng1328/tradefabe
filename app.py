@@ -93,7 +93,11 @@ a{color:var(--accent);}
 /* -- book status cards: click target is an invisible button absolutely stacked over
    the real st.metric, so the metric's own type scale (label/value/delta) stays intact
    and only a border/shadow marks hover + selection -- */
-div[class*="st-key-book_card_"]{position:relative;}
+/* min-height reserves room for metric + the "opened <date>" caption + an optional
+   "retired" badge, so a row mixing retired/non-retired cards (common in the flat sort
+   modes, which interleave far more than family grouping did) doesn't look jagged --
+   shorter cards just keep whitespace at the bottom instead of the row shrinking unevenly. */
+div[class*="st-key-book_card_"]{position:relative;min-height:148px;}
 div[class*="st-key-book_card_"] [data-testid="stMetric"]{cursor:pointer;}
 div[class*="st-key-book_card_idle_"]:hover [data-testid="stMetric"]{
    border-color:var(--accent);box-shadow:0 1px 6px rgba(20,23,26,.06);}
@@ -800,18 +804,76 @@ def group_books_by_family(psum, gy_last=None, show_monitor_only=True):
     return out
 
 
-def render_book_status(psum, gy_last=None):
-    """Book-status cards, grouped by family (STRATEGIES.md's own A-H taxonomy) so the
-    grid stays scannable as the roster grows past a handful of books -- each card is a
-    real st.metric (same type scale as everywhere else in the app) with an invisible
-    full-card button stacked on top, so clicking anywhere on a card selects that book
-    (replaces the old 'Strategy' dropdown). Wrapped at 4 per row, independently within
-    each family group, so cards stay wide enough for full $ precision without
-    truncating or overlapping (fix for the 8-book truncation bug)."""
+def book_introduced_dates(phist) -> dict:
+    """Earliest recorded mark per book, from state/paper/history.csv (one row per mark) --
+    a book's first appearance IS when it was introduced, no new data source needed. A book
+    with zero phist rows is simply absent from the dict; callers must use
+    `.get(name, pd.NaT)`, never `None` (mixing None/Timestamp breaks sort_values)."""
+    if phist is None or phist.empty:
+        return {}
+    return phist.groupby("book")["date"].min().to_dict()
+
+
+def book_return_today(phist) -> dict:
+    """Change since the previous calendar day's close, per book -- NOT the total-return-
+    since-inception column already on psum. `nan` (never raises) for a book with fewer
+    than 2 distinct calendar days of history yet (e.g. just opened today), same NaN-safe
+    convention as book_introduced_dates's NaT."""
+    if phist is None or phist.empty:
+        return {}
+    out = {}
+    for book, g in phist.groupby("book"):
+        g = g.sort_values("date")
+        today = g["date"].iloc[-1].normalize()
+        prior = g[g["date"].dt.normalize() < today]
+        out[book] = (g["equity"].iloc[-1] / prior["equity"].iloc[-1] - 1) if len(prior) else float("nan")
+    return out
+
+
+def sort_books_flat(psum, phist, gy_last=None, show_monitor_only=True, sort_key="recent"):
+    """Flat (ungrouped) alternative to group_books_by_family(), for the non-"Family" sort
+    modes -- same monitor-only filter, same row shape (dicts, drop-in for the Series
+    group_books_by_family's rows already are: both support `r["book"]` / `r.get(...)`),
+    just one list sorted descending instead of family-bucketed tuples.
+
+    sort_key: "recent" (book_introduced_dates), "return_today" (book_return_today), or
+    "total_return" (psum's own `return` column). Sorted via pandas sort_values, NOT a
+    hand-rolled sorted() -- comparing None to a Timestamp, or NaN to a float, raises under
+    plain Python sort but sort_values(na_position="last") handles both cleanly."""
+    monitor_only = {r["book"]: _is_monitor_only(r["book"], gy_last) for _, r in psum.iterrows()}
+    rows = [r for _, r in psum.iterrows() if show_monitor_only or not monitor_only[r["book"]]]
+    if not rows:
+        return []
+    introduced = book_introduced_dates(phist)
+    return_today = book_return_today(phist)
+    df = pd.DataFrame(rows)
+    df["_introduced"] = df["book"].map(lambda n: introduced.get(n, pd.NaT))
+    df["_return_today"] = df["book"].map(lambda n: return_today.get(n, float("nan")))
+    sort_col = {"recent": "_introduced", "return_today": "_return_today",
+                "total_return": "return"}[sort_key]
+    df = df.sort_values(sort_col, ascending=False, na_position="last")
+    return list(df.to_dict("records"))
+
+
+def render_book_status(psum, phist, gy_last=None):
+    """Book-status cards. Default sort groups by family (STRATEGIES.md's own A-H
+    taxonomy) so the grid stays scannable as the roster grows past a handful of books;
+    three more sort modes (recency, today's return, total return) flatten into one
+    ordered list instead, via sort_books_flat() (#141). Each card is a real st.metric
+    (same type scale as everywhere else in the app) with an invisible full-card button
+    stacked on top, so clicking anywhere on a card selects that book (replaces the old
+    'Strategy' dropdown). Wrapped at 4 per row so cards stay wide enough for full $
+    precision without truncating or overlapping (fix for the 8-book truncation bug)."""
     st.subheader("Book status")
     names = psum["book"].tolist()
     if st.session_state.get("selected_book") not in names:
         st.session_state.selected_book = names[0]
+
+    sort_mode = st.selectbox(
+        "Sort by", ["Family", "Recently added", "Return today", "Total return"],
+        key="book_sort_mode",
+        help="Family (default) groups cards by STRATEGIES.md's A-H taxonomy. The other "
+             "three flatten into one list, ordered newest/highest-return first.")
 
     monitor_only = {n: _is_monitor_only(n, gy_last) for n in names}
     show_monitor_only = True
@@ -824,30 +886,55 @@ def render_book_status(psum, gy_last=None):
                  "candidates as the roster grows.")
         # if the filter just hid the currently-selected book, fall back to the first
         # still-visible one rather than leaving the panel below pointing at a book with
-        # no highlighted card in the grid.
+        # no highlighted card in the grid. Sort-mode switches never need this: they only
+        # reorder/flatten the SAME visible set, and highlighting matches by name, not
+        # position, so a book keeps its highlight wherever it lands.
         if not show_monitor_only and monitor_only.get(st.session_state.selected_book):
             visible = [n for n in names if not monitor_only[n]]
             if visible:
                 st.session_state.selected_book = visible[0]
 
+    introduced = book_introduced_dates(phist)
+    return_today = book_return_today(phist)
+
+    def render_card(col, r, show_today_return):
+        name = r["book"]
+        selected = st.session_state.selected_book == name
+        with col:
+            with st.container(key=f"book_card_{'active' if selected else 'idle'}_{name}"):
+                with st.container(key=f"book_click_{name}"):
+                    st.button(name, key=f"book_btn_{name}", on_click=_select_book, args=(name,))
+                label_name = name.replace("_", "\\_")
+                if show_today_return:
+                    rt = return_today.get(name, float("nan"))
+                    delta = f"{rt:+.2%}" if np.isfinite(rt) else "—"
+                else:
+                    delta = f"{r['return']:+.2%}"
+                st.metric(label_name, fmt_full_dollars(r["equity"]), delta)
+                intro = introduced.get(name, pd.NaT)
+                if pd.notna(intro):
+                    st.caption(f"opened {intro.strftime('%b %-d')}")
+                # summary.csv gained retired_at in #113; .get() keeps a card
+                # rendering against a summary written before the column existed.
+                if pd.notna(r.get("retired_at")) and r.get("retired_at"):
+                    st.markdown(badge("retired", "muted"), unsafe_allow_html=True)
+
     PER_ROW = 4
-    for family, label, rows in group_books_by_family(psum, gy_last, show_monitor_only):
-        st.markdown(f'<div class="lab-eyebrow">{label}</div>', unsafe_allow_html=True)
+    if sort_mode == "Family":
+        for family, label, rows in group_books_by_family(psum, gy_last, show_monitor_only):
+            st.markdown(f'<div class="lab-eyebrow">{label}</div>', unsafe_allow_html=True)
+            for i in range(0, len(rows), PER_ROW):
+                cols = st.columns(PER_ROW)
+                for col, r in zip(cols, rows[i:i + PER_ROW]):
+                    render_card(col, r, show_today_return=False)
+    else:
+        sort_key = {"Recently added": "recent", "Return today": "return_today",
+                    "Total return": "total_return"}[sort_mode]
+        rows = sort_books_flat(psum, phist, gy_last, show_monitor_only, sort_key)
         for i in range(0, len(rows), PER_ROW):
             cols = st.columns(PER_ROW)
             for col, r in zip(cols, rows[i:i + PER_ROW]):
-                name = r["book"]
-                selected = st.session_state.selected_book == name
-                with col:
-                    with st.container(key=f"book_card_{'active' if selected else 'idle'}_{name}"):
-                        with st.container(key=f"book_click_{name}"):
-                            st.button(name, key=f"book_btn_{name}", on_click=_select_book, args=(name,))
-                        label_name = name.replace("_", "\\_")
-                        st.metric(label_name, fmt_full_dollars(r["equity"]), f"{r['return']:+.2%}")
-                        # summary.csv gained retired_at in #113; .get() keeps a card
-                        # rendering against a summary written before the column existed.
-                        if pd.notna(r.get("retired_at")) and r.get("retired_at"):
-                            st.markdown(badge("retired", "muted"), unsafe_allow_html=True)
+                render_card(col, r, show_today_return=(sort_key == "return_today"))
 
 
 # ==================================================================== Paper Books view
@@ -861,7 +948,7 @@ def render_paper_books(psum, phist, full, meta, gy_last):
                 icon=":material/info:")
         return
 
-    render_book_status(psum, gy_last)
+    render_book_status(psum, phist, gy_last)
     st.caption(f"Books start at $100k paper capital. Last run: **{psum['last_run'].max()}** · "
                "run `.venv/bin/tradefabe run` daily (or via cron) to advance.")
 
@@ -1469,7 +1556,7 @@ if view == "Paper Books":
                    "run at least once. Book status still shows below.", icon=":material/warning:")
         psum2, phist2 = psum, phist
         if psum2 is not None:
-            render_book_status(psum2)
+            render_book_status(psum2, phist2)
         else:
             st.info("No paper books yet — run `.venv/bin/tradefabe run` to open the first cycle.",
                 icon=":material/info:")
