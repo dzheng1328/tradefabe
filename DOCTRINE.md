@@ -116,7 +116,7 @@ this for *why*, not to find out what's currently active.
   a strategy is judged against random strategies rebalanced at the SAME frequency, so fast
   strategies face a luck bar that pays the same fast trading costs. Engineering fix, not a
   gate change. A strategy's rebalance frequency is part of its pre-registered spec.
-  (Gate 2's diversifier clause is under review per combine.py results; any change will be
+  (Gate 2's diversifier clause is under review per research/combine.py results; any change will be
   v1.1, decided on principle and re-applied to every strategy in the graveyard.)
 - **v1.2 (2026-07-23).** Defines the promote/kill criteria for paper-testing (Stage 2 —
   the "real, slow gate" the kill rule above promotes ALIVE strategies to, previously

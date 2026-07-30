@@ -16,8 +16,8 @@ The data cache, config, sizing and returns math now live in the installed packag
 The engine names are re-exported below so existing `from tsmom_backtest import ...`
 callers keep working.
 
-Run:    python tsmom_backtest.py
-Output: prints a metrics table + writes equity_curve.png and results.csv (next to this file).
+Run:    PYTHONPATH="$(pwd)" python research/tsmom_backtest.py
+Output: prints a metrics table + writes equity_curve.png and results.csv to the repo root.
 """
 
 from __future__ import annotations

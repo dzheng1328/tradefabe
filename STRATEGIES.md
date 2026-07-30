@@ -121,7 +121,7 @@ lost to random stock-picking from the same pool. Backtests: `insider_backtest.py
 (NANC/KRUZ/KNOW alpha vs SPY+QQQ). Survivorship (145 delisted names dropped) biased insider results UP, and it still died.
 
 ### H. Piggyback / combined constructions (edge: a standalone-DEAD strategy can still earn
-its place as a diversifying sleeve on the passive core — see `combine.py`, doctrine's
+its place as a diversifying sleeve on the passive core — see `research/combine.py`, doctrine's
 "earns its place" gate 2 applied to a construction rather than a bare bet)
 
 Fixed **30% sleeve** (`SLEEVE`, pre-committed, not optimized) of an equal-weight blend of
@@ -639,7 +639,7 @@ and touches no ledger — an 18-book cycle must not fall over because a model do
 3. Families are chosen to be **mutually uncorrelated bets** — trend vs reversal vs calendar
    vs defensive vs carry. Correlation matrix in the dashboard is the check.
 4. DEAD standalone ≠ useless: low-corr sleeves may still earn a place as piggyback
-   diversifiers on the 60/40 core (see combine.py / dashboard Piggyback Lab).
+   diversifiers on the 60/40 core (see research/combine.py / dashboard Piggyback Lab).
 
 ## Key evidence (gathered in research sessions)
 - TSMOM: Moskowitz–Ooi–Pedersen 2012, ~1.0 Sharpe across 58 futures pre-costs (AQR/Quantpedia).
