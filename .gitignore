@@ -14,10 +14,15 @@ graphify-out/
 .env
 .env.*
 
-# iCloud conflict copies. This repo lives in ~/Documents with Desktop & Documents sync
-# on, and iCloud silently creates byte-identical "<name> 2.<ext>" duplicates. One got
-# committed as a second paper-engine workflow and GitHub ran BOTH on every schedule.
-# See the CI guard in tests.yml -- ignoring them is not enough on its own, because
-# `git add -f` and some tools bypass it.
+# Claude Code conversation exports (/export). Full session transcripts, dropped in the cwd
+# with a date-prefixed name. Never belongs in a public repo -- they can carry anything that
+# was on screen, and one is thousands of lines of noise in a diff.
+20??-??-??-*.txt
+
+# iCloud conflict copies. The repo moved OUT of ~/Documents on 2026-07-26, but the guard
+# stays: iCloud silently creates byte-identical "<name> 2.<ext>" duplicates in a synced
+# tree, and one got committed as a second paper-engine workflow that GitHub then ran on
+# every schedule. See the CI guard in tests.yml and tests/test_repo_location.py --
+# ignoring them is not enough alone, because `git add -f` and some tools bypass it.
 * 2.*
 * 3.*

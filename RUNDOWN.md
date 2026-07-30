@@ -3,6 +3,38 @@
 An audit of whether the machinery still serves the lab's purpose. Every number below was
 measured against the repo, not recalled.
 
+> ## Resolution as of 2026-07-29 — read this first
+>
+> **Every number below is as-measured on 2026-07-27 and is deliberately NOT updated.** This is
+> a dated audit, not a live document; rewriting its measurements would destroy the record of
+> what was known when the decision was made. Current counts: `gh issue list`, `graveyard.csv`.
+>
+> | this document's open item | outcome |
+> |---|---|
+> | Options 1–4 on the correction — "this needs a decision" | **Option 3, segregate.** Pre-registered as DOCTRINE **v1.5** (#112), implemented (#120), **in force 2026-07-29** |
+> | Fix the lenient null (#101) | **Shipped in the same v1.5**, deliberately together — the two findings pointed opposite ways |
+> | Pause the factory | **Done 2026-07-27.** Cron commented out, `workflow_dispatch` intact |
+> | No retirement criterion; books grow without bound | **DOCTRINE v1.6** (#113) — and it **inverts this document's framing**, see below |
+> | Benchmark windows not candidate-aligned | still open, **#115** |
+> | Doctrine vestigial layers | still open, **#116** |
+> | `state/` ownership conventional, not structural | still true; a hook now *asks* before staging `state/` |
+>
+> **On retirement, the resolution contradicts what this document implies.** It reads as though
+> the lab needs a stopping rule. The decision was that an *automatic* one would be actively
+> harmful: auto-retiring losing books filters the forward record on results, manufacturing
+> survivorship bias in the one dataset here that has none. Retirement is manual-only, at any
+> age, with no performance trigger. Unbounded growth is an accepted cost, and the lever against
+> it is slowing **promotion** — which the factory pause already is.
+>
+> **Two things this audit did not find**, both since discovered: gate 1 can be **vacuous**
+> (DSR 1.000 against a negative `SR*`, so any positive Sharpe clears it — #114, first real
+> instance in family M), and `evaluate()` mislabels a non-60/40 benchmark in its own output
+> (#122). Neither changes a verdict.
+>
+> **The council's own closing question is still unanswered:** would a factory ALIVE have been
+> *pleasing* or *alarming*? That, not the statistics, decides whether the factory's purpose was
+> discovery or calibration.
+
 ## The one finding that matters
 
 **The strategy factory is consuming the lab's entire statistical budget and has produced
