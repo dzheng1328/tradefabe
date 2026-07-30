@@ -200,6 +200,9 @@ the same DSR/CPCV gate.
   *lazily inside main()*, so omitting `[desktop]` leaves the import succeeding and the app
   dead on launch. A module-import check will not catch it; `setup_venv.sh` and
   `build_app.sh` import `webview` explicitly for this reason. Same shape as `kronos.py`.
+  `broker.py` (#5, Alpaca paper connectivity) is the same shape again: optional `[alpaca]`
+  extra, lazy import, `is_available()` is the real check. Not wired into `runner.py` yet —
+  connectivity only, credentials in a repo-root `.env` (gitignored, never committed).
 - **Any live paper book needs a persisted backtest curve, or `app.py` dies on a bare
   `KeyError`.** `book_panel_data()` resolves `piggyback_returns.csv` → `factory_returns.csv`
   → `hourly_returns.csv` → `kronos_returns.csv` → `full_returns.csv`. **A new source that can
