@@ -448,7 +448,13 @@ def dsr_gate1(r_oos, null, n_tested):
 
     Returns a dict: beats_luck (bool), dsr, sr_star (annualized, for display),
     cpcv_n_paths, cpcv_sharpe_mean/std (annualized), skew, kurtosis -- everything a
-    caller needs both to decide gate 1 and to log a full graveyard.csv row."""
+    caller needs both to decide gate 1 and to log a full graveyard.csv row.
+
+    DOCTRINE v1.8 (#114): beats_luck also requires the candidate's OWN Sharpe be
+    positive. DSR alone has no such floor -- it compares the candidate to the expected
+    BEST of n_tested draws from the null, so when both are negative and the null is the
+    MORE negative of the two, DSR saturates at 1.0 beside a strategy that is losing
+    money. Gate 1 must never read as a pass for that."""
     r_oos = pd.Series(r_oos).dropna()
     s = stats(r_oos)
     cpcv_paths = cpcv_oos_sharpes(r_oos)
@@ -457,7 +463,7 @@ def dsr_gate1(r_oos, null, n_tested):
     skew, kurt = _moments(r_oos.values)
     dsr, sr_star_native = deflated_sharpe_ratio(sr_native, null_native, n_tested, len(r_oos), skew, kurt)
     return {
-        "beats_luck": dsr > 0.95, "dsr": dsr, "sr_star": sr_star_native * np.sqrt(ANN),
+        "beats_luck": bool(dsr > 0.95 and s["Sharpe"] > 0), "dsr": dsr, "sr_star": sr_star_native * np.sqrt(ANN),
         "cpcv_n_paths": len(cpcv_paths),
         "cpcv_sharpe_mean": float(cpcv_paths.mean() * np.sqrt(ANN)) if len(cpcv_paths) else None,
         "cpcv_sharpe_std": float(cpcv_paths.std(ddof=1) * np.sqrt(ANN)) if len(cpcv_paths) > 1 else None,
