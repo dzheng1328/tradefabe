@@ -24,5 +24,11 @@ graphify-out/
 # tree, and one got committed as a second paper-engine workflow that GitHub then ran on
 # every schedule. See the CI guard in tests.yml and tests/test_repo_location.py --
 # ignoring them is not enough alone, because `git add -f` and some tools bypass it.
+# Extension-less duplicates (e.g. a symlink like ".venv 3") match the SAME iCloud pattern
+# but not the original "* N.*" globs below, which require a literal extension -- ".venv 3"
+# slipped past both this file and the CI regex while tracked in git (found during a repo
+# layout cleanup pass).
+* 2
+* 3
 * 2.*
 * 3.*
