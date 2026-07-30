@@ -15,6 +15,9 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from tradefabe import risk_register
+# Constant only -- kronos.py imports torch LAZILY (inside predictor()), so this costs the
+# dashboard nothing and does not require the [kronos] extra to be installed.
+from tradefabe.kronos import KRONOS_OOS_START
 import plotly.graph_objects as go
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -185,6 +188,23 @@ def load_hourly_backtest():
     study fetches its own snapshotted hourly bars rather than harness.py's daily cache.
     None if the study hasn't been run."""
     path = os.path.join(ART, "hourly_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+@st.cache_data
+def load_kronos_backtest():
+    """Backtest OOS returns for family M, the Kronos candidates (research/kronos_backtest.py,
+    #105). A FIFTH curve source beside full/piggyback/factory/hourly.
+
+    Its own artifact for a reason that matters when reading the chart: these series start at
+    2025-06-05, the model's pretraining cutoff, not at 2018. Everything before that is
+    contaminated -- the model's weights already saw those bars -- so a family M curve cannot
+    be stored in a 2018-based file without putting contaminated bars on a chart labelled
+    "backtest", which is the one place they could quietly become evidence. The stored curve is
+    sliced at the cutoff by the study itself. None if the study hasn't been run."""
+    path = os.path.join(ART, "kronos_returns.csv")
     if not os.path.exists(path):
         return None
     return pd.read_csv(path, index_col=0, parse_dates=True)
@@ -370,7 +390,7 @@ def themed_layout(**overrides):
 
 # ==================================================================== per-book normalization
 def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, piggy=None,
-                    factory_bt=None, hourly_bt=None):
+                    factory_bt=None, hourly_bt=None, kronos_bt=None):
     """Normalize a live paper book into one shape the panel can render, regardless of
     whether it's an equity-signal book (backtest in full_returns.csv, real ticker
     positions), a piggyback construction (backtest in piggyback_returns.csv, same
@@ -398,6 +418,12 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
             bt_returns = factory_bt[name]
         elif hourly_bt is not None and name in hourly_bt.columns:
             bt_returns = hourly_bt[name]
+        elif kronos_bt is not None and name in kronos_bt.columns:
+            bt_returns = kronos_bt[name]
+            # Family M's window is the model's pretraining cutoff, NOT meta["oos_start"].
+            # Slicing at 2018 here would be a no-op on the data but would mislabel the
+            # chart and compute stats over a window the verdict never used.
+            oos_start = pd.Timestamp(KRONOS_OOS_START)
         else:
             bt_returns = full[name]
         bt_curve = (1 + bt_returns.fillna(0)).cumprod()
@@ -411,6 +437,10 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
         bt_curve = carry_curve
         stats = ann_stats(carry_curve.pct_change())
         extra = {"carry_meta": carry_meta}
+
+    # The backtest window's real start, for the caption. Hardcoding "2018" was fine while
+    # every book shared harness's OOS_START; family M does not (#105).
+    bt_start = bt_curve.index.min() if len(bt_curve) else None
 
     handoff = bt_curve.asof(live_start)
     if pd.isna(handoff):
@@ -462,7 +492,7 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
                           # asserting vol-targeting, which family L books do not use.
                           is_short_funded=bool(pd.notna(net) and net < 0))
 
-    return dict(kind=kind, bt_curve=bt_curve, live_start=live_start,
+    return dict(kind=kind, bt_curve=bt_curve, live_start=live_start, bt_start=bt_start,
                 handoff=handoff, live_hist=live_hist, stats=stats, positions_df=positions_df,
                 deployment=deployment, positions_asof=price_date,
                 trades_df=trades_frame(load_book_json(name)),
@@ -844,7 +874,7 @@ def render_paper_books(psum, phist, full, meta, gy_last):
     piggy = load_piggyback_backtest()
     factory_bt = load_factory_backtest()
     data = book_panel_data(pick, phist, full, meta, gy_last, price_now, price_date, piggy,
-                           factory_bt, load_hourly_backtest())
+                           factory_bt, load_hourly_backtest(), load_kronos_backtest())
     render_strategy_panel(pick, data, color_of[pick])
 
 
@@ -1023,7 +1053,9 @@ def render_strategy_panel(name, data, color):
                f"(±{Y_PAD:.0%} padding), not to $0. The ledger "
                f"(`state/paper/{name}.json`) is never modified by this display.")
 
-    with st.expander("Backtest history (2018 → present) & live tracking check"):
+    bt_from = data.get("bt_start")
+    bt_label = f"{bt_from:%Y-%m-%d}" if bt_from is not None else "2018"
+    with st.expander(f"Backtest history ({bt_label} → present) & live tracking check"):
         st.plotly_chart(backtest_chart(data["bt_curve"], INK2), width="stretch")
         state, detail = divergence_status(data)
         state_badge = badge({"insufficient": "pending", "ok": "tracking",
@@ -1176,7 +1208,8 @@ def render_risk_register():
                "3-year sample is not evidence one cannot occur.")
 
 
-def _dead_strategy_returns(name, oos, piggy, factory_bt=None, hourly_bt=None):
+def _dead_strategy_returns(name, oos, piggy, factory_bt=None, hourly_bt=None,
+                           kronos_bt=None):
     """Best-effort OOS return series for ANY graveyard entry (ALIVE or DEAD), for the
     strategy detail view below. Bare strategies live in `oos` (full_returns.csv, sliced
     to OOS_START by the caller); piggyback constructions in `piggy`
@@ -1195,10 +1228,13 @@ def _dead_strategy_returns(name, oos, piggy, factory_bt=None, hourly_bt=None):
         return factory_bt[name].dropna()
     if hourly_bt is not None and name in hourly_bt.columns:
         return hourly_bt[name].dropna()
+    if kronos_bt is not None and name in kronos_bt.columns:
+        return kronos_bt[name].dropna()
     return None
 
 
-def render_strategy_detail(gy_last, oos, piggy, factory_bt=None, hourly_bt=None):
+def render_strategy_detail(gy_last, oos, piggy, factory_bt=None, hourly_bt=None,
+                           kronos_bt=None):
     """Per-strategy detail for ANY graveyard entry, not just the strategies that made it
     to a live paper book -- the "Verdicts" table above is the full ledger, but until this
     every DEAD strategy was just one flat row in it, with no blurb/chart/stat-card
@@ -1216,7 +1252,7 @@ def render_strategy_detail(gy_last, oos, piggy, factory_bt=None, hourly_bt=None)
     blurb = strategy_description(pick)
     st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
 
-    r = _dead_strategy_returns(pick, oos, piggy, factory_bt, hourly_bt)
+    r = _dead_strategy_returns(pick, oos, piggy, factory_bt, hourly_bt, kronos_bt)
     if r is not None:
         s = ann_stats(r)
         c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -1304,7 +1340,8 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
 
     piggy = load_piggyback_backtest()
     factory_bt = load_factory_backtest()
-    render_strategy_detail(gy_last, oos, piggy, factory_bt, load_hourly_backtest())
+    render_strategy_detail(gy_last, oos, piggy, factory_bt, load_hourly_backtest(),
+                           load_kronos_backtest())
 
     st.subheader("The luck floor — is anything distinguishable from random?")
     freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}

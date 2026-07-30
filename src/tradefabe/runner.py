@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import pandas as pd
 import yfinance as yf
-from . import books, signals, piggyback, factory, hourly, pricing
+from . import books, signals, piggyback, factory, hourly, kronos_live, pricing
 from .carry_live import run_carry
 from .carry_risk import check_carry_risk
 from .engine import sized_weights
@@ -90,6 +90,27 @@ def _run_book(name, freq, get_weights, px, today, last, verbose, stamp=None):
             print(f"  {name:<18} {'':>19}  (SKIPPED — unpriceable, ledger untouched)")
 
 
+def _live_on_disk(names) -> list[str]:
+    """Those of `names` whose ledger actually exists. Same guard family L's books needed in
+    write_summary(): listing a never-run book reports a phantom $100k with no history."""
+    return [n for n in names if (STATE_DIR / f"{n}.json").exists()]
+
+
+def run_kronos(verbose: bool = True) -> None:
+    """Family M's monitor-only books (#105). DAILY ONLY -- unlike run_hourly(), this is NOT
+    called from run_mark(). All three books are freq D, so a mark has nothing to gain from a
+    forecast and would pay the full torch + 400MB-checkpoint inference cost for nothing.
+    run_mark() marks them from hourly prices like any other book.
+
+    Never raises, and returns silently when the [kronos] extra is absent -- a machine or CI
+    job without it runs a completely normal cycle."""
+    try:
+        kronos_live.run_kronos(verbose)
+    except Exception as e:                       # noqa: BLE001 - deliberately broad
+        if verbose:
+            print(f"  [warn] family M books skipped this cycle: {str(e)[:90]}")
+
+
 def run_hourly(verbose: bool = True, prefetched: dict | None = None) -> None:
     """Family L's monitor-only books (#86). Called from BOTH run_daily() and run_mark(),
     like run_carry() -- these were tested on a 1h clock, so the mark cadence is the closest
@@ -118,8 +139,12 @@ def run_mark(verbose: bool = True) -> pd.DataFrame:
     # mark. GitHub's cron actually fires ~every 2.2h despite an hourly schedule, so marking
     # once per firing left multi-hour holes; backfilling makes chart resolution independent
     # of when the scheduler happened to run. See pricing.py.
-    hourly_px = pricing.fetch_for_books(ALL_BOOKS + hourly.PRICE_BOOK_NAMES)
-    for name in ALL_BOOKS:
+    # Family M's price-driven books are MARKED here but rebalanced only in run_daily (#105):
+    # a rebalance means a Kronos forecast, and they are freq D. Only ones already opened.
+    kronos_marks = _live_on_disk(n for n in kronos_live.LIVE_BOOKS
+                                if n not in pricing.NON_PRICED)
+    hourly_px = pricing.fetch_for_books(ALL_BOOKS + hourly.PRICE_BOOK_NAMES + kronos_marks)
+    for name in ALL_BOOKS + kronos_marks:
         book = books.load(name)
         if books.is_retired(book):       # #113 -- frozen, not marked, history preserved
             if verbose:
@@ -179,6 +204,7 @@ def run_daily(verbose: bool = True) -> pd.DataFrame:
             print(f"  {'carry_btc_eth':<18} equity ${carry['equity']:>12,.0f}  (funding accrued)")
     check_carry_risk()   # writes state/paper/carry_risk.json; never raises, dashboard-only surface
     run_hourly(verbose)
+    run_kronos(verbose)  # family M (#105) -- daily only, see run_kronos's docstring
     return write_summary(last)
 
 
@@ -187,8 +213,11 @@ def write_summary(last_px: pd.Series) -> pd.DataFrame:
     # Family L's hourly books (#86) are included only once they exist on disk -- listing a
     # never-run book would report a phantom $100k with no history. They cache their own
     # `equity` because last_px is the DAILY frame and has no BTC-USD/ETH-USD column.
-    hourly_live = [n for n in hourly.ALL_NAMES if (STATE_DIR / f"{n}.json").exists()]
-    for name in ALL_BOOKS + ["carry_btc_eth"] + hourly_live:
+    hourly_live = _live_on_disk(hourly.ALL_NAMES)
+    # Family M (#105), same existence guard, same reason. They cache their own `equity` too:
+    # last_px is the daily ETF frame and holds none of kronos_wick_agg's 14 single names.
+    kronos_live_names = _live_on_disk(kronos_live.LIVE_BOOKS)
+    for name in ALL_BOOKS + ["carry_btc_eth"] + hourly_live + kronos_live_names:
         b = books.load(name)
         eq = b.get("equity") or books.equity(b, last_px)
         # A retired book is STILL reported (#113). It stopped trading, it did not stop

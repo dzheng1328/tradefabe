@@ -69,6 +69,12 @@ from tradefabe.engine import (ANN, COST_BPS, UNIVERSE, net_returns, size_and_reb
 
 FORECASTS = os.path.join(ART, "kronos_forecasts.csv")
 FUNDING_CACHE = os.path.join(ART, "hourly_funding.csv")
+# Persisted OOS return series, one column per candidate. REQUIRED, not optional: app.py's
+# book_panel_data() looks a live book up in piggyback -> factory -> hourly -> full returns
+# and raises a bare KeyError otherwise, taking the whole dashboard down. Any new source that
+# can become a live book needs its own persisted-curve story -- family L learned this the
+# hard way on 2026-07-26. See CLAUDE.md's live-gotchas entry.
+KRONOS_RETURNS = os.path.join(ART, "kronos_returns.csv")
 
 # Union of every universe family M touches. SPY/QQQ appear in both equity universes; the
 # forecast is per (date, ticker) and shared, so each is computed ONCE.
@@ -218,6 +224,20 @@ def carry_returns(funding: pd.DataFrame, scale: pd.Series):
     return (daily * pos) - turn * 2 * (COST_BPS / 1e4), always
 
 
+def write_returns(curves: dict[str, pd.Series]) -> str:
+    """Persist each candidate's OOS return series for the dashboard's backtest/live splice.
+
+    Sliced at harness.OOS_START (family M's 2025-06-05, not 2018) so the stored curve is the
+    same window the verdict was rendered on -- a curve reaching back before the cutoff would
+    put contaminated bars on a chart labelled "backtest", which is the one place they could
+    quietly become evidence."""
+    frame = pd.DataFrame({n: s[s.index >= harness.OOS_START] for n, s in curves.items()})
+    frame.to_csv(KRONOS_RETURNS)
+    print(f"\nwrote {KRONOS_RETURNS}  ({len(frame)} rows x {len(frame.columns)} candidates, "
+          f"from {frame.index.min().date()})")
+    return KRONOS_RETURNS
+
+
 def carry_null(daily_always, trials, rng):
     """Random notional scaling of the SAME carry, paying the same adjustment cost. Isolates
     whether the vol signal adds anything over simply holding the position it scales."""
@@ -249,6 +269,12 @@ def main():
                     help="calendar days of pre-cutoff forecasts (signal warm-up only)")
     ap.add_argument("--contaminated", action="store_true",
                     help="ALSO report the pre-cutoff window, labelled, never written as ALIVE")
+    ap.add_argument("--curves-only", action="store_true",
+                    help="recompute and persist artifacts/kronos_returns.csv WITHOUT "
+                         "appending graveyard.csv. The verdicts were rendered once, on "
+                         "2026-07-29; re-running the full judge would write a SECOND row "
+                         "per candidate and silently inflate n_tested for everything after. "
+                         "One verdict per spec is roster rule 2.")
     args = ap.parse_args()
     do_forecast = args.forecast or not args.judge
     do_judge = args.judge or not args.forecast
@@ -266,7 +292,21 @@ def main():
 
     px_all = close_frame(ohlcv)
     n_tested = family_n_tested(["kronos_dir_daily", "kronos_wick_agg", "carry_kronos_vol"])
-    print(f"\n[doctrine] n_tested = {n_tested} (graveyard union, NOT reset for a new family)")
+
+    def judge(*a, **k):
+        """evaluate(), unless --curves-only. The gates PRINT and APPEND; skipping the call
+        entirely is the only way to regenerate a curve without also re-recording a verdict
+        that already exists."""
+        if args.curves_only:
+            print(f"  [curves-only] {a[0]}: returns recomputed, no verdict written")
+            return None
+        return evaluate(*a, **k)
+
+    if args.curves_only:
+        print("\n[curves-only] regenerating artifacts/kronos_returns.csv. No gate runs, "
+              "nothing is appended to graveyard.csv.")
+    else:
+        print(f"\n[doctrine] n_tested = {n_tested} (graveyard union, NOT reset for a new family)")
 
     # ---- kronos_dir_daily -------------------------------------------------------
     eq = [t for t in UNIVERSE if t in ohlcv]
@@ -277,7 +317,8 @@ def main():
     null_dir = noise_floor(px_eq, "D", args.trials,
                            like=sig_dir.reindex(index=px_eq.index, columns=px_eq.columns))
     kronos.assert_clean_window(r_dir[r_dir.index >= harness.OOS_START].index, "kronos_dir_daily")
-    evaluate("kronos_dir_daily", r_dir, bench, null_dir, "D", n_tested=n_tested)
+    judge("kronos_dir_daily", r_dir, bench, null_dir, "D", n_tested=n_tested)
+    curves = {"kronos_dir_daily": r_dir}
 
     # ---- kronos_wick_agg --------------------------------------------------------
     wk = [t for t in kronos.WICK_UNIVERSE if t in ohlcv]
@@ -287,8 +328,9 @@ def main():
     null_wick = noise_floor(px_wk, "D", args.trials,
                             like=sig_wick.reindex(index=px_wk.index, columns=px_wk.columns))
     kronos.assert_clean_window(r_wick[r_wick.index >= harness.OOS_START].index, "kronos_wick_agg")
-    evaluate("kronos_wick_agg", r_wick, benchmark_returns(px_wk), null_wick, "D",
+    judge("kronos_wick_agg", r_wick, benchmark_returns(px_wk), null_wick, "D",
              n_tested=n_tested)
+    curves["kronos_wick_agg"] = r_wick
 
     # ---- carry_kronos_vol -------------------------------------------------------
     if os.path.exists(FUNDING_CACHE):
@@ -301,13 +343,16 @@ def main():
             scale = kronos.vol_scale(vols.mean(axis=1))
             r_carry, always = carry_returns(funding, scale)
             rng = np.random.default_rng(0)
-            evaluate("carry_kronos_vol", r_carry, always,
+            judge("carry_kronos_vol", r_carry, always,
                      carry_null(always, args.trials, rng), "D", n_tested=n_tested)
+            curves["carry_kronos_vol"] = r_carry
         else:
             print("\n[skip] carry_kronos_vol: no crypto forecasts in the snapshot")
     else:
         print(f"\n[skip] carry_kronos_vol: no funding snapshot at {FUNDING_CACHE} "
               f"(run research/hourly_backtest.py first)")
+
+    write_returns(curves)
 
     # ---- the contaminated comparison, for the record only -----------------------
     if args.contaminated:

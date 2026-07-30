@@ -28,24 +28,31 @@ import pandas as pd
 from .engine import UNIVERSE
 
 CRYPTO_TICKERS = ["BTC-USD", "ETH-USD"]
+# Family M's wick book trades 14 single names, none of them in UNIVERSE (#105). Imported
+# from kronos.py rather than duplicated so the marked universe and the traded universe are
+# the same list -- kronos.py's torch imports are lazy, so this costs nothing here.
+from .kronos import WICK_UNIVERSE                                   # noqa: E402
 LIVE_PERIOD = "30d"          # comfortably covers any realistic gap between cycles
 
 # source name -> tickers priced by it
 SOURCES = {
     "equity_hourly": list(UNIVERSE),
     "crypto_hourly": CRYPTO_TICKERS,
+    "wick_hourly": list(WICK_UNIVERSE),
 }
 
 # book -> source. A book absent from here uses DEFAULT_SOURCE, so a future factory
 # promotion on the standard ETF universe needs no entry at all.
 BOOK_SOURCE = {
     "crypto_reversal_1h": "crypto_hourly",
+    "kronos_wick_agg": "wick_hourly",
 }
 DEFAULT_SOURCE = "equity_hourly"
 
 # Books whose equity is NOT a function of prices -- funding accrual books own their own
-# marking (carry_live.run_carry / hourly.run_funding_timing) and must be left alone here.
-NON_PRICED = {"carry_btc_eth", "funding_timing_1h"}
+# marking (carry_live.run_carry / hourly.run_funding_timing / kronos_live.run_carry_kronos)
+# and must be left alone here.
+NON_PRICED = {"carry_btc_eth", "funding_timing_1h", "carry_kronos_vol"}
 
 
 def source_for(book_name: str) -> str:

@@ -58,9 +58,6 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: install
-        run: pip install -e .
-
       - name: pick cycle
         id: pick
         run: |
@@ -72,6 +69,37 @@ jobs:
           esac
           echo "cycle=$CYCLE" >> "$GITHUB_OUTPUT"
           echo "running: $CYCLE"
+
+      - name: install
+        run: pip install -e .
+
+      # Family M (#105) needs torch + a ~400MB checkpoint, and ONLY the daily `run` cycle
+      # rebalances those books -- they are freq D, so `mark` has nothing to forecast. The
+      # hourly job therefore stays as cheap as it was: installing torch on ~12 marks a day
+      # would have cost more Actions minutes than the whole rest of the engine.
+      #
+      # CPU wheel explicitly: the default index pulls the CUDA build (~2.5GB of nvidia-*
+      # wheels) onto a runner with no GPU. The +cpu wheel is ~200MB.
+      #
+      # If this step fails the cycle STILL RUNS -- kronos_live.run_kronos() checks
+      # kronos.is_available() and skips the three books, touching no ledger. A torch
+      # packaging problem must not cost a day of marks on 18 other books.
+      - name: install kronos extra (daily run only)
+        if: steps.pick.outputs.cycle == 'run'
+        continue-on-error: true
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install -e ".[kronos]"
+          python -c "from tradefabe import kronos; assert kronos.is_available()"
+
+      # Cache the HuggingFace checkpoint across cycles: ~400MB re-downloaded every day
+      # otherwise. Keyed on the pinned repo names, so changing the checkpoint invalidates it.
+      - name: cache Kronos weights
+        if: steps.pick.outputs.cycle == 'run'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: kronos-base-v1
 
       - name: run cycle
         run: |

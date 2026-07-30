@@ -52,7 +52,8 @@ src/tradefabe/     installable engine: engine.py (data/sizing/returns core, sing
                    library + live generation), carry_live.py, carry_risk.py, runner.py,
                    cli.py, desktop.py, risk_register.py, hourly.py (family L signals +
                    live monitor books — the STUDY imports its signals from here, so
-                   backtest and live book are the same function), paths.py
+                   backtest and live book are the same function), kronos.py + kronos_live.py
+                   (family M; signals are pure and torch-free, inference is lazy), paths.py
 app.py             Streamlit dashboard, port 8501. Two sidebar views: Paper Books (live
                    books, cards grouped by family) and Research Lab (verdicts, luck floor,
                    correlation, piggyback lab, DEAD-strategy detail). Plotly only, no
@@ -128,6 +129,12 @@ fired. This bites stacked PRs — run the suite locally before trusting one is g
 - **`check_carry_risk()`** — funding-flip + liquidation distance. Called by `run_daily()`
   **only**, so `carry_risk.json` refreshes daily, not hourly; the dashboard prints its
   `generated_at` and it lagging by up to a day is expected. Never raises.
+- **`run_kronos()`** (`kronos_live.py`) — family M's two live monitor books (#126). Called by
+  `run_daily()` **only**, never `run_mark()`: they're freq D, so a mark has nothing to
+  forecast and would pay the whole torch + 400MB-checkpoint cost ~12x a day for nothing. The
+  daily Action job installs the CPU torch wheel and caches the weights; the hourly job does
+  neither. Never raises, and skips silently without the `[kronos]` extra. Appends every live
+  forecast to the same `artifacts/kronos_forecasts.csv` the verdicts came from.
 - **Factory auto-promotion** — every cycle promotes its best-DSR candidate regardless of
   verdict, writing `state/paper/promoted*.json`. `runner.py` reads those at **import
   time**, so a promotion only takes effect in the next `run`/`mark` process.
@@ -201,9 +208,12 @@ instead of one hand-picked strategy, through the same DSR/CPCV gate.
   explicitly for this reason.
 - **Any live paper book needs a persisted backtest curve, or `app.py` crashes with a bare
   `KeyError`.** `book_panel_data()` looks the book up in `piggyback_returns.csv` →
-  `factory_returns.csv` → `full_returns.csv`. Only the cycle's promoted winner gets one
-  written (bounded growth). **A new source that can become a live book needs its own
-  persisted-curve story** or this recurs. Test: `tests/test_book_panel_data.py`.
+  `factory_returns.csv` → `hourly_returns.csv` → `kronos_returns.csv` → `full_returns.csv`.
+  Only the cycle's promoted winner gets one written (bounded growth). **A new source that can
+  become a live book needs its own persisted-curve story** or this recurs — and it must be
+  wired into the Paper Books lookup AND the Research Lab's `_dead_strategy_returns()`; doing
+  one only is the actual 2026-07-26 outage. Tests: `tests/test_book_panel_data.py`,
+  `tests/test_kronos_live.py`.
 - **A book's live history must be stamped to the MINUTE, not the date.** Keying on the
   bare date makes the hourly mark overwrite one row per day, leaving charts a single point
   to draw. Any new book source must use `isoformat(timespec="minutes")`, matching
