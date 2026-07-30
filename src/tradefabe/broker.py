@@ -1,9 +1,11 @@
-"""Alpaca paper-trading broker wrapper (#5).
+"""Alpaca paper-trading broker wrapper (#5, order placement added #134).
 
-Scope of this module, deliberately narrow: CONNECTION only. runner.py/books.py still do
-every book's simulated-fill accounting -- nothing here routes an order through them yet.
-Proving the credentials actually authenticate against Alpaca's paper endpoint is its own
-step before wiring anything into the engine; that wiring is a follow-up, not this change.
+Scope of this module, deliberately narrow: a thin wrapper for CONNECTIVITY and one-off
+DIAGNOSTIC order placement (#134's empirical cost check). runner.py/books.py still do
+every book's simulated-fill accounting -- nothing here routes a BOOK's rebalance through
+Alpaca yet. Proving the credentials authenticate, and that a real paper order round-trips
+to a real fill, are both steps before wiring this into the live engine; that wiring is a
+follow-up, not this file.
 
 **Paper only, always, no exceptions.** `client()` hardcodes `paper=True` -- it is not read
 from `ALPACA_PAPER_TRADE`, so that env var being anything other than unset can't flip it.
@@ -121,3 +123,52 @@ def check_connection() -> dict:
         "portfolio_value": str(acct.portfolio_value),
         "pattern_day_trader": acct.pattern_day_trader,
     }
+
+
+def market_is_open() -> bool:
+    """True if Alpaca's clock says the market is open right now. A market order submitted
+    while closed queues rather than filling immediately -- callers that need a same-call
+    fill (e.g. cost_check.py, #134) must check this first and refuse to run otherwise."""
+    return bool(client().get_clock().is_open)
+
+
+def submit_market_order(symbol: str, notional: float, side: str):
+    """Submit a real Alpaca PAPER market order for `notional` dollars of `symbol`.
+
+    `side` is "buy" or "sell". Uses `notional` (a dollar amount), not `qty` (a share
+    count), so a caller doesn't need to know the current price to size a small order.
+    `client()` already hardcodes paper=True -- this places a real order against that paper
+    account, not a simulation on top of it. Returns the alpaca-py Order object (has `.id`,
+    `.status`, not yet a fill -- pass `.id` to await_fill())."""
+    _require()
+    from alpaca.trading.requests import MarketOrderRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce
+    req = MarketOrderRequest(
+        symbol=symbol, notional=notional,
+        side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
+        time_in_force=TimeInForce.DAY,
+    )
+    return client().submit_order(req)
+
+
+def await_fill(order_id, timeout: float = 30.0, poll_interval: float = 1.0) -> float:
+    """Poll `order_id` until it fills, then return the realized fill price.
+
+    Raises RuntimeError if the order is rejected/canceled/expired, or TimeoutError if it's
+    still not in a terminal state after `timeout` seconds -- a market order during market
+    hours should fill in well under that, so a timeout here is itself a signal something's
+    wrong, not routine."""
+    _require()
+    from alpaca.trading.enums import OrderStatus
+    import time
+    c = client()
+    deadline = time.monotonic() + timeout
+    while True:
+        order = c.get_order_by_id(order_id)
+        if order.status == OrderStatus.FILLED:
+            return float(order.filled_avg_price)
+        if order.status in (OrderStatus.REJECTED, OrderStatus.CANCELED, OrderStatus.EXPIRED):
+            raise RuntimeError(f"order {order_id} ended as {order.status}, not filled")
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"order {order_id} still {order.status} after {timeout}s")
+        time.sleep(poll_interval)

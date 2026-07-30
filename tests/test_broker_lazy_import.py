@@ -117,3 +117,97 @@ def test_client_hardcodes_paper_true_regardless_of_the_env_flag(monkeypatch):
     assert captured["paper"] is True
     assert captured["key_id"] == "test-key"
     assert isinstance(client, _FakeTradingClient)
+
+
+# ---------------------------------------------------------------- order placement (#134)
+def _fake_client(monkeypatch, **methods):
+    """Patch broker.client() to return an object with the given method -> return_value (or
+    callable) pairs, so order-placement tests never construct a real TradingClient/hit the
+    network."""
+    class _Fake:
+        pass
+    fake = _Fake()
+    for name, behavior in methods.items():
+        setattr(fake, name, behavior)
+    monkeypatch.setattr(broker, "client", lambda: fake)
+    return fake
+
+
+def test_submit_market_order_uses_notional_and_the_right_side(monkeypatch):
+    pytest.importorskip("alpaca")
+    monkeypatch.setattr(broker, "is_available", lambda: True)
+    captured = {}
+
+    def _capture(req):
+        captured["req"] = req
+        return req
+
+    _fake_client(monkeypatch, submit_order=_capture)
+
+    broker.submit_market_order("SPY", 50.0, "buy")
+    from alpaca.trading.enums import OrderSide, TimeInForce
+    req = captured["req"]
+    assert req.symbol == "SPY"
+    assert req.notional == pytest.approx(50.0)
+    assert req.side == OrderSide.BUY
+    assert req.time_in_force == TimeInForce.DAY
+
+    broker.submit_market_order("SPY", 50.0, "sell")
+    assert captured["req"].side == OrderSide.SELL
+
+
+def test_await_fill_polls_until_filled_and_returns_the_fill_price(monkeypatch):
+    pytest.importorskip("alpaca")
+    monkeypatch.setattr(broker, "is_available", lambda: True)
+    from alpaca.trading.enums import OrderStatus
+
+    class _Order:
+        def __init__(self, status, filled_avg_price=None):
+            self.status = status
+            self.filled_avg_price = filled_avg_price
+
+    calls = iter([_Order(OrderStatus.NEW), _Order(OrderStatus.FILLED, 123.45)])
+    _fake_client(monkeypatch, get_order_by_id=lambda oid: next(calls))
+
+    price = broker.await_fill("fake-order-id", timeout=5, poll_interval=0)
+    assert price == pytest.approx(123.45)
+
+
+def test_await_fill_raises_when_the_order_is_rejected(monkeypatch):
+    pytest.importorskip("alpaca")
+    monkeypatch.setattr(broker, "is_available", lambda: True)
+    from alpaca.trading.enums import OrderStatus
+
+    class _Order:
+        status = OrderStatus.REJECTED
+        filled_avg_price = None
+
+    _fake_client(monkeypatch, get_order_by_id=lambda oid: _Order())
+    with pytest.raises(RuntimeError, match="REJECTED"):
+        broker.await_fill("fake-order-id", timeout=5, poll_interval=0)
+
+
+def test_await_fill_times_out_if_never_filled(monkeypatch):
+    pytest.importorskip("alpaca")
+    monkeypatch.setattr(broker, "is_available", lambda: True)
+    from alpaca.trading.enums import OrderStatus
+
+    class _Order:
+        status = OrderStatus.NEW
+        filled_avg_price = None
+
+    _fake_client(monkeypatch, get_order_by_id=lambda oid: _Order())
+    with pytest.raises(TimeoutError):
+        broker.await_fill("fake-order-id", timeout=0.05, poll_interval=0.01)
+
+
+def test_market_is_open_reads_the_alpaca_clock(monkeypatch):
+    class _Clock:
+        def __init__(self, is_open):
+            self.is_open = is_open
+
+    _fake_client(monkeypatch, get_clock=lambda: _Clock(True))
+    assert broker.market_is_open() is True
+
+    _fake_client(monkeypatch, get_clock=lambda: _Clock(False))
+    assert broker.market_is_open() is False
