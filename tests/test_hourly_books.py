@@ -94,13 +94,28 @@ def test_all_three_names_are_registered_for_the_summary():
                                      "funding_timing_1h"}
 
 
-def test_runner_includes_only_books_that_exist_on_disk():
-    """A never-run hourly book must not appear as a phantom $100k row."""
-    from tradefabe import runner
-    from tradefabe.paths import STATE_DIR
-    import inspect
-    src = inspect.getsource(runner.write_summary)
-    assert ".exists()" in src, "summary must filter to books that exist on disk"
+def test_runner_includes_only_books_that_exist_on_disk(monkeypatch, tmp_path):
+    """A never-run hourly book must not appear as a phantom $100k row.
+
+    Asserted BEHAVIOURALLY. This used to grep write_summary's source for ".exists()", which
+    broke the moment #126 factored the check into runner._live_on_disk() -- the property was
+    still true, the test was just looking at the wrong place. A test that can pass while the
+    behaviour is broken, or fail while it is fine, is not testing the behaviour."""
+    import pandas as pd
+    from tradefabe import books, runner
+    monkeypatch.setattr(books, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(runner, "STATE_DIR", tmp_path)
+    # exactly one hourly book on disk; the other two have never run
+    live = hourly.ALL_NAMES[0]
+    books.save({"name": live, "cash": 0.0, "positions": {}, "equity": 42.0,
+                "history": [["2026-07-29T00:00", 42.0]], "last_run": None,
+                "last_rebalance": None})
+
+    summary = runner.write_summary(pd.Series(dtype=float))
+    reported = set(summary["book"])
+    assert live in reported
+    for absent in hourly.ALL_NAMES[1:]:
+        assert absent not in reported, f"{absent} has no ledger but was reported"
 
 
 def test_run_hourly_never_raises(monkeypatch):

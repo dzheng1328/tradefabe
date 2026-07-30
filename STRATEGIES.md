@@ -602,6 +602,37 @@ live books, not the backtest, are the real test here" above, forward paper data 
 uncontaminated, unselected evidence, and DOCTRINE v1.2 permits these as **monitor-only books
 forever, never `paper-confirmed`.**
 
+#### Live monitor-only books, opened 2026-07-29 (#126)
+
+Two of the three are live: **`kronos_wick_agg`** and **`carry_kronos_vol`**, both at $100k,
+both monitor-only forever under v1.2 and never auto-retired under v1.6. Signals come from
+`src/tradefabe/kronos.py` — the same functions the study called, imported by
+`kronos_live.py` rather than copied, so the live/backtest splice chart compares one strategy
+to itself. Every live forecast is appended to the same `artifacts/kronos_forecasts.csv` the
+verdict was rendered from: one record, growing forward, because stochastic sampling means a
+position that isn't snapshotted can never be audited.
+
+**`kronos_dir_daily` is deliberately NOT live.** Dave's criterion for family M was "only the
+ones that are profitable" over the clean window, and its OOS Sharpe was −1.17 on a negative
+return, against +0.69 and +3.10 for the other two.
+
+**The tension in that, stated rather than hidden:** choosing which books to *open* on their
+backtest result is selection-on-result, and it does weaken the "unselected by construction"
+claim above — the forward record is now of two pre-filtered books, not three. Two things keep
+it defensible rather than fatal: it is the same selection every promotion in this lab already
+makes (the factory promotes its best-DSR candidate), and it happens **once, at open, on a
+pre-registered criterion**, not repeatedly on accumulating forward data — which is exactly
+what v1.6 forbids. `kronos_live.LIVE_BOOKS` is a one-line change if the unfiltered record is
+wanted later.
+
+**Cost of running them.** Inference needs torch and a ~400MB checkpoint, so the daily `run`
+job installs the CPU-only wheel and caches the weights; the hourly `mark` job does neither.
+All three books are freq D, so a mark has nothing to forecast — it marks them from prices like
+any other book. `kronos_wick_agg` needs its own hourly price source (`pricing.wick_hourly`):
+its 14 single names are not in `UNIVERSE`, and without that every mark would price its
+holdings at NaN. If the extra is missing or inference fails, `run_kronos()` skips the books
+and touches no ledger — an 18-book cycle must not fall over because a model download did.
+
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
 2. One verdict per spec. Tweaks = a NEW row and a NEW graveyard entry.
