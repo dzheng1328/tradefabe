@@ -119,6 +119,28 @@ def _fill_with_generated(candidates, n, rng, exclude, verbose):
     return candidates
 
 
+def rank_for_promotion(rows):
+    """Picks this cycle's promotion winner from `rows` (rows_for()'s graveyard rows for
+    the cycle's candidates) by `cpcv_sharpe_mean` -- the CPCV-resampled, ANNUALIZED OOS
+    Sharpe, comparable across rebalance frequencies -- falling back to `oos_sharpe` when
+    CPCV wasn't computable for a candidate (too short a series, see
+    harness.cpcv_oos_sharpes).
+
+    NOT `dsr` (#145): dsr saturates at exactly 1.0 for every daily-rebalanced candidate
+    (families C/turn_of_month and I/donchian) regardless of real quality, because those
+    families' noise-floor-implied luck bar (sr_star) comes out deeply negative --
+    documented in harness.dsr_gate1's own docstring as the reason DOCTRINE v1.8 added a
+    positive-Sharpe floor to the GRAVEYARD VERDICT. That guard was never applied to this
+    ranking, so `rows["dsr"].idxmax()` was really breaking a permanent C-vs-I tie by
+    candidate list order (_fill_with_generated()'s unshuffled A,B,C,D,I round-robin put C
+    first) -- 6/6 promoted generated books were turn_of_month before this fix, despite
+    generation itself being even across all 5 families."""
+    ranked = rows.copy()
+    ranked["_promotion_sharpe"] = pd.to_numeric(
+        ranked["cpcv_sharpe_mean"], errors="coerce").fillna(ranked["oos_sharpe"])
+    return ranked.loc[ranked["_promotion_sharpe"].idxmax()]
+
+
 def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
     """Runs one factory cycle: evaluate a batch of up to `n` candidates (templates
     first, then live-generated to fill the rest), one correlation-picked combo, and
@@ -191,7 +213,7 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
                 combo_returns = combo
                 combo_spec = _combo_spec(combo_name, candidates, leg_a, leg_b)
 
-    # ---- promote the single best-DSR candidate this cycle, regardless of verdict ----
+    # ---- promote the single best-ranked candidate this cycle, regardless of verdict ----
     # The combo competes in this SAME ranking (#64) rather than being promoted on top of
     # the winner: it fixes the asymmetry (the factory could promote an individual it
     # discovered but not a combo it discovered) without changing the one-new-book-per-
@@ -199,7 +221,7 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
     pool = names_this_cycle + ([combo_name] if combo_spec else [])
     rows = rows_for(pool)
     if len(rows):
-        best = rows.loc[rows["dsr"].idxmax()]
+        best = rank_for_promotion(rows)
         best_name = best["strategy"]
         if combo_spec and best_name == combo_name:
             factory.promote_combo(combo_spec)
@@ -213,8 +235,9 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
             _persist_backtest_curve(best_name, oos_returns[best_name])
         if verbose:
             tag = "monitor-only" if best["verdict"] == "DEAD" else "ALIVE"
-            print(f"\nbest of cycle: {best_name} (DSR {best['dsr']:.3f}, {tag}) -> "
-                  f"promoted to a live paper book (opens at $100k on the next tradefabe run)")
+            print(f"\nbest of cycle: {best_name} (CPCV/OOS Sharpe {best['_promotion_sharpe']:.2f}, "
+                  f"DSR {best['dsr']:.3f}, {tag}) -> promoted to a live paper book "
+                  f"(opens at $100k on the next tradefabe run)")
 
     return evaluated
 

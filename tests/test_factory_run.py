@@ -92,12 +92,13 @@ def test_generated_candidates_are_logged_to_the_ledger_before_evaluation(scratch
 
 
 # ---------------------------------------------------------------- promotion (#28b)
-# #28b supersedes #29's "promote only if ALIVE" rule: the single best-DSR candidate
+# #28b supersedes #29's "promote only if ALIVE" rule: the single best-ranked candidate
 # this cycle is promoted regardless of verdict (Dave's explicit call). Real evaluate()
 # outcomes are all DEAD for both real and this synthetic data (same as the actual
-# project's track record) -- force a specific candidate's DSR via rows_for() to test the
+# project's track record) -- force a specific candidate's rank via rows_for() to test the
 # RANKING/PROMOTION WIRING itself, decoupled from evaluate()'s own statistics (already
-# covered by test_deflated_sharpe.py).
+# covered by test_deflated_sharpe.py). Forces cpcv_sharpe_mean, not dsr (#145): dsr is no
+# longer the promotion ranking key -- see rank_for_promotion()'s docstring for why.
 def _force_winner(monkeypatch, winner_holder):
     real_rows_for = factory_run.rows_for
 
@@ -105,12 +106,12 @@ def _force_winner(monkeypatch, winner_holder):
         rows = real_rows_for(names)
         winner_holder["name"] = names[0]
         rows = rows.copy()
-        rows.loc[rows["strategy"] == names[0], "dsr"] = 0.999
+        rows.loc[rows["strategy"] == names[0], "cpcv_sharpe_mean"] = 99.0
         return rows
     monkeypatch.setattr(factory_run, "rows_for", fake_rows_for)
 
 
-def test_run_cycle_promotes_the_best_dsr_candidate_regardless_of_verdict(scratch_graveyard, monkeypatch):
+def test_run_cycle_promotes_the_best_ranked_candidate_regardless_of_verdict(scratch_graveyard, monkeypatch):
     winner = {}
     _force_winner(monkeypatch, winner)
     factory_run.run_cycle(n=4, seed=42, verbose=False)
@@ -118,6 +119,33 @@ def test_run_cycle_promotes_the_best_dsr_candidate_regardless_of_verdict(scratch
     promoted_templates = set(factory_run.factory.load_promoted())
     promoted_generated = {g["name"] for g in factory_run.factory.load_promoted_generated()}
     assert (promoted_templates | promoted_generated) == {winner["name"]}
+
+
+# #145: dsr saturates at exactly 1.0 for every daily-rebalanced candidate (families C and
+# I) regardless of real quality -- see harness.dsr_gate1's docstring. Promotion used to
+# rank on raw dsr, so a saturated tie was really decided by candidate list order
+# (_fill_with_generated()'s unshuffled A,B,C,D,I round-robin), which is why 6/6 real
+# promoted-generated books were turn_of_month before this fix despite generation being
+# even across all 5 families. rank_for_promotion() must resolve a dsr tie by
+# cpcv_sharpe_mean (a continuous, non-saturating, cross-frequency-comparable estimate),
+# not by whichever candidate happens to come first.
+def test_promotion_breaks_a_saturated_dsr_tie_by_cpcv_sharpe_not_row_order(scratch_graveyard, monkeypatch):
+    real_rows_for = factory_run.rows_for
+    winner = {}
+
+    def fake_rows_for(names):
+        rows = real_rows_for(names).copy()
+        rows["dsr"] = 1.0             # saturate every candidate, same as the real bug
+        rows["cpcv_sharpe_mean"] = -5.0
+        winner["name"] = names[1]     # deliberately NOT names[0] -- the old idxmax(dsr)
+        rows.loc[rows["strategy"] == winner["name"], "cpcv_sharpe_mean"] = 5.0
+        return rows
+    monkeypatch.setattr(factory_run, "rows_for", fake_rows_for)
+
+    factory_run.run_cycle(n=4, seed=42, verbose=False)
+    promoted = set(factory_run.factory.load_promoted()) | \
+        {g["name"] for g in factory_run.factory.load_promoted_generated()}
+    assert promoted == {winner["name"]}
 
 
 def test_run_cycle_promotes_a_dead_best_candidate_not_just_alive_ones(scratch_graveyard, monkeypatch):
@@ -158,7 +186,7 @@ def test_run_cycle_promotes_a_generated_winner_via_promote_generated_with_full_s
 def test_run_cycle_can_promote_the_combo_when_it_wins(scratch_graveyard, monkeypatch):
     # #64 reversed the old contract: the combo used to be excluded from the promotion
     # ranking entirely (piggyback.py's registry was a fixed dict, so a combo could not
-    # become a live book). It now competes on equal terms. Force it to have the top DSR
+    # become a live book). It now competes on equal terms. Force it to have the top rank
     # and confirm it is promoted -- into the COMBO registry, with its legs' full specs.
     real_rows_for = factory_run.rows_for
 
@@ -166,8 +194,8 @@ def test_run_cycle_can_promote_the_combo_when_it_wins(scratch_graveyard, monkeyp
         rows = real_rows_for(names).copy()
         combo = [n for n in names if n.startswith("factory_combo_")]
         assert combo, "the combo must be in the ranking pool now"
-        rows.loc[rows["strategy"].isin(combo), "dsr"] = 1.0
-        rows.loc[~rows["strategy"].isin(combo), "dsr"] = 0.0
+        rows.loc[rows["strategy"].isin(combo), "cpcv_sharpe_mean"] = 1.0
+        rows.loc[~rows["strategy"].isin(combo), "cpcv_sharpe_mean"] = 0.0
         return rows
     monkeypatch.setattr(factory_run, "rows_for", fake_rows_for)
 
@@ -190,8 +218,8 @@ def test_combo_promotion_does_not_also_promote_an_individual(scratch_graveyard, 
     def fake_rows_for(names):
         rows = real_rows_for(names).copy()
         combo = [n for n in names if n.startswith("factory_combo_")]
-        rows.loc[rows["strategy"].isin(combo), "dsr"] = 1.0
-        rows.loc[~rows["strategy"].isin(combo), "dsr"] = 0.0
+        rows.loc[rows["strategy"].isin(combo), "cpcv_sharpe_mean"] = 1.0
+        rows.loc[~rows["strategy"].isin(combo), "cpcv_sharpe_mean"] = 0.0
         return rows
     monkeypatch.setattr(factory_run, "rows_for", fake_rows_for)
 
@@ -199,16 +227,25 @@ def test_combo_promotion_does_not_also_promote_an_individual(scratch_graveyard, 
     individuals = set(factory_run.factory.load_promoted()) | \
         {g["name"] for g in factory_run.factory.load_promoted_generated()}
     assert not individuals, "combo won, so no individual should have been promoted"
+def _all_promoted_names():
+    # union across all three registries -- a cycle's winner can be a template, a
+    # generated candidate, OR a combo (#64); this only cares that something new landed
+    # SOMEWHERE, not which registry.
+    return (set(factory_run.factory.load_promoted())
+            | {g["name"] for g in factory_run.factory.load_promoted_generated()}
+            | {c["name"] for c in factory_run.factory.load_promoted_combos()})
+
+
 def test_run_cycle_promotion_accumulates_across_cycles(scratch_graveyard):
     factory_run.run_cycle(n=4, seed=1, verbose=False)
-    first_promoted = set(factory_run.factory.load_promoted())
+    first_promoted = _all_promoted_names()
     assert len(first_promoted) == 1   # exactly one best-of-cycle winner
 
     # a second cycle draws NEW candidates (already-tested excludes the first batch) --
     # Dave's explicit choice: promoted books ACCUMULATE, one per cycle, not a single
     # rotating slot.
     factory_run.run_cycle(n=4, seed=2, verbose=False)
-    second_promoted = set(factory_run.factory.load_promoted())
+    second_promoted = _all_promoted_names()
     assert len(second_promoted) == 2
     assert first_promoted < second_promoted
 
@@ -234,6 +271,4 @@ def test_run_cycle_persisted_curve_accumulates_columns_across_cycles(scratch_gra
     factory_run.run_cycle(n=4, seed=2, verbose=False)
     curve = pd.read_csv(factory_run.FACTORY_RETURNS_PATH, index_col=0, parse_dates=True)
     assert curve.shape[1] == 2   # one column per cycle's winner, not overwritten
-
-    promoted = factory_run.factory.load_promoted()
-    assert set(curve.columns) == set(promoted)
+    assert set(curve.columns) == _all_promoted_names()
