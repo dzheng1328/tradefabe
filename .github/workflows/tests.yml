@@ -14,9 +14,10 @@ jobs:
 
       - name: no iCloud conflict duplicates
         # A committed "<name> 2.<ext>" copy of a workflow made GitHub run the paper
-        # engine twice on every schedule. Cheap to check, expensive to miss.
+        # engine twice on every schedule. Cheap to check, expensive to miss. Extension
+        # optional: a symlink like ".venv 3" is the same iCloud pattern with no "."ext.
         run: |
-          DUPES=$(git ls-files | grep -E ' [0-9]+\.[A-Za-z0-9]+$' || true)
+          DUPES=$(git ls-files | grep -E ' [0-9]+(\.[A-Za-z0-9]+)?$' || true)
           if [ -n "$DUPES" ]; then
             echo "::error::iCloud conflict duplicates are tracked:"; echo "$DUPES"
             exit 1

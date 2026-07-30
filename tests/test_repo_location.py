@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-CONFLICT_COPY = re.compile(r" \d+\.[A-Za-z0-9]+$")   # "paper-engine 2.yml"
+CONFLICT_COPY = re.compile(r" \d+(\.[A-Za-z0-9]+)?$")   # "paper-engine 2.yml", ".venv 3"
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin",
                                 reason="iCloud sync dirs are macOS-only; CI runs on linux")
