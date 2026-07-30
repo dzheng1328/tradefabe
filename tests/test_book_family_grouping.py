@@ -221,3 +221,19 @@ def test_sort_books_flat_respects_the_monitor_only_filter():
     rows = app.sort_books_flat(_psum(names), phist=None, gy_last=gy,
                                show_monitor_only=False, sort_key="total_return")
     assert [r["book"] for r in rows] == ["carry_btc_eth"]
+
+
+# ---------------------------------------------------------------- accrual-only books (#143)
+def test_accrual_only_books_names_the_three_funding_accrual_books():
+    # a regression guard: these three update equity via a direct multiplicative funding
+    # accrual (kronos_live.run_carry_kronos, hourly.run_funding_timing, carry_live.run_carry)
+    # and never call books.rebalance_to()/log_trades(), so they can NEVER populate `trades`
+    # -- the trade-log caption must special-case exactly this set, not a superset or subset.
+    assert app.ACCRUAL_ONLY_BOOKS == {"carry_btc_eth", "carry_kronos_vol", "funding_timing_1h"}
+
+
+def test_accrual_only_books_excludes_a_normal_rebalancing_book():
+    # kronos_wick_agg DOES call books.rebalance_to() -- it just may have zero target
+    # weights on a given day. It must keep the generic "no fills yet" caption, which is
+    # still accurate for it (a fill may still show up next cycle).
+    assert "kronos_wick_agg" not in app.ACCRUAL_ONLY_BOOKS

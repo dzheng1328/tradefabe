@@ -315,6 +315,17 @@ def fmt(v, kind="ratio"):
     return f"{v:.2f}" if kind == "ratio" else f"{v:.1%}"
 
 
+# Delta-neutral carry/gated-carry books (#143). These update equity via a direct
+# multiplicative funding accrual (kronos_live.run_carry_kronos(), hourly.run_funding_timing(),
+# carry_live.run_carry()) and NEVER call books.rebalance_to()/log_trades() -- there is no
+# discrete "trade" in their economics, just a continuous funding payment. Unlike a book
+# that simply hasn't had a qualifying signal fire yet (e.g. kronos_wick_agg, which DOES
+# call rebalance_to() and will eventually log a fill), these will NEVER populate `trades`,
+# so the generic "no fills yet, starts at next rebalance" caption is actively false for
+# them -- same small-explicit-set pattern as BOOK_FAMILY/STRATEGY_DESCRIPTIONS.
+ACCRUAL_ONLY_BOOKS = {"carry_btc_eth", "carry_kronos_vol", "funding_timing_1h"}
+
+
 def render_trade_log(data):
     """The fill log: what was traded, when, at what price (#109).
 
@@ -322,12 +333,20 @@ def render_trade_log(data):
     only the resulting position — so a book could be watched but never seen ACTING. Every
     row here is one real simulated fill from the ledger.
 
-    Deliberately no per-book branching: any ledger carrying a `trades` list renders, so a
-    new book source needs no change here (same contract as `pricing.BOOK_SOURCE`)."""
+    Deliberately no per-book branching for books THAT CAN have trades: any ledger carrying
+    a `trades` list renders, so a new book source needs no change here (same contract as
+    `pricing.BOOK_SOURCE`). ACCRUAL_ONLY_BOOKS is the one necessary exception -- those
+    books structurally never populate `trades`, so they need a caption that says so."""
     tdf = data.get("trades_df")
     if tdf is None:
         return
     st.markdown("**Trade log**")
+    name = (data.get("book_json") or {}).get("name")
+    if tdf.empty and name in ACCRUAL_ONLY_BOOKS:
+        st.caption("This book is delta-neutral carry: its value moves from funding "
+                   "accrual, not discrete trades, so no fill log ever applies here — "
+                   "not an empty log waiting to fill, a different economics entirely.")
+        return
     if tdf.empty:
         st.caption("No fills recorded yet. The log starts at this book's next rebalance — "
                    "earlier trades happened before the ledger recorded them (#109) and "
