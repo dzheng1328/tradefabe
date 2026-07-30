@@ -465,10 +465,15 @@ def dsr_gate1(r_oos, null, n_tested):
     }
 
 
-def evaluate(name, r_full, bench_full, null, freq, n_tested=None):
+def evaluate(name, r_full, bench_full, null, freq, n_tested=None, bench_label="60/40"):
     """n_tested: size of the multiple-testing family for the Bonferroni correction
     (DOCTRINE v1.3). Defaults to family_n_tested([name]) -- graveyard's count unioned
     with just this one candidate -- for callers evaluating one strategy at a time.
+
+    bench_label: what to print next to the benchmark stats. `bench_full` is not always
+    the 60/40 passive benchmark -- e.g. carry studies pass always-on carry -- and the
+    print used to say "(60/40)" regardless, reading as a data bug (#122). Cosmetic
+    only; the comparison itself was always against whatever `bench_full` is.
 
     Gate 1 ("beats luck") is decided by the Deflated Sharpe Ratio (DOCTRINE v1.4,
     `dsr_gate1()`), not the Bonferroni bar -- `bonferroni_bar()` is still computed and
@@ -491,7 +496,7 @@ def evaluate(name, r_full, bench_full, null, freq, n_tested=None):
 
     print(f"\n=== DOCTRINE verdict: {name} (reb {freq}) ===")
     print(f"  strategy  Sharpe {s['Sharpe']:.2f} | Sortino {s['Sortino']:.2f} | Calmar {calmar(s):.2f} | MaxDD {s['MaxDD']:.1%} | corr->bench {corr:.2f}")
-    print(f"  benchmark Sharpe {b['Sharpe']:.2f} | Calmar {calmar(b):.2f} | MaxDD {b['MaxDD']:.1%}   (60/40)")
+    print(f"  benchmark Sharpe {b['Sharpe']:.2f} | Calmar {calmar(b):.2f} | MaxDD {b['MaxDD']:.1%}   ({bench_label})")
     print(f"  noise floor ({freq}-rebalanced random, n_tested={n_tested}): Bonferroni {bar_method} p{bar_pctile:.2f} = {null_bar:.2f} (logged only)")
     print(f"  DSR (v1.4): {v14['dsr']:.3f} vs SR* {v14['sr_star']:.2f} annualized "
           f"({v14['cpcv_n_paths']} CPCV paths, skew {v14['skew']:.2f}, kurt {v14['kurtosis']:.2f})")

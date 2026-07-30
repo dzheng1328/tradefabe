@@ -344,7 +344,8 @@ def main():
             r_carry, always = carry_returns(funding, scale)
             rng = np.random.default_rng(0)
             judge("carry_kronos_vol", r_carry, always,
-                     carry_null(always, args.trials, rng), "D", n_tested=n_tested)
+                     carry_null(always, args.trials, rng), "D", n_tested=n_tested,
+                     bench_label="always-on carry")
             curves["carry_kronos_vol"] = r_carry
         else:
             print("\n[skip] carry_kronos_vol: no crypto forecasts in the snapshot")
