@@ -14,7 +14,7 @@ import os
 import numpy as np
 import pandas as pd
 import streamlit as st
-from tradefabe import risk_register
+from tradefabe import risk_register, factory
 # Constant only -- kronos.py imports torch LAZILY (inside predictor()), so this costs the
 # dashboard nothing and does not require the [kronos] extra to be installed.
 from tradefabe.kronos import KRONOS_OOS_START
@@ -803,6 +803,57 @@ def book_family(name):
 FAMILY_EXTRA_METRICS = {}
 
 
+REVIEW_AGE_DAYS = 60   # #147 -- how long a factory-promoted book monitors before it
+                       # surfaces for Dave's manual review. Not a retirement trigger:
+                       # nothing here closes, freezes, or hides a book on its own: see
+                       # books_up_for_review()'s docstring.
+
+
+def factory_owned_names() -> set:
+    """Every book the factory itself has ever promoted (template + generated + combo
+    origin) -- the pool research/factory_run.py's MAX_FACTORY_PROMOTED (#147) bounds.
+    Hand-picked, hourly (family L), and Kronos (family M) books are never in this set:
+    the factory doesn't touch them, so they have no accumulation problem to review."""
+    return (set(factory.load_promoted())
+            | {g["name"] for g in factory.load_promoted_generated()}
+            | {c["name"] for c in factory.load_promoted_combos()})
+
+
+def books_up_for_review(psum, phist, review_days=REVIEW_AGE_DAYS) -> list:
+    """Factory-owned books that have been live `review_days`+ and aren't already
+    retired -- a READ-ONLY nudge, not a retirement mechanism (#147). DOCTRINE v1.6
+    (#113) is explicit: retiring a paper book is Dave's decision alone, no performance
+    trigger, no drawdown threshold, no age rule -- so this list has no button and takes
+    no action of its own. It exists purely so a factory-promoted book doesn't sit
+    unreviewed forever just because nobody remembered it was there; the only way to
+    actually retire one is still `tradefabe retire <book> --reason "..."`, run by hand.
+
+    Returns rows sorted oldest-first (most overdue for a look), each carrying enough to
+    decide without leaving the dashboard: book, days_live, equity, return, verdict."""
+    if psum is None or psum.empty:
+        return []
+    introduced = book_introduced_dates(phist)
+    owned = factory_owned_names()
+    cutoff_days = pd.Timestamp.now().normalize()
+    out = []
+    for _, r in psum.iterrows():
+        name = r["book"]
+        if name not in owned:
+            continue
+        if pd.notna(r.get("retired_at")) and r.get("retired_at"):
+            continue
+        intro = introduced.get(name, pd.NaT)
+        if pd.isna(intro):
+            continue
+        days_live = (cutoff_days - intro.normalize()).days
+        if days_live < review_days:
+            continue
+        out.append({"book": name, "days_live": days_live, "equity": r["equity"],
+                    "return": r["return"], "introduced": intro})
+    out.sort(key=lambda r: r["days_live"], reverse=True)
+    return out
+
+
 def _is_monitor_only(name, gy_last):
     """A book is 'monitor-only' when it's live but backtest-DEAD (DOCTRINE v1.2's
     paper-testing scope: paper-tracked for research/dashboard value, never eligible for
@@ -972,6 +1023,31 @@ def render_book_status(psum, phist, gy_last=None):
                 render_card(col, r, show_today_return=(sort_key == "return_today"))
 
 
+def render_up_for_review(psum, phist, gy_last):
+    """Read-only nudge (#147) -- lists factory-owned books past REVIEW_AGE_DAYS so they
+    don't sit unreviewed just because nobody remembered them, WITHOUT taking any action
+    itself. No button here retires anything; the only real path is `tradefabe retire`,
+    run by hand, same as always -- see books_up_for_review()'s docstring for why."""
+    rows = books_up_for_review(psum, phist)
+    if not rows:
+        return
+    with st.expander(f"Up for review ({len(rows)})", icon=":material/history:"):
+        st.caption(
+            f"Factory-promoted, live {REVIEW_AGE_DAYS}+ days. A nudge to look, not an "
+            "automatic action -- DOCTRINE v1.6 makes retiring a book your decision "
+            "alone. Free a slot with `.venv/bin/tradefabe retire <book> --reason \"...\"`.")
+        df = pd.DataFrame(rows)
+        df["verdict"] = df["book"].map(
+            lambda n: gy_last.loc[n, "verdict"] if gy_last is not None and n in gy_last.index else "—")
+        df["introduced"] = df["introduced"].dt.strftime("%-m.%-d.%y")
+        df["equity"] = df["equity"].map(fmt_full_dollars)
+        df["return"] = df["return"].map(lambda v: f"{v:+.2%}")
+        df = df.rename(columns={"book": "Book", "days_live": "Days live", "introduced": "Introduced",
+                                "equity": "Equity", "return": "Return", "verdict": "Backtest verdict"})
+        st.dataframe(df[["Book", "Days live", "Introduced", "Equity", "Return", "Backtest verdict"]],
+                    hide_index=True, width="stretch")
+
+
 # ==================================================================== Paper Books view
 def render_paper_books(psum, phist, full, meta, gy_last):
     st.markdown(
@@ -986,6 +1062,7 @@ def render_paper_books(psum, phist, full, meta, gy_last):
     render_book_status(psum, phist, gy_last)
     st.caption(f"Books start at $100k paper capital. Last run: **{psum['last_run'].max()}** · "
                "run `.venv/bin/tradefabe run` daily (or via cron) to advance.")
+    render_up_for_review(psum, phist, gy_last)
 
     st.divider()
     names = psum["book"].tolist()

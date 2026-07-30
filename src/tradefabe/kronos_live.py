@@ -54,7 +54,7 @@ CARRY_BOOK = "carry_kronos_vol"
 # result is selection-on-result, and it does weaken STRATEGIES.md's claim that the forward
 # record is "unselected by construction" -- the forward record is now of two pre-filtered
 # books. It is the same kind of selection every promotion in this lab already makes (the
-# factory promotes its best-DSR candidate), and it is Dave's explicit call, so it stands.
+# factory promotes its best-ranked candidate), and it is Dave's explicit call, so it stands.
 # Adding DIR_BOOK to this tuple is the one-line change that makes the record unfiltered.
 LIVE_BOOKS = (WICK_BOOK, CARRY_BOOK)
 

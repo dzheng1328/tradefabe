@@ -95,7 +95,13 @@ overnight holes. **The Action is now the sole owner of `state/`**; the plists re
 The factory is paused deliberately, not broken ([#98](https://github.com/dzheng1328/tradefabe/issues/98)):
 it promoted a book every cycle regardless of verdict, so finding something and finding nothing
 produced the same outcome, while every draw raised the multiple-testing bar for all future
-candidates. `gh workflow run "paper engine" -f job=factory` still triggers it by hand.
+candidates. `gh workflow run "paper engine" -f job=factory` still triggers it by hand. The
+unbounded-accumulation half of #98 now has a direct fix regardless of the pause:
+`MAX_FACTORY_PROMOTED` ([#147](https://github.com/dzheng1328/tradefabe/issues/147)) caps the
+factory-owned pool (templates + generated + combos) and the dashboard surfaces a read-only
+"up for review" list for anything old — never a retirement trigger, still Dave's call alone
+per DOCTRINE v1.6. Whether to resume the cron is the separate, still-open strategic question
+`RUNDOWN.md` leaves unanswered: would a factory ALIVE have been pleasing or alarming?
 
 Five more automations run *inside* those jobs rather than on their own schedule: family L's
 hourly monitor books, family M's Kronos books (daily only — inference needs torch and a

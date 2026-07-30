@@ -24,14 +24,17 @@ least-correlated pair in the batch (unchanged from #28) -- evaluated and logged,
 eligible for promotion (see below).
 
 PROMOTION (#28b, supersedes #29's "promote if ALIVE" rule): the SINGLE best individual
-candidate this cycle, ranked by DSR, is promoted to a live paper book regardless of
-verdict -- Dave's explicit call: "it doesn't have to be a winner... we still note
-whether it's alive or dead but just keep track of it." A promoted DEAD candidate is
-monitor-only, same status DOCTRINE v1.2 already gives backtest-DEAD hand-picked books
-kept live for research value. This accumulates one new book per cycle -- Dave's explicit
-choice over a single rotating "champion" slot. The combo is excluded from this ranking:
-piggyback.py's registry is still a fixed hand-picked dict, not yet dynamic; wiring combo
-promotion through it is a natural follow-up, not half-wired here.
+candidate this cycle, ranked by a CPCV-resampled OOS Sharpe (rank_for_promotion(), #145
+-- NOT raw DSR, which saturates for daily-rebalanced families), is promoted to a live
+paper book regardless of verdict -- Dave's explicit call: "it doesn't have to be a
+winner... we still note whether it's alive or dead but just keep track of it." A
+promoted DEAD candidate is monitor-only, same status DOCTRINE v1.2 already gives
+backtest-DEAD hand-picked books kept live for research value. This accumulates one new
+book per cycle -- Dave's explicit choice over a single rotating "champion" slot -- up to
+MAX_FACTORY_PROMOTED (#147): once the factory-owned pool is at/over that cap, this
+cycle's candidates are still evaluated and logged as always, promotion just doesn't
+happen until a slot is freed by a manual `tradefabe retire`. Never automatic -- see the
+comment above MAX_FACTORY_PROMOTED for why this isn't a DOCTRINE v1.6 violation.
 
 Usage: .venv/bin/python research/factory_run.py [--n N] [--seed SEED]
 """
@@ -45,13 +48,37 @@ from tradefabe.engine import load_prices, size_and_rebalance, net_returns, reali
 from harness import (benchmark_returns, noise_floor, evaluate as harness_evaluate,
                      family_n_tested, graveyard_strategy_names, rows_for,
                      OOS_START, NULL_TRIALS, ART)
-from tradefabe import factory
+from tradefabe import factory, books
 from piggyback_backtest import matched_null, evaluate as piggyback_evaluate, SLEEVE
 
 DEFAULT_N = 20          # candidates drawn per cycle -- a config knob, not a fixed trial count
 COMBO_TRIALS = 150       # matched-null trials for the one cycle-ending combo (same as piggyback_backtest.py)
 MAX_GENERATION_ATTEMPTS_PER_SLOT = 50   # generate_candidate()'s own internal retry cap
 FACTORY_RETURNS_PATH = os.path.join(ART, "factory_returns.csv")
+
+# #147: an upper bound on the factory-OWNED live-book pool (promoted templates +
+# generated candidates + combos -- NOT the hand-picked/hourly/Kronos roster, which the
+# factory doesn't touch). Every cycle keeps evaluating and logging to graveyard.csv
+# regardless -- this only stops NEW books from opening once the pool is full. Explicitly
+# NOT a retirement mechanism: nothing existing is ever closed, frozen, or hidden by this
+# cap, so it doesn't touch DOCTRINE v1.6's "no automatic retirement" rule at all -- see
+# app.py's up-for-review list (#147) for the human-in-the-loop side of this.
+MAX_FACTORY_PROMOTED = 20
+
+
+def factory_owned_count():
+    """Current size of the pool MAX_FACTORY_PROMOTED bounds -- every book the factory
+    itself has ever promoted and not since manually retired.
+
+    load_promoted()/load_promoted_generated()/load_promoted_combos() are pure promotion
+    REGISTRIES: retiring a book (books.retire(), #113) never removes its name from them,
+    it only stamps that book's own ledger -- so counting registry length alone would
+    never shrink even after Dave frees a slot by hand. Check books.is_retired() per name
+    instead, the same way runner.py decides whether to skip a book at rebalance time."""
+    names = ([n for n in factory.load_promoted()]
+             + [g["name"] for g in factory.load_promoted_generated()]
+             + [c["name"] for c in factory.load_promoted_combos()])
+    return sum(1 for n in names if not books.is_retired(books.load(n)))
 
 
 def _persist_backtest_curve(name, r_oos):
@@ -144,7 +171,8 @@ def rank_for_promotion(rows):
 def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
     """Runs one factory cycle: evaluate a batch of up to `n` candidates (templates
     first, then live-generated to fill the rest), one correlation-picked combo, and
-    promote the single best-DSR individual regardless of verdict. Returns the list of
+    promote the single best-ranked individual regardless of verdict (unless the
+    factory-owned pool is already at MAX_FACTORY_PROMOTED, #147). Returns the list of
     newly-evaluated names (individuals + combo, if one was built). `seed=None` uses OS
     entropy (so successive daily cycles draw different candidates); pass a fixed seed
     for a reproducible test run."""
@@ -220,7 +248,14 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
     # cycle growth rate that CLAUDE.md documents.
     pool = names_this_cycle + ([combo_name] if combo_spec else [])
     rows = rows_for(pool)
-    if len(rows):
+    owned = factory_owned_count()
+    if owned >= MAX_FACTORY_PROMOTED:
+        if verbose:
+            print(f"\nfactory-owned pool at {owned}/{MAX_FACTORY_PROMOTED} -- skipping "
+                  f"promotion this cycle (every candidate above was still evaluated and "
+                  f"logged to graveyard.csv). Retire one with `tradefabe retire <book>` "
+                  f"to free a slot -- see app.py's up-for-review list.")
+    elif len(rows):
         best = rank_for_promotion(rows)
         best_name = best["strategy"]
         if combo_spec and best_name == combo_name:
