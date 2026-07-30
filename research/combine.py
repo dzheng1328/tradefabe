@@ -1,5 +1,6 @@
 """
-combine.py — does piggybacking / blending strategies help?  (run: python combine.py)
+combine.py — does piggybacking / blending strategies help?
+(run: PYTHONPATH="$(pwd)" python research/combine.py)
 
 Two honest tests, same doctrine ethos:
   1. Blend the strategies (equal weight, NO tuning) and judge vs a MATCHED null

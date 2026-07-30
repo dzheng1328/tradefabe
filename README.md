@@ -33,10 +33,10 @@ app.py             Streamlit dashboard. Two sidebar views: Paper Books (live boo
                    detail view for strategies that never reached a live book). Plotly.
 harness.py         research evaluator: doctrine gates (Deflated Sharpe Ratio + Combinatorial
                    Purged CV as of v1.4), noise floors, graveyard writer.
-tsmom_backtest.py  standalone TSMOM study + plot, same shared core
-combine.py         blending / piggyback experiments
 research/          one-off studies (insider, congressional, carry, thematic, day-trading),
-                   piggyback_backtest.py, factory_run.py, kronos_backtest.py
+                   piggyback_backtest.py, factory_run.py, kronos_backtest.py,
+                   tsmom_backtest.py (standalone TSMOM study + plot), combine.py (blending /
+                   piggyback experiments)
 tests/             pytest suite (433 tests), runs in CI on every push/PR to main
 graveyard.csv      the verdict ledger — every strategy ever evaluated. Tracked in git.
 generated_templates.csv   the factory's own ledger of every live-generated candidate's spec,
