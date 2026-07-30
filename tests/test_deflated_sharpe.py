@@ -188,6 +188,35 @@ def test_evaluate_prints_the_caller_supplied_bench_label(monkeypatch, tmp_path, 
     assert "(60/40)" not in out
 
 
+def test_evaluate_aligns_benchmark_window_to_the_candidates_own_start(monkeypatch, tmp_path):
+    """#115: a candidate whose own data starts after OOS_START must not be scored against
+    a benchmark measured over the full, longer OOS_START-anchored window."""
+    from tradefabe.engine import stats as engine_stats
+
+    gy = tmp_path / "graveyard.csv"
+    monkeypatch.setattr(harness, "GRAVEYARD", str(gy))
+    rng = np.random.default_rng(0)
+    null = rng.normal(0.0, 0.06, 500)
+
+    # benchmark spans the full doctrine window from well before OOS_START; the candidate's
+    # own record only starts 200 days into it -- an hourly/crypto-style late start.
+    bench_idx = pd.bdate_range("2015-01-02", periods=1200)
+    bench = pd.Series(rng.normal(0.0002, 0.008, len(bench_idx)), index=bench_idx)
+    strat_idx = bench_idx[bench_idx >= harness.OOS_START + pd.Timedelta(days=200)]
+    strat = pd.Series(rng.normal(0.0005, 0.01, len(strat_idx)), index=strat_idx)
+    assert strat.index.min() > harness.OOS_START   # sanity: this is the late-start case
+
+    harness.evaluate("test_late_start_strategy", strat, bench, null, "D", n_tested=1)
+
+    row = pd.read_csv(gy).iloc[0]
+    expected_bench = engine_stats(bench[bench.index >= strat.index.min()])
+    assert row["bench_sharpe"] == pytest.approx(expected_bench["Sharpe"], abs=1e-3)
+    # the OLD (pre-#115) behavior would have scored the benchmark from OOS_START instead --
+    # a materially different (longer) window, so this pins the fix, not just "some number".
+    old_bench = engine_stats(bench[bench.index >= harness.OOS_START])
+    assert old_bench["Sharpe"] != pytest.approx(expected_bench["Sharpe"], abs=1e-3)
+
+
 # ---------------------------------------------------------------- last_verdict (#29)
 def test_last_verdict_none_when_never_evaluated(monkeypatch, tmp_path):
     monkeypatch.setattr(harness, "GRAVEYARD", str(tmp_path / "does_not_exist.csv"))
