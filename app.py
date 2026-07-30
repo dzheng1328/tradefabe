@@ -91,18 +91,28 @@ a{color:var(--accent);}
    border-left:2px solid var(--accent);padding:.1rem 0 .1rem .75rem;margin:.3rem 0 1rem;}
 
 /* -- book status cards: click target is an invisible button absolutely stacked over
-   the real st.metric, so the metric's own type scale (label/value/delta) stays intact
-   and only a border/shadow marks hover + selection -- */
-/* min-height reserves room for metric + the "opened <date>" caption + an optional
-   "retired" badge, so a row mixing retired/non-retired cards (common in the flat sort
-   modes, which interleave far more than family grouping did) doesn't look jagged --
-   shorter cards just keep whitespace at the bottom instead of the row shrinking unevenly. */
-div[class*="st-key-book_card_"]{position:relative;min-height:148px;}
-div[class*="st-key-book_card_"] [data-testid="stMetric"]{cursor:pointer;}
-div[class*="st-key-book_card_idle_"]:hover [data-testid="stMetric"]{
+   the whole card, so clicking anywhere selects it. The bordered box lives on the CARD
+   CONTAINER itself (not on the inner st.metric, as it used to) so the name + "introduced"
+   date can render as their own lines ABOVE the metric and still land inside the same box
+   -- st.metric's own box is stripped back to transparent here, scoped to book cards only,
+   so every OTHER st.metric in the app (strategy stat rows, etc.) is untouched. */
+/* min-height reserves room for name + date + metric + an optional "retired" badge, so a
+   row mixing retired/non-retired cards (common in the flat sort modes, which interleave
+   far more than family grouping did) doesn't look jagged -- shorter cards just keep
+   whitespace at the bottom instead of the row shrinking unevenly. */
+div[class*="st-key-book_card_"]{position:relative;min-height:148px;background:var(--card);
+   border:1px solid var(--rule);border-radius:8px;padding:.7rem .9rem .6rem;
+   transition:border-color .12s ease,box-shadow .12s ease;}
+div[class*="st-key-book_card_"] [data-testid="stMetric"]{
+   cursor:pointer;background:transparent;border:none;padding:0;}
+div[class*="st-key-book_card_idle_"]:hover{
    border-color:var(--accent);box-shadow:0 1px 6px rgba(20,23,26,.06);}
-div[class*="st-key-book_card_active_"] [data-testid="stMetric"]{
+div[class*="st-key-book_card_active_"]{
    border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+.tf-book-name{font-family:var(--mono);font-size:.66rem;letter-spacing:.12em;
+   text-transform:uppercase;color:var(--mut);overflow-wrap:break-word;line-height:1.3;}
+.tf-book-date{font-family:var(--mono);font-size:.68rem;color:var(--mut);
+   margin:.1rem 0 .15rem;}
 div[class*="st-key-book_click_"]{position:absolute;inset:0;z-index:3;}
 div[class*="st-key-book_click_"] [data-testid="stElementContainer"]{
    position:absolute!important;inset:0!important;width:100%!important;height:100%!important;}
@@ -904,16 +914,22 @@ def render_book_status(psum, phist, gy_last=None):
             with st.container(key=f"book_card_{'active' if selected else 'idle'}_{name}"):
                 with st.container(key=f"book_click_{name}"):
                     st.button(name, key=f"book_btn_{name}", on_click=_select_book, args=(name,))
-                label_name = name.replace("_", "\\_")
                 if show_today_return:
                     rt = return_today.get(name, float("nan"))
                     delta = f"{rt:+.2%}" if np.isfinite(rt) else "—"
                 else:
                     delta = f"{r['return']:+.2%}"
-                st.metric(label_name, fmt_full_dollars(r["equity"]), delta)
+                # Name + "introduced" date rendered manually (not st.metric's label) so the
+                # date can sit on its OWN line between the name and the $ value -- a single
+                # label string has no way to carry two lines. st.metric still owns the $
+                # value + delta pair, same typography/arrow logic as everywhere else in
+                # the app; only its label is collapsed to avoid a duplicate name.
+                st.markdown(f'<div class="tf-book-name">{name}</div>', unsafe_allow_html=True)
                 intro = introduced.get(name, pd.NaT)
                 if pd.notna(intro):
-                    st.caption(f"opened {intro.strftime('%b %-d')}")
+                    st.markdown(f'<div class="tf-book-date">{intro.strftime("%-m.%-d.%y")}</div>',
+                               unsafe_allow_html=True)
+                st.metric("", fmt_full_dollars(r["equity"]), delta, label_visibility="collapsed")
                 # summary.csv gained retired_at in #113; .get() keeps a card
                 # rendering against a summary written before the column existed.
                 if pd.notna(r.get("retired_at")) and r.get("retired_at"):
