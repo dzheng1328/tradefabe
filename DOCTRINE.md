@@ -353,10 +353,11 @@ sample is the only legitimate route back to ALIVE. Paper data is not a side door
 gates 1-3.
 
 This is the exact rule the strategy factory's best-of-cycle promotion (#28b) falls
-under, not a new exception: `factory_run.py` promotes the single best-DSR candidate
-each research cycle to a live paper book regardless of verdict, so a promoted DEAD
-candidate is monitor-only under this same clause — more live-tracked data by design
-(Dave's explicit call), never a route to `paper-confirmed` on its own.
+under, not a new exception: `factory_run.py` promotes the single best-ranked candidate
+each research cycle (by CPCV-resampled OOS Sharpe, not raw DSR — #145) to a live paper
+book regardless of verdict, so a promoted DEAD candidate is monitor-only under this
+same clause — more live-tracked data by design (Dave's explicit call), never a route to
+`paper-confirmed` on its own.
 
 ### Why this takes years, not weeks
 For an iid daily-return process, the standard error of an *annualized* Sharpe estimate

@@ -37,6 +37,11 @@ def scratch_graveyard(monkeypatch, tmp_path):
     monkeypatch.setattr(factory_run.factory, "PROMOTED_COMBOS_PATH", tmp_path / "promoted_combos.json")
     monkeypatch.setattr(factory_run.factory, "GENERATED_LEDGER", tmp_path / "generated_templates.csv")
     monkeypatch.setattr(factory_run, "FACTORY_RETURNS_PATH", tmp_path / "factory_returns.csv")
+    # factory_owned_count() (#147) reads each promoted book's own ledger via books.load()
+    # to check retirement status -- without this, it would read the REAL production
+    # state/paper/ ledgers (possible name collisions with real template names) instead
+    # of the scratch dir every other promotion-registry path above already uses.
+    monkeypatch.setattr(factory_run.books, "STATE_DIR", tmp_path)
     return gy
 
 
@@ -248,6 +253,51 @@ def test_run_cycle_promotion_accumulates_across_cycles(scratch_graveyard):
     second_promoted = _all_promoted_names()
     assert len(second_promoted) == 2
     assert first_promoted < second_promoted
+
+
+# ---------------------------------------------------------------- promotion cap (#147)
+# Explicitly NOT a retirement mechanism -- see MAX_FACTORY_PROMOTED's comment in
+# factory_run.py. Nothing here ever touches an existing book; it only stops NEW ones
+# from being promoted once the factory-owned pool is full.
+def test_run_cycle_skips_promotion_once_the_cap_is_reached(scratch_graveyard, monkeypatch):
+    monkeypatch.setattr(factory_run, "MAX_FACTORY_PROMOTED", 1)
+
+    factory_run.run_cycle(n=4, seed=1, verbose=False)
+    first_promoted = _all_promoted_names()
+    assert len(first_promoted) == 1   # filled the cap exactly
+
+    # a second cycle still draws and evaluates NEW candidates (graveyard keeps growing --
+    # no loss of research signal) but must NOT promote anything: the pool is already at
+    # the cap.
+    gy_len_before = len(pd.read_csv(scratch_graveyard))
+    evaluated = factory_run.run_cycle(n=4, seed=2, verbose=False)
+    assert evaluated   # still tested and logged something
+    assert len(pd.read_csv(scratch_graveyard)) > gy_len_before
+    assert _all_promoted_names() == first_promoted   # unchanged
+
+
+def test_factory_owned_count_excludes_a_manually_retired_book(scratch_graveyard, monkeypatch):
+    from tradefabe import books
+
+    factory_run.run_cycle(n=4, seed=1, verbose=False)
+    winner_name = next(iter(_all_promoted_names()))
+    assert factory_run.factory_owned_count() == 1
+
+    # retire() refuses a book with no ledger on disk -- create one the way runner.py's
+    # first real cycle would, then free the slot the same way Dave would by hand.
+    books.save(books.load(winner_name))
+    books.retire(winner_name, reason="test: freeing a slot")
+    assert factory_run.factory_owned_count() == 0   # the registry entry is still there
+                                                      # (retire() never removes it) but the
+                                                      # freed slot no longer counts against the cap
+
+    # with the slot freed, a cycle at cap=1 can promote a SECOND (different) winner --
+    # the registry now has 2 names total, but the count that matters (unretired) is 1.
+    monkeypatch.setattr(factory_run, "MAX_FACTORY_PROMOTED", 1)
+    factory_run.run_cycle(n=4, seed=2, verbose=False)
+    assert factory_run.factory_owned_count() == 1
+    all_names = _all_promoted_names()
+    assert len(all_names) == 2 and winner_name in all_names
 
 
 # ---------------------------------------------------------------- backtest curve persistence

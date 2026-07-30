@@ -107,9 +107,9 @@ second writer from forking the ledger. Check `launchctl list | grep tradefabe` i
 - **run** — daily 22:00 UTC. Installs the CPU torch wheel and caches the Kronos weights;
   the mark job does neither.
 - **factory** — **PAUSED since 2026-07-27 (#98).** The cron is commented out, not deleted;
-  `workflow_dispatch` still works. It promoted its best-DSR candidate every cycle regardless
-  of verdict, so finding something and finding nothing produced the same outcome (another
-  monitor-only book) while every draw raised `family_n_tested()` for all future candidates.
+  `workflow_dispatch` still works. It promoted its best-ranked candidate every cycle
+  regardless of verdict, raising `family_n_tested()` for all future candidates every draw —
+  now bounded either way by `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below).
 
 By hand: `gh workflow run "paper engine" -f job=mark|run|factory`. GitHub disables schedules
 on repos with no *human* activity for ~60 days and the bot's own commits may not count —
@@ -179,12 +179,18 @@ the same DSR/CPCV gate.
 - **Live generation is deliberately NOT free-form.** Only the parameter RANGE per family is
   fixed in code (reviewed once); the drawn value is logged **before** its verdict is known —
   the fix for the meta-level p-hacking risk DOCTRINE.md warns about.
-- **Promotion picks the single best-DSR candidate per cycle regardless of verdict** — Dave's
-  explicit call. A DEAD winner still becomes a live monitor-only book, one per cycle by
-  design, not a rotating slot. This unbounded accumulation is what #98 paused it over.
+- **Promotion picks the single best-ranked candidate per cycle regardless of verdict** —
+  Dave's explicit call, one new monitor-only book per cycle, not a rotating slot. Ranked
+  by CPCV/OOS Sharpe, **not raw DSR** (#145) — DSR saturates to 1.000 for every
+  daily-rebalanced family regardless of quality, which used to make every promotion
+  `turn_of_month_gen_*` by candidate-list order rather than merit.
 - **The correlation-picked combo competes in that same ranking**, not promoted in addition.
   Combos live in `promoted_combos.json` carrying their legs' full specs so a fresh process
   can rebuild both signals; rebalance freq is the FINER of the two legs'.
+- **Capped at `MAX_FACTORY_PROMOTED` (#147).** At/over the cap a cycle still evaluates and
+  logs its full batch, it just stops promoting. Not a retirement path — freeing a slot is
+  still only `tradefabe retire <book>`; `app.py`'s "Up for review" list is a read-only nudge
+  toward that, never an action of its own (DOCTRINE v1.6 unchanged).
 
 ## Live gotchas — check these before assuming something's broken
 - **yfinance returns a PARTIAL trailing bar** for the current, still-open or non-trading day:

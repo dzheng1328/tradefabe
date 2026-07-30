@@ -3,6 +3,8 @@ behind render_book_status(), split out into group_books_by_family()/_is_monitor_
 specifically so it's testable without a Streamlit runtime (both are plain pandas/dict
 code, no st.* calls). Requires pyproject.toml's [tool.pytest.ini_options]
 pythonpath=["."] so `import app` (a repo-root script) resolves under pytest."""
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -237,3 +239,72 @@ def test_accrual_only_books_excludes_a_normal_rebalancing_book():
     # weights on a given day. It must keep the generic "no fills yet" caption, which is
     # still accurate for it (a fill may still show up next cycle).
     assert "kronos_wick_agg" not in app.ACCRUAL_ONLY_BOOKS
+
+
+# ---------------------------------------------------------------- promotion cap / up for review (#147)
+@pytest.fixture
+def scratch_promotions(monkeypatch, tmp_path):
+    """Points app.factory's promotion-registry paths at a scratch dir, same technique
+    tests/test_factory_run.py's scratch_graveyard fixture uses -- so factory_owned_names()
+    reads test data instead of the real (git-tracked) state/paper/ registries."""
+    monkeypatch.setattr(app.factory, "PROMOTED_PATH", tmp_path / "promoted.json")
+    monkeypatch.setattr(app.factory, "PROMOTED_GENERATED_PATH", tmp_path / "promoted_generated.json")
+    monkeypatch.setattr(app.factory, "PROMOTED_COMBOS_PATH", tmp_path / "promoted_combos.json")
+    (tmp_path / "promoted.json").write_text(json.dumps([]))
+    (tmp_path / "promoted_generated.json").write_text(json.dumps([]))
+    (tmp_path / "promoted_combos.json").write_text(json.dumps([]))
+    return tmp_path
+
+
+def test_factory_owned_names_unions_all_three_registries(scratch_promotions):
+    (scratch_promotions / "promoted.json").write_text(json.dumps(["tsmom_3m"]))  # real TEMPLATES key
+    (scratch_promotions / "promoted_generated.json").write_text(
+        json.dumps([{"name": "turn_of_month_gen_5_5", "family": "C", "freq": "D", "params": {}}]))
+    (scratch_promotions / "promoted_combos.json").write_text(
+        json.dumps([{"name": "factory_combo_a_b", "freq": "D", "legs": []}]))
+    assert app.factory_owned_names() == {"tsmom_3m", "turn_of_month_gen_5_5", "factory_combo_a_b"}
+
+
+def test_factory_owned_names_empty_when_nothing_promoted(scratch_promotions):
+    assert app.factory_owned_names() == set()
+
+
+def _days_ago(n):
+    return (pd.Timestamp.now() - pd.Timedelta(days=n)).strftime("%Y-%m-%d")
+
+
+def test_books_up_for_review_surfaces_an_old_factory_owned_book(scratch_promotions):
+    (scratch_promotions / "promoted.json").write_text(json.dumps(["tsmom_3m"]))
+    # carry_btc_eth is hand-picked, not factory-owned -- must never appear here even
+    # though it's just as old, since the factory never touches its accumulation.
+    psum = _psum(["tsmom_3m", "carry_btc_eth"])
+    phist = _phist([("tsmom_3m", _days_ago(90), 100_000), ("carry_btc_eth", _days_ago(90), 100_000)])
+
+    rows = app.books_up_for_review(psum, phist)
+    assert [r["book"] for r in rows] == ["tsmom_3m"]
+    assert rows[0]["days_live"] >= 90
+
+
+def test_books_up_for_review_excludes_a_book_under_the_age_threshold(scratch_promotions):
+    (scratch_promotions / "promoted.json").write_text(json.dumps(["tsmom_3m"]))
+    psum = _psum(["tsmom_3m"])
+    phist = _phist([("tsmom_3m", _days_ago(5), 100_000)])
+    assert app.books_up_for_review(psum, phist) == []
+
+
+def test_books_up_for_review_excludes_an_already_retired_book(scratch_promotions):
+    # #147 is explicitly not a retirement mechanism, but a book that's ALREADY been
+    # retired by hand has already had its review -- listing it again would be noise.
+    (scratch_promotions / "promoted.json").write_text(json.dumps(["tsmom_3m"]))
+    psum = _psum(["tsmom_3m"])
+    psum["retired_at"] = ["2026-07-01"]
+    phist = _phist([("tsmom_3m", _days_ago(90), 100_000)])
+    assert app.books_up_for_review(psum, phist) == []
+
+
+def test_books_up_for_review_sorts_oldest_first(scratch_promotions):
+    (scratch_promotions / "promoted.json").write_text(json.dumps(["tsmom_3m", "tsmom_6m"]))
+    psum = _psum(["tsmom_3m", "tsmom_6m"])
+    phist = _phist([("tsmom_3m", _days_ago(65), 100_000), ("tsmom_6m", _days_ago(120), 100_000)])
+    rows = app.books_up_for_review(psum, phist)
+    assert [r["book"] for r in rows] == ["tsmom_6m", "tsmom_3m"]

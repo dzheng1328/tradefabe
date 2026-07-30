@@ -32,14 +32,16 @@ before its verdict is known** — the same "the count IS the record" principle
 candidate that wins a cycle (see Promotion below) is named `<family>_gen_<params>` in
 `graveyard.csv`/the dashboard, e.g. `tsmom_gen_147d`.
 
-**Promotion (#28b, supersedes an earlier #29 rule).** The single best-DSR candidate each
-cycle is promoted to a live paper book **regardless of verdict** — Dave's explicit call:
-more live paper-tracked data is worth having even when the backtest says DEAD, as long
-as it's honestly labeled. A promoted DEAD candidate is monitor-only, same status
-DOCTRINE v1.2 already gives backtest-DEAD hand-picked books kept live for research
-value. This accumulates one new book per cycle (Dave's explicit choice over a single
-rotating "champion" slot) — expect the live roster to grow steadily, not just on the
-rare cycle that finds a real winner.
+**Promotion (#28b, supersedes an earlier #29 rule).** The single best-ranked candidate
+each cycle — by CPCV-resampled OOS Sharpe, not raw DSR (#145: DSR saturates to 1.000 for
+every daily-rebalanced family regardless of real quality) — is promoted to a live paper
+book **regardless of verdict** — Dave's explicit call: more live paper-tracked data is
+worth having even when the backtest says DEAD, as long as it's honestly labeled. A
+promoted DEAD candidate is monitor-only, same status DOCTRINE v1.2 already gives
+backtest-DEAD hand-picked books kept live for research value. This accumulates one new
+book per cycle (Dave's explicit choice over a single rotating "champion" slot) up to
+`MAX_FACTORY_PROMOTED` (#147) — past that, a cycle still evaluates and logs every
+candidate, it just stops opening new books until a slot is freed by hand.
 
 ## Families — deliberately different edge sources
 
@@ -620,7 +622,7 @@ return, against +0.69 and +3.10 for the other two.
 backtest result is selection-on-result, and it does weaken the "unselected by construction"
 claim above — the forward record is now of two pre-filtered books, not three. Two things keep
 it defensible rather than fatal: it is the same selection every promotion in this lab already
-makes (the factory promotes its best-DSR candidate), and it happens **once, at open, on a
+makes (the factory promotes its best-ranked candidate), and it happens **once, at open, on a
 pre-registered criterion**, not repeatedly on accumulating forward data — which is exactly
 what v1.6 forbids. `kronos_live.LIVE_BOOKS` is a one-line change if the unfiltered record is
 wanted later.

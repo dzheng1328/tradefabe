@@ -18,18 +18,29 @@ measured against the repo, not recalled.
 > | Benchmark windows not candidate-aligned | still open, **#115** |
 > | Doctrine vestigial layers | still open, **#116** |
 > | `state/` ownership conventional, not structural | still true; a hook now *asks* before staging `state/` |
+> | "Unbounded growth is an accepted cost, lever is the pause" (below) | **Partially superseded 2026-07-30, #147:** `MAX_FACTORY_PROMOTED` caps the factory-owned pool directly (skip promotion at cap, keep evaluating/logging), independent of whether the cron ever resumes. A read-only "up for review" dashboard list surfaces old factory-owned books for Dave to look at — still no automatic retirement, v1.6 unchanged |
 >
 > **On retirement, the resolution contradicts what this document implies.** It reads as though
 > the lab needs a stopping rule. The decision was that an *automatic* one would be actively
 > harmful: auto-retiring losing books filters the forward record on results, manufacturing
 > survivorship bias in the one dataset here that has none. Retirement is manual-only, at any
-> age, with no performance trigger. Unbounded growth is an accepted cost, and the lever against
-> it is slowing **promotion** — which the factory pause already is.
+> age, with no performance trigger. Unbounded growth **was** treated as an accepted cost with
+> promotion-pause as the only lever (see below) — #147 added a second, more direct one: a hard
+> cap on the factory-owned pool, so growth stops even if the cron resumes, with a human-in-
+> the-loop review list rather than any performance-based trigger.
 >
 > **Two things this audit did not find**, both since discovered: gate 1 can be **vacuous**
 > (DSR 1.000 against a negative `SR*`, so any positive Sharpe clears it — #114, first real
 > instance in family M), and `evaluate()` mislabels a non-60/40 benchmark in its own output
 > (#122). Neither changes a verdict.
+>
+> **A third, related consequence of the same vacuous-DSR mechanism surfaced 2026-07-30
+> (#145):** every daily-rebalanced factory candidate (families C/turn_of_month,
+> I/donchian) saturates to DSR 1.000 the same way #114 found, and the factory's
+> PROMOTION ranking (unlike the graveyard verdict) had no guard against it — so every
+> promoted generated candidate to date was `turn_of_month_gen_*`, decided by candidate
+> list order rather than real quality. Fixed by ranking promotion on CPCV-resampled OOS
+> Sharpe instead of raw DSR; doesn't change any graveyard verdict, same as #114/#122.
 >
 > **The council's own closing question is still unanswered:** would a factory ALIVE have been
 > *pleasing* or *alarming*? That, not the statistics, decides whether the factory's purpose was

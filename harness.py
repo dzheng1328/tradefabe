@@ -181,7 +181,7 @@ def rows_for(names):
     """The most recent logged graveyard row for each of `names`, as a DataFrame (one row
     per name, indexed 0..n-1) -- for callers that need to RANK several just-evaluated
     candidates against each other at once (e.g. the strategy factory picking a cycle's
-    best-DSR performer regardless of verdict, #28b) without one file read per name.
+    best-ranked performer regardless of verdict, #28b/#145) without one file read per name.
     Empty DataFrame if graveyard.csv doesn't exist or none of `names` are in it."""
     if not os.path.exists(GRAVEYARD):
         return pd.DataFrame()
