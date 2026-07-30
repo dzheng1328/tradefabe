@@ -23,7 +23,58 @@ like. We avoid that with four locked rules:
 4. **Fair benchmark.** A diversified strategy is compared to a diversified passive portfolio
    (60/40), not to the single best-performing asset in hindsight.
 
+## Current state — read this first (as of v1.8, 2026-07-29)
+
+The sections below this one (Data split through Ledger) are v1.0's ORIGINAL, frozen text —
+kept verbatim as the pre-registration record, per rule 1 above. Eight amendments have since
+changed what's actually decided. Rather than make every reader re-derive "what's true today"
+by tracing all eight, here is that answer in one place. Each line names the amendment that
+introduced it, so a question about *why* still has one place to go — the **Amendment
+history** section below.
+
+- **Data split.** Design/calibration 2007-01→2017-12; evaluation 2018-01→present —
+  unchanged from v1.0, **except family M**, whose OOS start is Kronos's own pretraining
+  cutoff (2025-06-05) instead of 2018 (`kronos_backtest.py`'s module-level override, needed
+  because `evaluate()` and `noise_floor()` must share one window). Both the candidate and
+  the benchmark are sliced at `max(OOS_START, the candidate's own first observation)` — v1.0
+  used a flat `OOS_START` for both; v1.7 fixed the candidate/benchmark window mismatch that
+  produced whenever the candidate's own data starts later than `OOS_START`.
+- **Benchmark.** Still 60/40 SPY/IEF by default, but not universal — carry-type studies
+  benchmark against always-on carry instead, pre-registered per study rather than chosen
+  after seeing results. The printed/logged label now says which one it is (`bench_label`,
+  #122 — cosmetic, not a doctrine amendment, since the comparison itself was always right).
+- **Noise floor.** 500 random strategies, but **duty-cycle-matched to the candidate's own
+  signal by default** (rotated, not redrawn every bar) since v1.5b — a per-bar random null
+  was measured to be systematically lenient (it paid less turnover cost than a real trend
+  signal). Per-strategy, not merely per-frequency (v1.0.1 was the frequency-only version).
+- **Gate 1 ("beats luck").** Decided by the **Deflated Sharpe Ratio** (`dsr_gate1()`, v1.4)
+  against an extreme-value-corrected "best of `n_tested` draws" bar, using a
+  **CPCV-resampled** OOS Sharpe rather than the single fixed-window point estimate, **and**
+  requiring the candidate's own OOS Sharpe be positive (v1.8 — DSR alone has no such floor
+  and can saturate near 1.0 beside a losing candidate). `n_tested` is segregated by origin —
+  factory-search draws correct against factory-origin rows only, hand-picked candidates
+  against hand-picked + promoted rows (v1.5a). **`bonferroni_bar()` and `NULL_PCTILE=95`
+  are still computed and logged on every run (the `null_p95`/`bar_method`/`bar_pctile`
+  graveyard.csv columns) but have decided nothing since v1.4** — kept so pre-v1.4 and
+  post-v1.4 rows stay comparable on the same columns, not because they're still load-bearing.
+- **Gate 2 ("earns its place") and gate 3 ("not more painful").** Unchanged from v1.0 —
+  Calmar/diversification and the 1.5x drawdown bound, respectively.
+- **Paper-testing retirement.** Manual-only; the v1.2 kill criteria are advisory findings,
+  never automatic actions (v1.6). See "Paper-testing verdicts" below, which is already
+  written in current-state form and needs no translation.
+
+**Forward-only, same as every amendment below states individually: nothing here re-scores
+`graveyard.csv`.** This section is a reading aid, not a new rule — it changes no threshold,
+adds no gate, and decides nothing that the amendments below didn't already decide.
+
 ## Data split
+
+> **v1.0's original text, frozen verbatim below through "Ledger."** Eight amendments have
+> since changed what several of these sections actually decide — see **"Current state"**
+> above for what's active today, and **Amendment history** below for why. Kept unedited
+> here because that's the pre-registration record rule 1 requires; it is not a description
+> of current behavior on its own.
+
 - **Design / calibration:** 2007-01 → 2017-12
 - **Evaluation (out-of-sample):** 2018-01 → present
 
@@ -56,7 +107,11 @@ logged so it can be tightened (Bonferroni-style) later.
 Every evaluated strategy — alive or dead — is appended to `graveyard.csv` with its metrics,
 the null bar, and the verdict. The graveyard *is* the multiple-testing record.
 
-## Amendments
+## Amendment history
+
+The full derivation, in order, of everything summarized in "Current state" above — read
+this for *why*, not to find out what's currently active.
+
 - **v1.0.1 (2026-07-21).** The noise floor is computed **per rebalance frequency** (D/W/M):
   a strategy is judged against random strategies rebalanced at the SAME frequency, so fast
   strategies face a luck bar that pays the same fast trading costs. Engineering fix, not a

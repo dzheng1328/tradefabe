@@ -34,7 +34,11 @@ from tradefabe.signals import (sig_tsmom_12m as sig_tsmom, sig_tsmom_ensemble,
 # ---- frozen doctrine parameters (see DOCTRINE.md) ----
 OOS_START   = pd.Timestamp("2018-01-01")
 NULL_TRIALS = 500
-NULL_PCTILE = 95        # legacy default; evaluate() now uses bonferroni_bar() (DOCTRINE v1.3)
+NULL_PCTILE = 95        # vestigial, not a threshold (comment fixed under #116): v1.0's
+                         # original decision bar, superseded by bonferroni_bar() (v1.3),
+                         # itself superseded as the ACTIVE decision by dsr_gate1() (v1.4).
+                         # Kept only for main()'s meta.json artifact and continuity with
+                         # rows logged before either supersession; decides nothing today.
 BONFERRONI_ALPHA = 0.05  # family-wise false-positive rate target across EVERY strategy ever tested
 CORR_DIV    = 0.30
 DD_MULT     = 1.5
