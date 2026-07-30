@@ -104,6 +104,29 @@ def fetch_ohlcv(tickers: list[str], days: int = FETCH_DAYS) -> dict[str, pd.Data
     return out
 
 
+def drop_current_day(hist: pd.DataFrame, today=None) -> pd.DataFrame:
+    """Drop a bar dated TODAY (UTC). `engine.drop_incomplete_tail()` is not enough here.
+
+    That guard trims a partial trailing bar by finding NaNs in the cross-section, which is the
+    right test for the daily ETF frame. It cannot see this case: BTC-USD trades 24/7, so
+    yfinance returns a row for the in-progress UTC day with all five OHLCV columns populated.
+    Nothing is NaN, so the guard keeps it -- and the model gets an intraday snapshot fed to it
+    as if it were a daily close.
+
+    Found in production on 2026-07-30 (#126), not in testing: the first cloud cycle wrote
+    forecasts dated 2026-07-30 built from a bar a few hours old. Not lookahead -- the price is
+    the present, not the future -- but wrong in two ways that matter. It diverges from the
+    study, which only ever fed complete daily bars, and forecast_today() skips any (date,
+    ticker) already in the snapshot, so that row would have been frozen as THE 07-30 forecast
+    and never recomputed once the day actually closed. The snapshot is the audit record.
+
+    A no-op for equities, whose last bar is yesterday's close during a live cycle anyway."""
+    if hist.empty:
+        return hist
+    today = pd.Timestamp(today or dt.datetime.now(dt.UTC).date())
+    return hist[pd.DatetimeIndex(hist.index).normalize() < today]
+
+
 def load_snapshot() -> pd.DataFrame:
     if not os.path.exists(FORECAST_SNAPSHOT):
         return pd.DataFrame(columns=SNAPSHOT_COLS)
@@ -301,7 +324,9 @@ def run_kronos(verbose: bool = True, names=LIVE_BOOKS) -> list[str]:
     try:
         from .engine import drop_incomplete_tail
         ohlcv = fetch_ohlcv(tickers_needed(names))
-        ohlcv = {t: drop_incomplete_tail(d) for t, d in ohlcv.items()}
+        # BOTH guards. drop_incomplete_tail catches a partial cross-section; drop_current_day
+        # catches the 24/7 case it structurally cannot see. See drop_current_day's docstring.
+        ohlcv = {t: drop_current_day(drop_incomplete_tail(d)) for t, d in ohlcv.items()}
         ohlcv = {t: d for t, d in ohlcv.items() if len(d) > kronos.DAILY_CONTEXT}
 
         snapshot = load_snapshot()
