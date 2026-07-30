@@ -175,6 +175,57 @@ def test_forecast_today_skips_dates_already_in_the_snapshot(monkeypatch):
     assert kronos_live.forecast_today(ohlcv, snap) == []
 
 
+def test_drop_current_day_removes_an_in_progress_24_7_bar():
+    """The production defect from the first cloud cycle (#126). BTC-USD trades 24/7, so
+    yfinance returns a row for the in-progress UTC day with all five columns populated --
+    nothing is NaN, so engine.drop_incomplete_tail() structurally cannot catch it."""
+    from tradefabe.engine import drop_incomplete_tail
+    idx = pd.to_datetime(["2026-07-27", "2026-07-28", "2026-07-30"])
+    hist = pd.DataFrame({"open": [1.0, 2, 3], "high": [1.0, 2, 3], "low": [1.0, 2, 3],
+                         "close": [1.0, 2, 3], "volume": [1.0, 2, 3]}, index=idx)
+
+    assert drop_incomplete_tail(hist).index[-1] == pd.Timestamp("2026-07-30"), \
+        "precondition: the existing guard keeps this bar, which is why the new one exists"
+    trimmed = kronos_live.drop_current_day(hist, today="2026-07-30")
+    assert trimmed.index[-1] == pd.Timestamp("2026-07-28")
+
+
+def test_drop_current_day_is_a_noop_when_the_last_bar_is_older():
+    idx = pd.to_datetime(["2026-07-27", "2026-07-28"])
+    hist = pd.DataFrame({"close": [1.0, 2.0]}, index=idx)
+    assert len(kronos_live.drop_current_day(hist, today="2026-07-30")) == 2
+
+
+def test_drop_current_day_tolerates_an_empty_frame():
+    assert kronos_live.drop_current_day(pd.DataFrame()).empty
+
+
+def test_run_kronos_applies_BOTH_tail_guards(monkeypatch, tmp_path):
+    """End-to-end: a fetched frame whose last bar is today must never reach forecast_today().
+    Asserted through run_kronos rather than by reading the source, so a future refactor that
+    drops one guard fails here."""
+    monkeypatch.setattr(books, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(kronos, "is_available", lambda: True)
+    monkeypatch.setattr(kronos_live, "FORECAST_SNAPSHOT", str(tmp_path / "fc.csv"))
+
+    today = pd.Timestamp(pd.Timestamp.now('UTC').date())
+    n = kronos.DAILY_CONTEXT + 20
+    idx = pd.DatetimeIndex(pd.date_range(end=today, periods=n, freq="D"))
+    frame = pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0,
+                          "volume": 1.0}, index=idx)
+    monkeypatch.setattr(kronos_live, "fetch_ohlcv", lambda *a, **k: {"BTC-USD": frame})
+
+    seen = {}
+
+    def spy(ohlcv, snapshot):
+        seen["last"] = {t: d.index[-1] for t, d in ohlcv.items()}
+        return []
+    monkeypatch.setattr(kronos_live, "forecast_today", spy)
+
+    kronos_live.run_kronos(verbose=False, names=(kronos_live.CARRY_BOOK,))
+    assert seen["last"]["BTC-USD"] < today, "an in-progress bar reached the forecaster"
+
+
 def test_the_live_seed_matches_the_study_seed():
     """A live forecast for a date must reproduce identically when the study replays it."""
     assert kronos_live._seed_for("2026-07-29") == int(pd.Timestamp("2026-07-29").strftime("%Y%m%d"))
