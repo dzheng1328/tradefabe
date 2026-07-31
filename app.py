@@ -18,6 +18,7 @@ from tradefabe import risk_register, factory
 # Constant only -- kronos.py imports torch LAZILY (inside predictor()), so this costs the
 # dashboard nothing and does not require the [kronos] extra to be installed.
 from tradefabe.kronos import KRONOS_OOS_START
+from tradefabe.pricing import NON_PRICED as ACCRUAL_ONLY_BOOKS
 import plotly.graph_objects as go
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -322,8 +323,17 @@ def fmt(v, kind="ratio"):
 # that simply hasn't had a qualifying signal fire yet (e.g. kronos_wick_agg, which DOES
 # call rebalance_to() and will eventually log a fill), these will NEVER populate `trades`,
 # so the generic "no fills yet, starts at next rebalance" caption is actively false for
-# them -- same small-explicit-set pattern as BOOK_FAMILY/STRATEGY_DESCRIPTIONS.
-ACCRUAL_ONLY_BOOKS = {"carry_btc_eth", "carry_kronos_vol", "funding_timing_1h"}
+# them.
+#
+# ACCRUAL_ONLY_BOOKS is `pricing.NON_PRICED` (imported above, aliased for readability at
+# each call site below) -- NOT a second independent set (#157). Before this alias, the
+# exact same book names were hand-maintained separately in both files; a book added to
+# one and not the other would silently pass in whichever module got updated and render
+# wrong numbers (or fetch a price for an unpriced book) in whichever didn't. There is now
+# exactly one place a new accrual-only book must be registered: pricing.NON_PRICED.
+# tests/test_book_accounting_consistency.py enforces that membership against the source
+# of every book-owning module, so a book that directly sets book["equity"] without being
+# added there fails a test instead of rendering the frozen starting cash forever.
 
 
 def render_trade_log(data):
