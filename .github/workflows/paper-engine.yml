@@ -11,8 +11,7 @@ name: paper engine
 
 on:
   schedule:
-    # UTC. ET equivalents drift an hour with DST; harmless, and the two daily jobs
-    # shift together so factory still lands before the rebalance.
+    # UTC. ET equivalents drift an hour with DST; harmless.
     #
     # NEITHER daily cron may land ON THE HOUR (#152): "0 * * * *" already matches every
     # hour including :00, so a daily cron at "0 22 * * *" collides with it at 22:00 --
@@ -24,8 +23,22 @@ on:
     # The single real "run" cycle in that entire window was a manual workflow_dispatch,
     # not the schedule. Every off-the-hour offset here is deliberate, not arbitrary.
     - cron: "0 * * * *"      # mark, hourly
-    - cron: "7 22 * * *"     # daily rebalance (18:00 EDT + 7min, clear of the hourly mark)
+    - cron: "6 2 * * *"      # daily rebalance, moved from 22:07 UTC to ~02:00 UTC (#158).
     - cron: "6 21 * * *"     # factory, daily (off-the-hour deliberately -- #152)
+    # WHY 02:00, not 22:07 (run): kronos_wick_agg's OHLCV fetch pulls yfinance's DAILY bar,
+    # which is not yet published ~1-2h after the 21:00 UTC equity close -- so at the old
+    # 22:07 UTC run time, kronos always topped out at YESTERDAY's bar while the more
+    # frequent `mark` cycle (a faster price source) had already tagged the book's
+    # last_price_bar with TODAY's date earlier in the day. books._regressed() correctly
+    # refused to go backward and skipped the rebalance -- every single day, structurally,
+    # not because of #152's separate cron-collision bug. Confirmed both directions: a
+    # scheduled run at 2026-07-30T23:12 UTC (~2h post-close) hit the skip; a manual
+    # workflow_dispatch at 2026-07-31T05:32 UTC (~8.5h post-close) went through cleanly.
+    # 02:00 UTC (~5h post-close) gives kronos's fetch time to catch up. This shifts EVERY
+    # book's daily rebalance time, not just kronos's, since they share one daily cycle.
+    # Factory (21:06 UTC) still lands well before this, so a same-evening promotion is
+    # still picked up by the next run.
+    #
     # FACTORY CYCLE RESUMED 2026-07-31 (#163). Was paused 2026-07-27 (#98) because the
     # design had no exit condition: it promotes its best-ranked candidate regardless of
     # verdict, and every draw raised family_n_tested() for every future candidate,
@@ -74,7 +87,7 @@ jobs:
           case "${{ github.event_name }}:${{ github.event.schedule }}" in
             workflow_dispatch:*) CYCLE="${{ inputs.job }}" ;;
             *"6 21 * * *")      CYCLE=factory ;;
-            *"7 22 * * *")      CYCLE=run ;;
+            *"6 2 * * *")       CYCLE=run ;;
             *)                   CYCLE=mark ;;
           esac
           echo "cycle=$CYCLE" >> "$GITHUB_OUTPUT"
