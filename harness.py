@@ -414,8 +414,12 @@ def noise_floor(prices, freq, trials=NULL_TRIALS, rv=None, like=None):
     MEMOIZED per (prices, freq, trials). The internal rng is seeded to 0 and consumed
     sequentially, so the result is a pure function of those three -- recomputing it is
     identical work every time. That mattered: `factory_run.run_cycle()` rebuilds the floor
-    per call, and the 12 tests that each call it made `test_factory_run.py` 83% of the
-    suite's serial runtime (45s of 54s).
+    per call, and this in-process memoization is only half the fix -- it doesn't help
+    across xdist WORKERS (separate processes, separate cache), so `test_factory_run.py`'s
+    ~16 tests were still ~83% of the suite's serial runtime on CI's 4 workers. The other
+    half: those tests run at a much smaller `trials` (they test promotion/ranking
+    plumbing, not statistical precision) -- see `tests/test_factory_run.py`'s
+    `scratch_graveyard` fixture.
 
     Keyed on a CONTENT fingerprint, not object identity, so a caller that mutates its price
     frame gets a fresh floor instead of a silently stale one."""

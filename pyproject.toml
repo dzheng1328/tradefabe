@@ -52,8 +52,10 @@ pythonpath = [".", "research"]
 # Parallel by default: the suite is run constantly. Pass `-n0` to disable when you need
 # readable tracebacks, --pdb, or -x.
 #
-# `worksteal` rather than xdist's default `load`: CI gets only 2 workers and the static
-# split handed one of them 187 tests and the other 98, so the long pole decided the run.
-# worksteal reassigns queued tests when a worker runs dry, which matters most exactly
-# where cores are scarce.
+# `worksteal` rather than xdist's default `load`: CI's worker count is whatever
+# ubuntu-latest gives `-n auto` (`gh run list` / a run's own "N/N workers" log line is
+# authoritative, not a number remembered here -- it has already changed once). A static
+# split once handed one worker far more tests than another, so the long pole decided the
+# run; worksteal reassigns queued tests when a worker runs dry, which matters most
+# exactly where cores are scarce.
 addopts = ["-n", "auto", "--dist", "worksteal"]

@@ -37,7 +37,7 @@ research/          one-off studies (insider, congressional, carry, thematic, day
                    piggyback_backtest.py, factory_run.py, kronos_backtest.py,
                    tsmom_backtest.py (standalone TSMOM study + plot), combine.py (blending /
                    piggyback experiments)
-tests/             pytest suite (433 tests), runs in CI on every push/PR to main
+tests/             pytest suite, parallel by default, runs in CI on every push/PR to main
 graveyard.csv      the verdict ledger — every strategy ever evaluated. Tracked in git.
 generated_templates.csv   the factory's own ledger of every live-generated candidate's spec,
                    logged before its verdict is known
