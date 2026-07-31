@@ -104,14 +104,14 @@ dashboard locally, and don't commit local `state/` writes. The `ops/*.plist` fil
 exist but nothing is `launchctl load`ed — that, not a rename, is the only thing stopping a
 second writer from forking the ledger. Check `launchctl list | grep tradefabe` is empty.
 - **mark** — hourly (best-effort; GitHub often spaces these ~2h apart).
-- **run** — daily 22:07 UTC (off-hour deliberately, #152: a bare 22:00 collides with the
-  hourly mark's trigger — unreliable, not "never fires"; `gh run list` is authoritative
-  over a remembered count). Installs the CPU torch wheel and caches Kronos weights.
-- **factory** — daily 21:06 UTC (off-hour deliberately, #152). **Resumed 2026-07-31 (#163)**
-  after being paused 2026-07-27–2026-07-31 (#98) for the two reasons now fixed: ledger
-  segregation (DOCTRINE v1.5, #112/#120) stops factory draws inflating `family_n_tested()`
-  for hand-picked candidates, and `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below)
-  caps the factory-owned pool so promotion growth isn't unbounded.
+- **run** — daily ~02:00 UTC (off-hour deliberately, #152). **Moved from 22:07 UTC
+  2026-07-31 (#158):** kronos's yfinance daily bar was a day stale at 22:07, so
+  `books._regressed()` silently skipped `kronos_wick_agg`'s rebalance daily — why it
+  sat flat at $100k. Installs the CPU torch wheel, caches weights.
+- **factory** — daily 21:06 UTC. **Resumed 2026-07-31 (#163)** after pausing
+  2026-07-27–31 (#98): ledger segregation (DOCTRINE v1.5, #112/#120) stops factory
+  draws inflating `family_n_tested()` for hand-picked candidates, and
+  `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below) caps growth.
 - **cost check** (`cost-check.yml`, #155) — weekly, Mondays ~9:37am ET. The one workflow
   with real secrets (`ALPACA_API_KEY_ID`/`ALPACA_SECRET_KEY`), same paper-only gates as a
   local run. Exists because Claude's own `CronCreate` is session-local and silently

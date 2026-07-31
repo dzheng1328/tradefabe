@@ -89,19 +89,18 @@ overnight holes. **The Action is now the sole owner of `state/`**; the plists re
 | cycle | what it does | when |
 |---|---|---|
 | `mark` | mark-only, no rebalance, so the live-equity chart has more than one point per day | hourly (GitHub spaces these ~2h in practice) |
-| `run` | the actual rebalance, each book on its doctrine-registered M/W/D schedule | daily 22:07 UTC |
-| `factory` | 20 fresh candidates through the full doctrine gate, best promoted to a live book | **paused since 2026-07-27** |
+| `run` | the actual rebalance, each book on its doctrine-registered M/W/D schedule | daily ~02:00 UTC |
+| `factory` | 20 fresh candidates through the full doctrine gate, best promoted to a live book | daily 21:06 UTC |
 
-The factory is paused deliberately, not broken ([#98](https://github.com/dzheng1328/tradefabe/issues/98)):
+The factory ran daily until being paused 2026-07-27–2026-07-31 ([#98](https://github.com/dzheng1328/tradefabe/issues/98)):
 it promoted a book every cycle regardless of verdict, so finding something and finding nothing
 produced the same outcome, while every draw raised the multiple-testing bar for all future
-candidates. `gh workflow run "paper engine" -f job=factory` still triggers it by hand. The
-unbounded-accumulation half of #98 now has a direct fix regardless of the pause:
-`MAX_FACTORY_PROMOTED` ([#147](https://github.com/dzheng1328/tradefabe/issues/147)) caps the
-factory-owned pool (templates + generated + combos) and the dashboard surfaces a read-only
-"up for review" list for anything old — never a retirement trigger, still Dave's call alone
-per DOCTRINE v1.6. Whether to resume the cron is the separate, still-open strategic question
-`RUNDOWN.md` leaves unanswered: would a factory ALIVE have been pleasing or alarming?
+candidates. **Resumed 2026-07-31 ([#163](https://github.com/dzheng1328/tradefabe/issues/163))**
+once both blockers shipped: ledger segregation (DOCTRINE v1.5) stops factory draws inflating the
+bar for hand-picked candidates, and `MAX_FACTORY_PROMOTED` ([#147](https://github.com/dzheng1328/tradefabe/issues/147))
+caps the factory-owned pool (templates + generated + combos) directly, with a read-only
+"up for review" dashboard list for anything old — never a retirement trigger, still Dave's call
+alone per DOCTRINE v1.6.
 
 Five more automations run *inside* those jobs rather than on their own schedule: family L's
 hourly monitor books, family M's Kronos books (daily only — inference needs torch and a
