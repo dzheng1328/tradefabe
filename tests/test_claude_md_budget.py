@@ -60,7 +60,7 @@ def test_claude_md_still_carries_the_rules_that_cost_something_to_learn():
         "books need a persisted curve": "persisted-curve story",     # cost a dashboard outage
         "minute stamps": 'timespec="minutes"',
         "manual-only retirement": "Dave's decision alone",
-        "factory is paused": "PAUSED",
+        "factory cron status is current": "Resumed 2026-07-31",
         "issues beat the board": "authoritative",
     }
     missing = [name for name, needle in required.items() if needle not in text]
