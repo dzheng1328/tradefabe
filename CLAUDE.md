@@ -107,10 +107,11 @@ second writer from forking the ledger. Check `launchctl list | grep tradefabe` i
 - **run** — daily 22:07 UTC (off-hour deliberately, #152: a bare 22:00 collides with the
   hourly mark's trigger — unreliable, not "never fires"; `gh run list` is authoritative
   over a remembered count). Installs the CPU torch wheel and caches Kronos weights.
-- **factory** — **PAUSED since 2026-07-27 (#98).** Cron commented out, `workflow_dispatch`
-  still works. Promoted its best-ranked candidate every cycle regardless of verdict,
-  raising `family_n_tested()` per draw — now bounded either way by `MAX_FACTORY_PROMOTED`
-  (#147, see Strategy factory below).
+- **factory** — daily 21:06 UTC (off-hour deliberately, #152). **Resumed 2026-07-31 (#163)**
+  after being paused 2026-07-27–2026-07-31 (#98) for the two reasons now fixed: ledger
+  segregation (DOCTRINE v1.5, #112/#120) stops factory draws inflating `family_n_tested()`
+  for hand-picked candidates, and `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below)
+  caps the factory-owned pool so promotion growth isn't unbounded.
 - **cost check** (`cost-check.yml`, #155) — weekly, Mondays ~9:37am ET. The one workflow
   with real secrets (`ALPACA_API_KEY_ID`/`ALPACA_SECRET_KEY`), same paper-only gates as a
   local run. Exists because Claude's own `CronCreate` is session-local and silently
@@ -178,7 +179,7 @@ Roster, evidence, and family taxonomy: `STRATEGIES.md`. Add new candidates there
 running them — including the factory's `GENERATION_RANGES` (the range is the
 pre-registration; the drawn value is logged to `generated_templates.csv`).
 
-## Strategy factory — currently PAUSED (#98), still doctrine-gated when run
+## Strategy factory — running daily again since 2026-07-31 (#163), doctrine-gated
 `src/tradefabe/factory.py` + `research/factory_run.py` test ~20 candidates per cycle through
 the same DSR/CPCV gate.
 - **Live generation is deliberately NOT free-form.** Only the parameter RANGE per family is

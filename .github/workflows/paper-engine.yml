@@ -25,22 +25,20 @@ on:
     # not the schedule. Every off-the-hour offset here is deliberate, not arbitrary.
     - cron: "0 * * * *"      # mark, hourly
     - cron: "7 22 * * *"     # daily rebalance (18:00 EDT + 7min, clear of the hourly mark)
-    # FACTORY CYCLE PAUSED 2026-07-27 (#98). Was: - cron: "0 21 * * *" -- if this is ever
-    # restored, use "6 21 * * *" (off-the-hour), NOT the original "0 21 * * *": that
-    # value would silently reintroduce the exact #152 collision documented above.
+    - cron: "6 21 * * *"     # factory, daily (off-the-hour deliberately -- #152)
+    # FACTORY CYCLE RESUMED 2026-07-31 (#163). Was paused 2026-07-27 (#98) because the
+    # design had no exit condition: it promotes its best-ranked candidate regardless of
+    # verdict, and every draw raised family_n_tested() for every future candidate,
+    # hand-picked ones included -- 124 draws, 0 survivors, required Sharpe 1.58 -> 2.52,
+    # heading for 3.63 within a year.
     #
-    # Not deleted, and not because the code is wrong -- the factory works exactly as
-    # designed. It is paused because the DESIGN has no exit condition: it promotes its
-    # best-DSR candidate regardless of verdict, and a DEAD promotion is monitor-only
-    # forever under v1.2, so finding something and finding nothing produce the same
-    # outcome (another monitor-only book). Meanwhile every draw it logs raises
-    # family_n_tested() for every future candidate: 124 draws, 0 survivors, required
-    # Sharpe 1.58 -> 2.52, heading for 3.63 within a year. Real equity edges are 0.5-1.5.
-    #
-    # Un-pause once the ledger-segregation question in RUNDOWN.md is decided and
-    # PRE-REGISTERED. Until then a manual burst is still available:
-    #     gh workflow run "paper engine" -f job=factory
-    # workflow_dispatch is deliberately left intact so this is a pause, not a removal.
+    # Both blocking conditions from RUNDOWN.md's pause resolution are now shipped on
+    # main: ledger segregation (DOCTRINE v1.5, in force since 2026-07-29, #112/#120)
+    # stops factory draws inflating the bar for hand-picked candidates, and
+    # MAX_FACTORY_PROMOTED (#147) caps the factory-owned pool directly so growth isn't
+    # unbounded even with the cron running. #145 also fixed promotion ranking to use
+    # CPCV/OOS Sharpe instead of raw DSR (which saturated to 1.000 regardless of
+    # quality). See #163 for the resume rationale.
   workflow_dispatch:
     inputs:
       job:
