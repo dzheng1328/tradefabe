@@ -89,7 +89,7 @@ overnight holes. **The Action is now the sole owner of `state/`**; the plists re
 | cycle | what it does | when |
 |---|---|---|
 | `mark` | mark-only, no rebalance, so the live-equity chart has more than one point per day | hourly (GitHub spaces these ~2h in practice) |
-| `run` | the actual rebalance, each book on its doctrine-registered M/W/D schedule | daily 22:00 UTC |
+| `run` | the actual rebalance, each book on its doctrine-registered M/W/D schedule | daily 22:07 UTC |
 | `factory` | 20 fresh candidates through the full doctrine gate, best promoted to a live book | **paused since 2026-07-27** |
 
 The factory is paused deliberately, not broken ([#98](https://github.com/dzheng1328/tradefabe/issues/98)):
