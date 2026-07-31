@@ -42,6 +42,15 @@ def scratch_graveyard(monkeypatch, tmp_path):
     # state/paper/ ledgers (possible name collisions with real template names) instead
     # of the scratch dir every other promotion-registry path above already uses.
     monkeypatch.setattr(factory_run.books, "STATE_DIR", tmp_path)
+    # These tests check PLUMBING (does promotion pick the right candidate, does the
+    # ledger get the right rows) -- they do not need production's 500/150-trial
+    # statistical precision, and harness.noise_floor()'s per-process memoization means
+    # every worker that draws a factory_run test pays the trial cost at least once. This
+    # was ~83% of the whole suite's serial runtime before the cut (harness.noise_floor's
+    # own docstring). Smaller but still >= 2 (expected_max_sharpe's own floor) so DSR
+    # stays well-defined, just less precise -- exactly the tradeoff these tests can afford.
+    monkeypatch.setattr(factory_run, "NULL_TRIALS", 30)
+    monkeypatch.setattr(factory_run, "COMBO_TRIALS", 30)
     return gy
 
 
