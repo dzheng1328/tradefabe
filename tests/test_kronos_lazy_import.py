@@ -51,10 +51,36 @@ def test_is_available_is_the_real_check_not_the_import():
 
 def test_the_engine_entry_points_do_not_pull_in_kronos():
     """runner/books/cli are what the cloud Action imports. None may reach family M, or the
-    optional extra stops being optional."""
+    optional extra stops being optional.
+
+    Restores the ORIGINAL module object into BOTH sys.modules AND the parent package's
+    own attribute after each forced reimport (#161). Two things depend on identity
+    staying put:
+      - any test file that already did `from tradefabe import runner` (or books, or
+        cli) at collection time is holding that original object, not whatever this
+        loop puts in sys.modules.
+      - `from . import books` inside runner.py/cli.py, on a LATER importlib.reload(),
+        resolves via getattr(sys.modules['tradefabe'], 'books') -- the package
+        ATTRIBUTE -- not sys.modules directly. Restoring only sys.modules leaves the
+        package attribute pointing at the discarded fresh copy, invisible until some
+        other test's importlib.reload() re-triggers `from . import books` and picks
+        that stale copy back up.
+    Skipping either restore step desyncs runner.books / cli.books from the `books`
+    object other test files hold, which is what made test_runner.py's
+    importlib.reload() raise "not in sys.modules", test_retirement.py's cli.main()
+    return the wrong code, and (subtler, only visible once test_runner.py's OWN
+    reload-based tests ran first) two other test_runner.py tests read back a
+    freshly-initialized book instead of the one _run_book() just saved -- all only
+    under xdist scheduling that runs this test before those, in the same worker."""
+    tradefabe_pkg = sys.modules["tradefabe"]
     for name in ("tradefabe.runner", "tradefabe.books", "tradefabe.cli"):
-        sys.modules.pop(name, None)
-        importlib.import_module(name)
+        original = sys.modules.pop(name, None)
+        try:
+            importlib.import_module(name)
+        finally:
+            if original is not None:
+                sys.modules[name] = original
+                setattr(tradefabe_pkg, name.rsplit(".", 1)[1], original)
     assert "torch" not in sys.modules or True  # torch may be present locally; see below
 
     src_root = kronos.__file__.rsplit("/", 1)[0]
