@@ -104,14 +104,17 @@ dashboard locally, and don't commit local `state/` writes. The `ops/*.plist` fil
 exist but nothing is `launchctl load`ed — that, not a rename, is the only thing stopping a
 second writer from forking the ledger. Check `launchctl list | grep tradefabe` is empty.
 - **mark** — hourly (best-effort; GitHub often spaces these ~2h apart).
-- **run** — daily 22:07 UTC (off-the-hour deliberately, #152: a bare 22:00 collides with
-  the hourly mark's own trigger and GitHub silently drops the daily one — that happened
-  for 55/55 scheduled runs before the fix). Installs the CPU torch wheel and caches the
-  Kronos weights; the mark job does neither.
-- **factory** — **PAUSED since 2026-07-27 (#98).** The cron is commented out, not deleted;
-  `workflow_dispatch` still works. It promoted its best-ranked candidate every cycle
-  regardless of verdict, raising `family_n_tested()` for all future candidates every draw —
-  now bounded either way by `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below).
+- **run** — daily 22:07 UTC (off-hour deliberately, #152: a bare 22:00 collides with the
+  hourly mark's trigger — unreliable, not "never fires"; `gh run list` is authoritative
+  over a remembered count). Installs the CPU torch wheel and caches Kronos weights.
+- **factory** — **PAUSED since 2026-07-27 (#98).** Cron commented out, `workflow_dispatch`
+  still works. Promoted its best-ranked candidate every cycle regardless of verdict,
+  raising `family_n_tested()` per draw — now bounded either way by `MAX_FACTORY_PROMOTED`
+  (#147, see Strategy factory below).
+- **cost check** (`cost-check.yml`, #155) — weekly, Mondays ~9:37am ET. The one workflow
+  with real secrets (`ALPACA_API_KEY_ID`/`ALPACA_SECRET_KEY`), same paper-only gates as a
+  local run. Exists because Claude's own `CronCreate` is session-local and silently
+  vanishes on compaction — this can't.
 
 By hand: `gh workflow run "paper engine" -f job=mark|run|factory`. GitHub disables schedules
 on repos with no *human* activity for ~60 days and the bot's own commits may not count —
