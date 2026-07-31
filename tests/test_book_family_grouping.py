@@ -97,6 +97,16 @@ def test_grouping_matches_current_live_roster_families():
     }
 
 
+def test_grouping_includes_family_m_learned_forecaster_books():
+    # #150 -- BOOK_FAMILIES was missing an "M" entry, so book_family() correctly resolved
+    # carry_kronos_vol/kronos_wick_agg to "M" but group_books_by_family() silently dropped
+    # them: it only ever emits families that are keys of BOOK_FAMILIES.
+    names = ["tsmom_12m", "carry_kronos_vol", "kronos_wick_agg"]
+    groups = app.group_books_by_family(_psum(names))
+    got = {label: sorted(r["book"] for r in rows) for _, label, rows in groups}
+    assert got["Learned forecaster"] == ["carry_kronos_vol", "kronos_wick_agg"]
+
+
 def test_grouping_preserves_family_letter_order_not_input_order():
     # input order is H, A, C, E -- output should come back A, C, E, H (BOOK_FAMILIES order)
     names = ["piggyback_2a", "tsmom_12m", "turn_of_month", "carry_btc_eth"]
