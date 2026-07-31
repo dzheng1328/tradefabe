@@ -481,7 +481,13 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
 
     positions_df = None
     deployment = None
-    if kind == "equity":
+    # ACCRUAL_ONLY_BOOKS (#143) never populate `positions`/`cash` via this path -- their
+    # equity moves through kronos_live.run_carry_kronos()/hourly.run_funding_timing()'s
+    # direct multiplicative accrual instead, so cash+positions math here would silently
+    # compute the untouched STARTING cash forever, not the real accrued equity (#149).
+    # They still keep `kind == "equity"` for everything else (verdict badge, backtest
+    # curve sourcing) -- only this specific figure needs the carve-out.
+    if kind == "equity" and name not in ACCRUAL_ONLY_BOOKS:
         book = load_book_json(name)
         cash = float((book or {}).get("cash", 0.0))
         # The LEDGER's own prices first (#109). data/prices.csv is gitignored, so it is
@@ -739,6 +745,9 @@ BOOK_FAMILIES = {
     "H": "Piggyback / combined",
     "I": "Breakout / channel",
     "L": "Intraday / hourly",
+    "M": "Learned forecaster",   # #150 -- missing here silently dropped carry_kronos_vol/
+                                 # kronos_wick_agg from every Family-grouped render, since
+                                 # group_books_by_family() only emits keys of this dict.
 }
 BOOK_FAMILY = {
     "tsmom_12m": "A", "tsmom_ensemble": "A", "green_line_200d": "A", "xsec_momentum": "A",
@@ -1268,48 +1277,58 @@ def render_strategy_panel(name, data, color):
     st.divider()
     if data["kind"] == "equity":
         st.markdown("**Capital deployed**")
-        dep = data["deployment"]
-        d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Cash (undeployed)", money(dep["cash"]), fmt(dep["cash_pct"], "pct") + " of equity")
-        d2.metric("Gross exposure", money(dep["gross"]), fmt(dep["gross_pct"], "pct") + " of equity")
-        d3.metric("Net exposure", money(dep["net"]), fmt(dep["net_pct"], "pct") + " of equity")
-        d4.metric("Total equity", money(dep["equity"]))
-        if dep.get("n_unpriced"):
-            st.warning(
-                f"{dep['n_unpriced']} of {dep['n_held']} held position(s) could not be "
-                "priced, so the figures above are incomplete. This is shown rather than "
-                "silently summed to $0 — an unpriceable book is not an empty one.",
-                icon=":material/warning:")
-        cap = ("Gross = sum of |position value| (both legs of a long/short book); net = "
-               "long minus short (directional tilt).")
-        if dep.get("is_short_funded"):
-            cap += (" **Cash exceeds equity because this book is net short** — the short "
-                    "proceeds are cash, so cash = equity − net exposure. Nothing is "
-                    "borrowed and nothing is wrong.")
+        if name in ACCRUAL_ONLY_BOOKS:
+            # #149 -- same set #143 already carved out of the trade log, for the same
+            # reason: positions/cash are permanently untouched by the accrual path, so
+            # the cash+positions math below would silently show the frozen starting
+            # cash forever instead of the real accrued equity.
+            st.caption("This book is delta-neutral carry: its value moves from funding "
+                       "accrual, not discrete positions, so there's no cash/gross/net "
+                       "breakdown to show here — the live equity chart above is the "
+                       "real number.")
         else:
-            cap += (" Vol-targeted sizing deliberately leaves room in cash rather than "
-                    "forcing 100% deployment — that's a feature of the sizing (see "
-                    "`engine.py`'s `sized_weights`), not a bug.")
-        if dep.get("priced_at"):
-            cap += f" Priced from the ledger's own marks as of {dep['priced_at']} UTC."
-        st.caption(cap)
+            dep = data["deployment"]
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("Cash (undeployed)", money(dep["cash"]), fmt(dep["cash_pct"], "pct") + " of equity")
+            d2.metric("Gross exposure", money(dep["gross"]), fmt(dep["gross_pct"], "pct") + " of equity")
+            d3.metric("Net exposure", money(dep["net"]), fmt(dep["net_pct"], "pct") + " of equity")
+            d4.metric("Total equity", money(dep["equity"]))
+            if dep.get("n_unpriced"):
+                st.warning(
+                    f"{dep['n_unpriced']} of {dep['n_held']} held position(s) could not be "
+                    "priced, so the figures above are incomplete. This is shown rather than "
+                    "silently summed to $0 — an unpriceable book is not an empty one.",
+                    icon=":material/warning:")
+            cap = ("Gross = sum of |position value| (both legs of a long/short book); net = "
+                   "long minus short (directional tilt).")
+            if dep.get("is_short_funded"):
+                cap += (" **Cash exceeds equity because this book is net short** — the short "
+                        "proceeds are cash, so cash = equity − net exposure. Nothing is "
+                        "borrowed and nothing is wrong.")
+            else:
+                cap += (" Vol-targeted sizing deliberately leaves room in cash rather than "
+                        "forcing 100% deployment — that's a feature of the sizing (see "
+                        "`engine.py`'s `sized_weights`), not a bug.")
+            if dep.get("priced_at"):
+                cap += f" Priced from the ledger's own marks as of {dep['priced_at']} UTC."
+            st.caption(cap)
 
-        st.markdown("**Current positions**")
-        pdf = data["positions_df"]
-        if pdf is None or pdf.empty:
-            st.caption("No open positions (book hasn't rebalanced yet).")
-        else:
-            st.dataframe(pdf, width="stretch", hide_index=True, column_config={
-                "ticker": st.column_config.TextColumn("Ticker"),
-                "units": st.column_config.NumberColumn("Units", format="%.2f"),
-                "last_price": st.column_config.NumberColumn("Last price", format="$%.2f"),
-                "value": st.column_config.NumberColumn("Value", format="$%.0f"),
-                "weight": st.column_config.NumberColumn("Weight (% of equity)", format="percent"),
-            })
-            asof = data["positions_asof"]
-            st.caption(f"Priced as of the cached data date ({asof.date() if asof is not None else 'unknown'}), "
-                       "not a live quote. Weight is % of TOTAL equity (cash + positions), "
-                       "not % of invested value — it no longer always sums to 100%.")
+            st.markdown("**Current positions**")
+            pdf = data["positions_df"]
+            if pdf is None or pdf.empty:
+                st.caption("No open positions (book hasn't rebalanced yet).")
+            else:
+                st.dataframe(pdf, width="stretch", hide_index=True, column_config={
+                    "ticker": st.column_config.TextColumn("Ticker"),
+                    "units": st.column_config.NumberColumn("Units", format="%.2f"),
+                    "last_price": st.column_config.NumberColumn("Last price", format="$%.2f"),
+                    "value": st.column_config.NumberColumn("Value", format="$%.0f"),
+                    "weight": st.column_config.NumberColumn("Weight (% of equity)", format="percent"),
+                })
+                asof = data["positions_asof"]
+                st.caption(f"Priced as of the cached data date ({asof.date() if asof is not None else 'unknown'}), "
+                           "not a live quote. Weight is % of TOTAL equity (cash + positions), "
+                           "not % of invested value — it no longer always sums to 100%.")
 
         render_trade_log(data)
     else:

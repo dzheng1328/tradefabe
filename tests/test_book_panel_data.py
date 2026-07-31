@@ -96,6 +96,52 @@ def test_book_panel_data_uses_hourly_source_for_family_l():
     assert len(data["bt_curve"]) > 0
 
 
+# ---------------------------------------------------------------- accrual-only deployment (#149)
+# carry_kronos_vol/funding_timing_1h (ACCRUAL_ONLY_BOOKS, #143) never populate
+# `positions`/`cash` -- their equity moves through kronos_live.run_carry_kronos()'s /
+# hourly.run_funding_timing()'s direct multiplicative accrual instead. Computing
+# "deployment" as cash+positions for them silently shows the frozen $100k starting cash
+# forever, never the real accrued equity -- this is the regression guard for that fix.
+def test_book_panel_data_skips_broken_deployment_math_for_an_accrual_only_book(monkeypatch):
+    name = "carry_kronos_vol"
+    fake_book = {"name": name, "cash": 100_000.0, "positions": {}, "equity": 100_009.43}
+    monkeypatch.setattr(app, "load_book_json", lambda n: fake_book)
+
+    # family M's window is the model's pretraining cutoff (KRONOS_OOS_START), not
+    # meta["oos_start"] -- dates before it slice to an empty bt_curve.
+    rng = np.random.default_rng(0)
+    kronos_idx = pd.bdate_range("2025-06-05", periods=40)
+    kronos_bt = pd.DataFrame({name: rng.normal(0.0005, 0.01, len(kronos_idx))}, index=kronos_idx)
+    full = pd.DataFrame({"unrelated": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
+    dates = pd.bdate_range("2026-01-01", periods=3)
+    data = app.book_panel_data(name, _phist(name, dates, [100_000, 100_005, 100_009.43]),
+                               full, _meta(), _gy_last_row(name), None, None,
+                               kronos_bt=kronos_bt)
+
+    assert data["kind"] == "equity"          # still equity-kind for verdict/backtest sourcing
+    assert data["deployment"] is None         # NOT {"cash": 100_000, "equity": 100_000, ...}
+    assert data["positions_df"] is None
+
+
+def test_book_panel_data_still_computes_deployment_for_a_normal_equity_book(monkeypatch):
+    # regression guard the other direction: a book that DOES hold real positions must
+    # keep the cash+positions math, not get swept into the accrual-only carve-out.
+    name = "tsmom_12m"
+    fake_book = {"name": name, "cash": 40_000.0,
+                 "positions": {"SPY": 100.0}, "last_prices": {"SPY": 600.0}}
+    monkeypatch.setattr(app, "load_book_json", lambda n: fake_book)
+
+    full = _returns_frame(name)
+    dates = pd.bdate_range("2026-01-01", periods=3)
+    data = app.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_200]),
+                               full, _meta(), _gy_last_row(name), None, None)
+
+    assert data["deployment"] is not None
+    assert data["deployment"]["cash"] == 40_000.0
+    assert data["deployment"]["equity"] == 40_000.0 + 100.0 * 600.0
+    assert data["positions_df"] is not None and len(data["positions_df"]) == 1
+
+
 @pytest.mark.parametrize("name", ["crypto_reversal_1h", "equity_tsmom_1h", "funding_timing_1h"])
 def test_every_live_book_on_disk_resolves_a_curve(name):
     """End-to-end guard: every book that actually exists in state/paper must resolve a
