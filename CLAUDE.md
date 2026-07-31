@@ -104,8 +104,10 @@ dashboard locally, and don't commit local `state/` writes. The `ops/*.plist` fil
 exist but nothing is `launchctl load`ed — that, not a rename, is the only thing stopping a
 second writer from forking the ledger. Check `launchctl list | grep tradefabe` is empty.
 - **mark** — hourly (best-effort; GitHub often spaces these ~2h apart).
-- **run** — daily 22:00 UTC. Installs the CPU torch wheel and caches the Kronos weights;
-  the mark job does neither.
+- **run** — daily 22:07 UTC (off-the-hour deliberately, #152: a bare 22:00 collides with
+  the hourly mark's own trigger and GitHub silently drops the daily one — that happened
+  for 55/55 scheduled runs before the fix). Installs the CPU torch wheel and caches the
+  Kronos weights; the mark job does neither.
 - **factory** — **PAUSED since 2026-07-27 (#98).** The cron is commented out, not deleted;
   `workflow_dispatch` still works. It promoted its best-ranked candidate every cycle
   regardless of verdict, raising `family_n_tested()` for all future candidates every draw —

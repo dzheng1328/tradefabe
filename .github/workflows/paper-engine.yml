@@ -13,9 +13,21 @@ on:
   schedule:
     # UTC. ET equivalents drift an hour with DST; harmless, and the two daily jobs
     # shift together so factory still lands before the rebalance.
+    #
+    # NEITHER daily cron may land ON THE HOUR (#152): "0 * * * *" already matches every
+    # hour including :00, so a daily cron at "0 22 * * *" collides with it at 22:00 --
+    # GitHub coalesces two schedule matches at the same minute into ONE triggered run,
+    # and github.event.schedule then reports only the hourly cron, never the daily one.
+    # The "pick cycle" step's case statement below matched on the exact daily string, so
+    # it silently never fired: 55/55 scheduled runs from 2026-07-25 (this workflow's
+    # creation) through 2026-07-31 resolved to "mark", including every one at ~22:0X UTC.
+    # The single real "run" cycle in that entire window was a manual workflow_dispatch,
+    # not the schedule. Every off-the-hour offset here is deliberate, not arbitrary.
     - cron: "0 * * * *"      # mark, hourly
-    - cron: "0 22 * * *"     # daily rebalance (18:00 EDT)
-    # FACTORY CYCLE PAUSED 2026-07-27 (#98). Was: - cron: "0 21 * * *"
+    - cron: "7 22 * * *"     # daily rebalance (18:00 EDT + 7min, clear of the hourly mark)
+    # FACTORY CYCLE PAUSED 2026-07-27 (#98). Was: - cron: "0 21 * * *" -- if this is ever
+    # restored, use "6 21 * * *" (off-the-hour), NOT the original "0 21 * * *": that
+    # value would silently reintroduce the exact #152 collision documented above.
     #
     # Not deleted, and not because the code is wrong -- the factory works exactly as
     # designed. It is paused because the DESIGN has no exit condition: it promotes its
@@ -63,8 +75,8 @@ jobs:
         run: |
           case "${{ github.event_name }}:${{ github.event.schedule }}" in
             workflow_dispatch:*) CYCLE="${{ inputs.job }}" ;;
-            *"0 21 * * *")      CYCLE=factory ;;
-            *"0 22 * * *")      CYCLE=run ;;
+            *"6 21 * * *")      CYCLE=factory ;;
+            *"7 22 * * *")      CYCLE=run ;;
             *)                   CYCLE=mark ;;
           esac
           echo "cycle=$CYCLE" >> "$GITHUB_OUTPUT"
