@@ -1,0 +1,74 @@
+name: cost check
+
+# Empirical Alpaca PAPER fill-cost check (#134), scheduled durably via GitHub Actions
+# instead of a live Claude Code session (#155). Claude's own CronCreate scheduler is
+# session-local and in-memory -- a job scheduled for market open vanished silently when
+# the session compacted before it fired, with no notification and nothing to retry. This
+# workflow can't disappear that way: it's the same durability tier as paper-engine.yml's
+# mark/run/factory cycles.
+#
+# The one thing paper-engine.yml deliberately does NOT have that this file does: real
+# secrets. cost_check.py needs actual Alpaca PAPER credentials to place actual (paper)
+# orders -- ALPACA_API_KEY_ID and ALPACA_SECRET_KEY must be set as repo secrets (Settings
+# -> Secrets and variables -> Actions) with the same values as the local .env. Never
+# committed, never logged -- GitHub redacts secret values from all workflow output.
+#
+# PAPER ONLY, same as every other Alpaca-touching path in this repo: broker.py hardcodes
+# paper=True in client() (not derived from ALPACA_PAPER_TRADE) and separately refuses to
+# return credentials at all unless ALPACA_PAPER_TRADE is exactly "true" -- see CLAUDE.md's
+# hard rule. Both gates apply here exactly as they do to a local run.
+#
+# Weekly, not daily (Dave's explicit call): each run places 5 real paper round-trip
+# orders. Enough to keep artifacts/cost_check.csv's ledger current without generating
+# live trading activity on Alpaca's side every weekday indefinitely.
+
+on:
+  schedule:
+    - cron: "37 13 * * 1"    # ~9:37am ET Mondays (drifts an hour with DST -- same
+                              # accepted tradeoff paper-engine.yml's own crons make)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  cost_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: install
+        run: pip install -e ".[alpaca]"
+
+      # No `|| exit 0` fallback here on purpose: cost_check.py's own market-closed guard
+      # (research/cost_check.py) is the ONLY expected non-zero exit, and it's rare (a
+      # market holiday landing on this Monday slot, a handful of times a year) -- letting
+      # THAT show as a failed run is honest and still cheap to notice, versus a blanket
+      # `|| exit 0` that would just as easily hide a real auth or API failure as a fake
+      # "market was probably closed."
+      - name: run cost check
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_PAPER_TRADE: "true"
+        run: PYTHONPATH="$PWD/src" python research/cost_check.py
+
+      - name: commit ledger
+        run: |
+          git config user.name  "tradefabe-bot"
+          git config user.email "davezheng1328@gmail.com"
+          git add artifacts/cost_check.csv
+          if git diff --cached --quiet; then
+            echo "no new rows"; exit 0
+          fi
+          git commit -qm "cost check: $(date -u +%Y-%m-%dT%H:%M)Z [skip ci]"
+          for i in 1 2 3; do
+            git pull --rebase --quiet origin main && git push --quiet origin HEAD:main && exit 0
+            echo "push attempt $i failed, retrying"; sleep 5
+          done
+          exit 1
