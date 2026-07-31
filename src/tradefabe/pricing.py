@@ -52,6 +52,13 @@ DEFAULT_SOURCE = "equity_hourly"
 # Books whose equity is NOT a function of prices -- funding accrual books own their own
 # marking (carry_live.run_carry / hourly.run_funding_timing / kronos_live.run_carry_kronos)
 # and must be left alone here.
+#
+# This is the ONE canonical registry of "which books are accrual-only," not just for
+# pricing (#157). app.py imports this directly as ACCRUAL_ONLY_BOOKS rather than keeping
+# its own copy -- the two sets used to be independently hand-maintained and could drift,
+# which is exactly the shape of bug #149 was (a book's accounting fixed in one file,
+# still broken in the other). tests/test_book_accounting_consistency.py checks every
+# book-owning module's source against this set.
 NON_PRICED = {"carry_btc_eth", "funding_timing_1h", "carry_kronos_vol"}
 
 
