@@ -740,6 +740,45 @@ legs), not from either asset's own direction — the closest prior test, family 
 single-asset `str_reversal_*` (all DEAD), never hedges out market-wide moves, so a
 result here is not a parameter variant of an already-DEAD spec.
 
+**Result, run 2026-07-31 — DEAD.** Only **`LQD`/`HYG`** cleared the cointegration
+filter (ADF p=0.037); the other five failed it outright (p ranging 0.06–0.55) and were
+dropped, never traded OOS, per the pre-registration:
+
+| pair | β | ADF p-value | traded OOS? |
+|---|---|---|---|
+| `GLD`/`SLV` | 0.637 | 0.133 | no |
+| `TLT`/`IEF` | 1.375 | 0.161 | no |
+| `EFA`/`EEM` | 0.826 | 0.551 | no |
+| `SPY`/`QQQ` | 0.732 | 0.058 | no |
+| `USO`/`DBC` | 2.077 | 0.201 | no |
+| `LQD`/`HYG` | 0.843 | **0.037** | **yes** |
+
+The one tradeable spread (163 position changes over 2007–2026) showed essentially no
+edge: Sharpe **0.00**, DSR 0.150 (fails gate 1 outright — not a close call), Calmar
+−0.01 vs. the 60/40 benchmark's 0.45 (fails gate 2), MaxDD −12.1% within the gate-3
+limit but moot given gates 1–2 already fail. `graveyard.csv` carries exactly the one
+row this run produced — a debugging pass hit the append-only ledger three times before
+landing here (two sizing/logic bugs found and fixed, see below), and those stale rows
+were removed before this commit rather than left to pad `family_n_tested()`.
+
+**Two real bugs found and fixed while building this, not just tuning:**
+1. `engine.sized_weights()` divides by `prices.shape[1]` — correct for every other
+   family, which densely populates every column with a view every day, but silently
+   dilutes a structurally SPARSE pairs signal (only one pair's two columns ever
+   nonzero) if the full 12-ticker candidate universe is passed through regardless of
+   how many pairs actually cleared the filter. Fixed by narrowing the traded universe
+   to only the tickers of pairs that passed, before sizing — confirmed the fix
+   matters: MaxDD went from −2.1% (diluted, 1/12 sizing) to the correct −12.1% (1/2
+   sizing) with the Sharpe unchanged (leverage-invariant, as expected).
+2. The z-score entry condition allowed entering a position at |z| already past
+   `Z_STOP` — self-contradictory, since that position would immediately force-flatten
+   next bar. Fixed by bounding entry to `Z_ENTRY < |z| < Z_STOP`. Verified this
+   doesn't change the LQD/HYG result (the edge case never fired in the real data), but
+   is a real correctness fix, caught by `tests/test_pairs_backtest.py`'s own
+   construction, not by re-running until the numbers looked right.
+
+`research/pairs_backtest.py`, `tests/test_pairs_backtest.py`.
+
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
 2. One verdict per spec. Tweaks = a NEW row and a NEW graveyard entry.

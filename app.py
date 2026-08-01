@@ -209,6 +209,19 @@ def load_hourly_backtest():
 
 
 @st.cache_data
+def load_pairs_backtest():
+    """Backtest OOS returns for family N, pairs/cointegration (research/pairs_backtest.py,
+    #172). A SIXTH curve source beside full/piggyback/factory/hourly/kronos -- same reason
+    as hourly: the study builds its own signal over a ticker subset (only pairs that
+    cleared the cointegration filter), not harness.py's full-universe daily cache. None if
+    the study hasn't been run."""
+    path = os.path.join(ART, "pairs_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+@st.cache_data
 def load_kronos_backtest():
     """Backtest OOS returns for family M, the Kronos candidates (research/kronos_backtest.py,
     #105). A FIFTH curve source beside full/piggyback/factory/hourly.
@@ -778,6 +791,9 @@ BOOK_FAMILY = {
     # family M, Kronos learned forecaster (#105) -- all DEAD, window is 2025-06-05+ only
     # (the model's pretraining cutoff), so these are NOT comparable to a 2018+ row
     "kronos_dir_daily": "M", "kronos_wick_agg": "M", "carry_kronos_vol": "M",
+    # family N, pairs/cointegration (#172) -- DEAD, only LQD/HYG cleared the
+    # cointegration filter of the 6 economically-motivated pairs tested
+    "pairs_cointegration": "N",
 }
 
 
@@ -1181,6 +1197,11 @@ STRATEGY_DESCRIPTIONS = {
                         "DEAD — strictly WORSE than always-on carry (Calmar 1.01 vs 32.71, and a "
                         "deeper drawdown), because every scale move pays cost on both legs. "
                         "Benchmark is always-on carry, not 60/40. Window is 2025-06-05+ only.",
+    "pairs_cointegration": "Engle-Granger cointegration on 6 economically-motivated pairs "
+                           "(GLD/SLV, TLT/IEF, EFA/EEM, SPY/QQQ, USO/DBC, LQD/HYG) — long/short "
+                           "the SPREAD (hedge ratio frozen from 2007-2017), z-score entry/exit. "
+                           "DEAD — only LQD/HYG cleared the cointegration filter (ADF p<0.05), and "
+                           "that one pair's spread showed essentially no edge, Sharpe ≈0.00.",
 }
 
 
@@ -1437,14 +1458,14 @@ def render_risk_register():
 
 
 def _dead_strategy_returns(name, oos, piggy, factory_bt=None, hourly_bt=None,
-                           kronos_bt=None):
+                           kronos_bt=None, pairs_bt=None):
     """Best-effort OOS return series for ANY graveyard entry (ALIVE or DEAD), for the
     strategy detail view below. Bare strategies live in `oos` (full_returns.csv, sliced
     to OOS_START by the caller); piggyback constructions in `piggy`
     (piggyback_returns.csv, already OOS-only at source -- see piggyback_backtest.py);
     promoted strategy-factory candidates in `factory_bt` (factory_returns.csv, #28b --
     only promoted candidates get a curve, not all 20/day tested). Returns None if none
-    of the three has this name (e.g. insider_buying_21d, whose backtest lives in a
+    of the sources has this name (e.g. insider_buying_21d, whose backtest lives in a
     differently-shaped artifact, artifacts/insider_curves.csv, or a DEAD factory
     candidate that was never promoted) -- the caller falls back to graveyard.csv's own
     logged summary stats rather than crashing."""
@@ -1458,11 +1479,13 @@ def _dead_strategy_returns(name, oos, piggy, factory_bt=None, hourly_bt=None,
         return hourly_bt[name].dropna()
     if kronos_bt is not None and name in kronos_bt.columns:
         return kronos_bt[name].dropna()
+    if pairs_bt is not None and name in pairs_bt.columns:
+        return pairs_bt[name].dropna()
     return None
 
 
 def render_strategy_detail(gy_last, oos, piggy, factory_bt=None, hourly_bt=None,
-                           kronos_bt=None):
+                           kronos_bt=None, pairs_bt=None):
     """Per-strategy detail for ANY graveyard entry, not just the strategies that made it
     to a live paper book -- the "Verdicts" table above is the full ledger, but until this
     every DEAD strategy was just one flat row in it, with no blurb/chart/stat-card
@@ -1480,7 +1503,7 @@ def render_strategy_detail(gy_last, oos, piggy, factory_bt=None, hourly_bt=None,
     blurb = strategy_description(pick)
     st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
 
-    r = _dead_strategy_returns(pick, oos, piggy, factory_bt, hourly_bt, kronos_bt)
+    r = _dead_strategy_returns(pick, oos, piggy, factory_bt, hourly_bt, kronos_bt, pairs_bt)
     if r is not None:
         s = ann_stats(r)
         c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -1569,7 +1592,7 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
     piggy = load_piggyback_backtest()
     factory_bt = load_factory_backtest()
     render_strategy_detail(gy_last, oos, piggy, factory_bt, load_hourly_backtest(),
-                           load_kronos_backtest())
+                           load_kronos_backtest(), load_pairs_backtest())
 
     st.subheader("The luck floor — is anything distinguishable from random?")
     freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
