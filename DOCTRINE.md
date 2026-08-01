@@ -23,7 +23,7 @@ like. We avoid that with four locked rules:
 4. **Fair benchmark.** A diversified strategy is compared to a diversified passive portfolio
    (60/40), not to the single best-performing asset in hindsight.
 
-## Current state — read this first (as of v1.8, 2026-07-29)
+## Current state — read this first (as of v1.9, 2026-08-01)
 
 The sections below this one (Data split through Ledger) are v1.0's ORIGINAL, frozen text —
 kept verbatim as the pre-registration record, per rule 1 above. Eight amendments have since
@@ -62,6 +62,12 @@ history** section below.
 - **Paper-testing retirement.** Manual-only; the v1.2 kill criteria are advisory findings,
   never automatic actions (v1.6). See "Paper-testing verdicts" below, which is already
   written in current-state form and needs no translation.
+- **Prelim screen (research-pipeline candidates only, v1.9).** `harness.prelim_screen()`
+  is a cheap, lenient, CALIBRATION-ONLY (2007-2017) check a freshly proposed idea must
+  clear before a real, pre-registered OOS test is worth running on it. It decides nothing
+  about ALIVE/DEAD, touches no 2018+ data, costs no `family_n_tested()` draw, and never
+  writes `graveyard.csv` — only its own `artifacts/prelim_log.csv`. Not part of the three
+  gates above; a firewall upstream of them.
 
 **Forward-only, same as every amendment below states individually: nothing here re-scores
 `graveyard.csv`.** This section is a reading aid, not a new rule — it changes no threshold,
@@ -333,6 +339,44 @@ this for *why*, not to find out what's currently active.
   (a misleading "pass" on an already-DEAD row), not a decision gap — no historical verdict
   would flip under it. Forward-only, per every prior amendment: no `graveyard.csv` row is
   re-scored.
+
+- **v1.9 (2026-08-01, #175). The calibration-only prelim firewall, for the daily
+  automated research pipeline (#174).** Not a change to gates 1-3 — a new, separate
+  mechanism upstream of them, added because the pipeline this amendment serves has a
+  failure mode nothing above already guards against: filtering a freshly-proposed idea by
+  whether a cheap look "seems promising" is itself selection-on-results (data-snooping)
+  unless that look is firewalled from the OOS window every real verdict is rendered on.
+  Pre-registered here, before #174's pipeline exists to run it against anything, per rule
+  1 — the same reason DOCTRINE.md itself predates the strategy zoo it judges.
+
+  **Mechanism.** `harness.prelim_screen(candidate_spec) -> bool`. Loads prices and
+  truncates to `CALIB_START`-`CALIB_END` (2007-2017, identical to v1.0's own "Data split")
+  *before* building the signal, the returns, or the null — the firewall is which rows are
+  missing from memory, not a downstream filter with a bug surface. Passes if the
+  candidate's own calibration Sharpe is positive AND beats a calibration-window noise
+  floor's **median** (p50, not the p95/DSR bar gate 1 uses) — deliberately far short of
+  the real bar. This screen has exactly one job: don't kill a real idea before OOS ever
+  sees it. A false PASS here costs one wasted OOS test later (cheap, recoverable); a false
+  FAIL discards a genuine edge permanently with no record it was ever proposed. A lenient
+  bar buys a low false-negative rate at the cost of a higher false-positive one, on
+  purpose.
+
+  **What this explicitly does NOT do.** Decide ALIVE/DEAD (only gates 1-3, on OOS data,
+  do that). Touch `graveyard.csv` (every call, pass or fail, logs only to its own
+  `artifacts/prelim_log.csv` — a separate, dedicated, audit-only ledger). Cost a
+  `family_n_tested()` draw (that function reads `graveyard.csv` and
+  `generated_templates.csv` only; `prelim_log.csv` is deliberately invisible to it, the
+  same way a factory candidate that's never drawn costs nothing). Read anything dated
+  after `CALIB_END` — confirmed by `tests/test_prelim_screen.py`'s calibration-blindness
+  test, which mutates the post-`CALIB_END` portion of synthetic price data and asserts
+  the verdict doesn't move, the same discipline `pairs_backtest.py`'s own
+  `fit_pair()` test used for #172.
+
+  **Scope.** Applies only to candidates entering through the research pipeline (#174).
+  Every existing path — hand-picked strategies, the factory (#28/#163) — is unaffected;
+  neither has ever needed a pre-OOS screen because neither proposes genuinely new
+  strategy families the way this pipeline will. Nothing here changes what counts as
+  ALIVE or DEAD for any candidate already in `graveyard.csv`, or how one gets there.
 
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 
