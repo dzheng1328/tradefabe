@@ -107,12 +107,73 @@ def factory_origin_names() -> set[str]:
                                       if is_factory_origin(n)}
 
 
-def promoted_names() -> set[str]:
-    """Factory candidates PROMOTED to live paper books.
+# ---------- research-pipeline origin (DOCTRINE v1.10, #176) ----------
+# A THIRD n_tested bucket, alongside factory-origin above and hand-picked (the residual
+# below) -- for #174's daily automated research pipeline, which proposes genuinely NEW
+# strategy families (the way pairs/cointegration or VRP were proposed by hand this
+# session), not parameter sweeps of families that already exist. Same rationale as v1.5's
+# factory bucket: a pipeline draw nobody acted on is search, not a hypothesis anyone would
+# trade, so it must not inflate the bar for hand-picked candidates -- but it must also not
+# get folded into the FACTORY bucket, since it is a different search over a different
+# space and correcting it against factory draws (or vice versa) would be just as arbitrary
+# as correcting it against nothing at all.
+#
+# Fixed here, before #177 (idea generation) exists to draw on it -- same before-the-result
+# guarantee PIPELINE_NAME_PREFIX and PIPELINE_LEDGER give is_factory_origin()'s own
+# conventions. #177 MUST prefix every name it proposes with PIPELINE_NAME_PREFIX and log
+# it to PIPELINE_LEDGER at proposal time, before prelim_screen() (#175) even runs.
+PIPELINE_NAME_PREFIX = "rp_"
+PIPELINE_LEDGER = os.path.join(BASE, "pipeline_ideas.csv")
 
-    These rejoin the hand-picked family: promotion IS selection-on-result, which is exactly
-    the thing a multiple-testing correction exists to price. A draw nobody acted on is
-    search; the one that got a book is a hypothesis."""
+
+def _pipeline_ledger_names() -> set[str]:
+    """Mirrors _factory_ledger_names(): an append-only ledger written at PROPOSAL time,
+    before any prelim screen or verdict. Returns empty until #177 exists to write it --
+    same as GENERATED_LEDGER returned empty before the factory existed."""
+    out: set[str] = set()
+    if os.path.exists(PIPELINE_LEDGER):
+        try:
+            pl = pd.read_csv(PIPELINE_LEDGER)
+            for col in ("name", "strategy"):
+                if col in pl.columns:
+                    out |= set(pl[col].dropna().astype(str))
+                    break
+        except Exception:                                # noqa: BLE001
+            pass
+    return out
+
+
+def is_pipeline_origin(name: str) -> bool:
+    """Whether `name` came from the research pipeline (#174), not the factory or a
+    hand-picked idea. A PREDICATE, for the same reason is_factory_origin() is one: a
+    brand-new candidate has no graveyard row or ledger entry yet at classification time.
+
+    PIPELINE_NAME_PREFIX is fixed and disjoint from the factory's own conventions
+    (`_gen_`, `combo`) by construction -- see test_a_pipeline_name_is_never_also_factory_
+    origin. If #177 ever needs a name that could collide with either, the prefix -- not
+    this check -- is what has to change, and it must change before the first name using
+    it is proposed, not after."""
+    return name.startswith(PIPELINE_NAME_PREFIX) or name in _pipeline_ledger_names()
+
+
+def pipeline_origin_names() -> set[str]:
+    """Every known pipeline-origin name: the proposal-time ledger, plus any graveyard row
+    matching the naming convention."""
+    return _pipeline_ledger_names() | {n for n in graveyard_strategy_names()
+                                       if is_pipeline_origin(n)}
+
+
+def promoted_names() -> set[str]:
+    """Candidates from ANY automated origin (factory or pipeline) PROMOTED to a live
+    paper book.
+
+    These rejoin the hand-picked family regardless of which search found them: promotion
+    IS selection-on-result, which is exactly the thing a multiple-testing correction
+    exists to price. A draw nobody acted on is search; the one that got a book is a
+    hypothesis. #180 (the pipeline's own promotion registry, not yet built) must add its
+    loader to the tuple below the same way the factory's three already are -- this
+    function's whole contract is every promotion registry that exists, not the factory's
+    specifically."""
     out: set[str] = set()
     try:
         from tradefabe import factory
@@ -130,42 +191,60 @@ def promoted_names() -> set[str]:
 
 
 def family_n_tested(candidate_names):
-    """Size of the multiple-testing family, SEGREGATED BY ORIGIN (DOCTRINE v1.5, #112).
+    """Size of the multiple-testing family, SEGREGATED BY ORIGIN (DOCTRINE v1.5, #112;
+    extended to a third bucket by v1.10, #176).
 
-    Family-wise correction assumes you would have ACCEPTED any hypothesis you tested. The
-    factory's draws fail that premise -- they are steps in a search, not candidates anyone
-    would trade, and nobody Bonferroni-corrects gradient descent for every step it visited.
-    Counting them against hand-picked candidates took the required Sharpe from 1.58 (12
-    tested) to 2.52 (136) and was heading for 3.63, pricing out every real strategy.
+    Family-wise correction assumes you would have ACCEPTED any hypothesis you tested. An
+    automated search's draws fail that premise -- they are steps in a search, not
+    candidates anyone would trade, and nobody Bonferroni-corrects gradient descent for
+    every step it visited. Counting the factory's draws against hand-picked candidates
+    took the required Sharpe from 1.58 (12 tested) to 2.52 (136) and was heading for 3.63,
+    pricing out every real strategy -- the same failure mode a second, unsegregated search
+    would reintroduce if it shared either existing bucket.
 
     So:
       * a FACTORY candidate is corrected against factory-origin rows only;
-      * a HAND-PICKED candidate against hand-picked rows plus PROMOTED factory rows;
-      * a mixed set gets the union, which is the conservative reading rather than a
-        convenient one.
+      * a PIPELINE candidate is corrected against pipeline-origin rows only;
+      * a HAND-PICKED candidate against hand-picked rows plus PROMOTED rows from either
+        automated origin;
+      * a set spanning more than one origin gets the union of whichever buckets are
+        represented -- the conservative reading rather than a convenient one.
 
     Pre-v1.5 this was `len(graveyard ∪ candidates)` -- the all-time union. Rows scored
     before v1.5 keep that number and are NOT comparable to rows scored after; the change is
-    forward-only and no historical verdict is ever re-scored under it.
+    forward-only and no historical verdict is ever re-scored under it. Same forward-only
+    rule for v1.10's third bucket: no row scored before it existed is reclassified.
     """
     gy = graveyard_strategy_names()
     factory_rows = factory_origin_names()
+    pipeline_rows = pipeline_origin_names()
     promoted = promoted_names()
     cands = set(candidate_names)
 
-    fam_factory = (gy & factory_rows) - promoted
-    fam_hand = (gy - factory_rows) | (gy & promoted)
+    fam_factory = (gy & factory_rows) - promoted - pipeline_rows
+    fam_pipeline = (gy & pipeline_rows) - promoted - factory_rows
+    fam_hand = (gy - factory_rows - pipeline_rows) | (gy & promoted)
 
     # Classify each candidate by PREDICATE, not by graveyard membership -- a first-time
-    # candidate has no row yet, and a lookup would misfile every one of them.
-    cand_factory = {c for c in cands if is_factory_origin(c) and c not in promoted}
-    cand_hand = cands - cand_factory
-    if cand_factory and cand_hand:
-        family = fam_factory | fam_hand
-    elif cand_factory:
-        family = fam_factory
-    else:
-        family = fam_hand
+    # candidate has no row yet, and a lookup would misfile every one of them. A promoted
+    # candidate is hand-picked regardless of which search found it (see promoted_names()).
+    def _origin(c):
+        if c in promoted:
+            return "hand"
+        if is_pipeline_origin(c):
+            return "pipeline"
+        if is_factory_origin(c):
+            return "factory"
+        return "hand"
+
+    origins = {_origin(c) for c in cands}
+    family = set()
+    if "factory" in origins:
+        family |= fam_factory
+    if "pipeline" in origins:
+        family |= fam_pipeline
+    if "hand" in origins:
+        family |= fam_hand
     return len(family | cands)
 
 

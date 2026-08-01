@@ -23,7 +23,7 @@ like. We avoid that with four locked rules:
 4. **Fair benchmark.** A diversified strategy is compared to a diversified passive portfolio
    (60/40), not to the single best-performing asset in hindsight.
 
-## Current state — read this first (as of v1.9, 2026-08-01)
+## Current state — read this first (as of v1.10, 2026-08-01)
 
 The sections below this one (Data split through Ledger) are v1.0's ORIGINAL, frozen text —
 kept verbatim as the pre-registration record, per rule 1 above. Eight amendments have since
@@ -51,9 +51,11 @@ history** section below.
   against an extreme-value-corrected "best of `n_tested` draws" bar, using a
   **CPCV-resampled** OOS Sharpe rather than the single fixed-window point estimate, **and**
   requiring the candidate's own OOS Sharpe be positive (v1.8 — DSR alone has no such floor
-  and can saturate near 1.0 beside a losing candidate). `n_tested` is segregated by origin —
-  factory-search draws correct against factory-origin rows only, hand-picked candidates
-  against hand-picked + promoted rows (v1.5a). **`bonferroni_bar()` and `NULL_PCTILE=95`
+  and can saturate near 1.0 beside a losing candidate). `n_tested` is segregated by origin
+  into **three** buckets — factory-search draws correct against factory-origin rows only,
+  research-pipeline draws against pipeline-origin rows only (v1.10), hand-picked
+  candidates against hand-picked + promoted rows from either automated origin (v1.5a).
+  **`bonferroni_bar()` and `NULL_PCTILE=95`
   are still computed and logged on every run (the `null_p95`/`bar_method`/`bar_pctile`
   graveyard.csv columns) but have decided nothing since v1.4** — kept so pre-v1.4 and
   post-v1.4 rows stay comparable on the same columns, not because they're still load-bearing.
@@ -377,6 +379,49 @@ this for *why*, not to find out what's currently active.
   neither has ever needed a pre-OOS screen because neither proposes genuinely new
   strategy families the way this pipeline will. Nothing here changes what counts as
   ALIVE or DEAD for any candidate already in `graveyard.csv`, or how one gets there.
+
+- **v1.10 (2026-08-01, #176). A third `n_tested` bucket: research-pipeline origin,**
+  extending v1.5's segregation-by-origin pattern rather than replacing it. Pre-registered
+  before #174's pipeline has a candidate to propose — same reason v1.9 was pre-registered
+  before that pipeline could run anything through it, and unlike v1.5 itself, which was a
+  reactive fix (#101/#112) to a problem already running.
+
+  **Why a third bucket, not reuse of the factory's.** v1.5 exists because a search's draws
+  are steps in a search, not candidates anyone would trade, and correcting hand-picked
+  candidates against them prices out every real strategy. That argument applies to the
+  research pipeline exactly as it applies to the factory — but the two are DIFFERENT
+  searches over DIFFERENT spaces (parameter variants of known families vs. genuinely new
+  strategy families, per #174's own scope). Folding pipeline draws into the factory's
+  bucket, or vice versa, would correct one search against a search it has nothing to do
+  with — arbitrary in exactly the way v1.5 called out family-wise correction assuming
+  "you would have accepted any hypothesis you tested."
+
+  **Mechanism.** `harness.is_pipeline_origin()` / `pipeline_origin_names()`, mirroring
+  `is_factory_origin()` / `factory_origin_names()` exactly: a fixed naming convention
+  (`PIPELINE_NAME_PREFIX = "rp_"`) plus a proposal-time ledger (`PIPELINE_LEDGER`,
+  `artifacts/pipeline_ideas.csv`) that #177 (idea generation, not yet built) must write
+  BEFORE `prelim_screen()` (#175) even runs on a name — the same before-the-result
+  guarantee every existing origin marker already carries. `family_n_tested()` now
+  classifies each candidate into exactly one of three families (factory / pipeline /
+  hand-picked, with a promoted candidate from EITHER automated origin joining hand-picked
+  per v1.5's own logic) and unions whichever bucket(s) a candidate set touches — the same
+  conservative-union rule v1.5 used for a mixed factory/hand-picked set, extended to three.
+
+  **Confirms the design question #176 raised explicitly:** yes, a candidate that PASSES
+  the prelim screen but fails the real OOS test still counts as a research-pipeline draw
+  — it reached `graveyard.csv`, exactly like a factory draw that clears its own screening
+  step but dies OOS. The prelim screen filters what's worth an OOS test; it does not
+  change which bucket the OOS test itself is corrected against.
+
+  **`PIPELINE_LEDGER` returns empty, and `is_pipeline_origin()` only matches by naming
+  convention, until #177 exists to write it** — the same bootstrap state
+  `GENERATED_LEDGER` was in before the factory existed. This bucket is inert (never
+  selected, since nothing is named `rp_*` or logged yet) until the pipeline's first real
+  candidate.
+
+  **Forward-only, same as v1.5: no `graveyard.csv` row scored before this amendment is
+  reclassified.** A row's `n_tested` reflects the bucket definition in force when it was
+  written; comparing `n_tested` across amendments was never valid and remains not so.
 
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 
