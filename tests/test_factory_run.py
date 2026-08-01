@@ -288,6 +288,23 @@ def test_run_cycle_skips_promotion_once_the_cap_is_reached(scratch_graveyard, mo
 def test_factory_owned_count_excludes_a_manually_retired_book(scratch_graveyard, monkeypatch):
     from tradefabe import books
 
+    # #167: this test has failed intermittently in CI (never locally, ~85 attempts across
+    # both investigations) with factory_owned_count() reading 1 instead of 0 right after a
+    # successful retire() -- no bug found in the write/read path itself after a full audit,
+    # so this checks the one mechanism in this codebase PROVEN to cause exactly this shape
+    # of divergence: #161's xdist import bug, where `from tradefabe import books` resolves
+    # via getattr(sys.modules['tradefabe'], 'books') and can pick up a DIFFERENT module
+    # object than a module-level `from tradefabe import books` (factory_run.books here) if
+    # something upstream (e.g. test_runner.py's importlib.reload(runner), which touches the
+    # same `from . import books` binding) left the two references pointing at different
+    # objects -- a scratch_graveyard-patched STATE_DIR on ONE object would silently not
+    # apply to calls made through the other. If this next assert ever fails, it's the
+    # smoking gun; if it never does, this test's own flake is coming from somewhere else.
+    assert books is factory_run.books, (
+        "books module identity diverged: a fresh `from tradefabe import books` is not the "
+        "same object as factory_run.books, so scratch_graveyard's STATE_DIR patch on one "
+        "would not apply to calls made through the other -- see #161, #167.")
+
     factory_run.run_cycle(n=4, seed=1, verbose=False)
     winner_name = next(iter(_all_promoted_names()))
     assert factory_run.factory_owned_count() == 1
@@ -296,7 +313,20 @@ def test_factory_owned_count_excludes_a_manually_retired_book(scratch_graveyard,
     # first real cycle would, then free the slot the same way Dave would by hand.
     books.save(books.load(winner_name))
     books.retire(winner_name, reason="test: freeing a slot")
-    assert factory_run.factory_owned_count() == 0   # the registry entry is still there
+    count = factory_run.factory_owned_count()
+    if count != 0:
+        book = books.load(winner_name)
+        pytest.fail(
+            f"factory_owned_count() == {count}, expected 0 after retiring {winner_name!r} "
+            f"(#167). Diagnostics: retired_field={book.get('retired')!r} "
+            f"books_is_factory_run_books={books is factory_run.books} "
+            f"state_dir_via_local_books={books.STATE_DIR} "
+            f"state_dir_via_factory_run_books={factory_run.books.STATE_DIR} "
+            f"path_exists={books._path(winner_name).exists()} "
+            f"promoted={factory_run.factory.load_promoted()} "
+            f"promoted_generated={[g['name'] for g in factory_run.factory.load_promoted_generated()]} "
+            f"promoted_combos={[c['name'] for c in factory_run.factory.load_promoted_combos()]}")
+                                                      # the registry entry is still there
                                                       # (retire() never removes it) but the
                                                       # freed slot no longer counts against the cap
 
