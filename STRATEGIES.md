@@ -821,7 +821,15 @@ treated as a **clean skip, not a failure** — proposing nothing is a legitimate
 outcome, the same principle DOCTRINE v1.9's prelim firewall already applies one step
 downstream.
 
-`research/pipeline_ideas.py`, `tests/test_pipeline_ideas.py`.
+**The daily cycle (#178, `research/pipeline_daily.py`)** wires proposal to screening:
+`propose_idea()`'s output, if any, is passed straight into `harness.prelim_screen()` —
+deliberately thin, since #177 already returns something the screen can run with no
+translation and the screen already logs every outcome. `.github/workflows/pipeline-daily.yml`
+runs this once a day; a failed screen, like an unproposed day, is a logged outcome, not
+a pipeline failure.
+
+`research/pipeline_ideas.py`, `research/pipeline_daily.py`, `tests/test_pipeline_ideas.py`,
+`tests/test_pipeline_daily.py`.
 
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.

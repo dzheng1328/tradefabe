@@ -1,20 +1,24 @@
-name: pipeline idea
+name: pipeline daily
 
-# Daily idea-proposal step for the research pipeline (#174/#177), scheduled durably via
-# GitHub Actions instead of a live Claude Code session -- same reasoning as cost-check.yml
-# (#155): Claude's own CronCreate scheduler is session-local and silently vanishes on
-# compaction. This can't, and it runs even while the machine is asleep.
+# The research pipeline's daily cycle (#174): propose (#177) then screen (#175),
+# scheduled durably via GitHub Actions instead of a live Claude Code session -- same
+# reasoning as cost-check.yml (#155): Claude's own CronCreate scheduler is session-local
+# and silently vanishes on compaction. This can't, and it runs even while the machine is
+# asleep.
 #
-# The one genuinely LLM-driven step in this repo (README.md's own principle: "no LLM in
-# the trade loop... LLMs are for research"). Needs ANTHROPIC_API_KEY as a repo secret
-# (Settings -> Secrets and variables -> Actions). Never committed, never logged -- GitHub
-# redacts secret values from all workflow output.
+# The proposal step is the one genuinely LLM-driven part of this repo (README.md's own
+# principle: "no LLM in the trade loop... LLMs are for research"). Needs
+# ANTHROPIC_API_KEY as a repo secret (Settings -> Secrets and variables -> Actions).
+# Never committed, never logged -- GitHub redacts secret values from all workflow output.
+# The screening step (research/pipeline_daily.py's own harness.prelim_screen() call) is
+# calibration-only and needs no secret at all.
 #
 # Budget: research/pipeline_ideas.py enforces a hard $0.05/day ceiling IN CODE
 # (DAILY_BUDGET_USD), computed as a provable upper bound before any model call fires --
 # Dave's explicit call, 2026-08-01: if a call would definitely exceed it, it must never
-# fire. A day the cap would be exceeded, or the model has nothing to propose, is a clean
-# skip (exit 0), not a failure -- see propose_idea()'s own docstring.
+# fire. A day the cap would be exceeded, the model has nothing to propose, or a proposal
+# fails the prelim screen, is a clean skip/log (exit 0), not a failure -- see
+# pipeline_daily.run_daily_cycle()'s own docstring.
 
 on:
   schedule:
@@ -29,7 +33,7 @@ permissions:
   contents: write
 
 jobs:
-  propose_idea:
+  pipeline_daily:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,20 +46,20 @@ jobs:
       - name: install
         run: pip install -e ".[pipeline]"
 
-      - name: propose idea
+      - name: run daily cycle (propose, then screen)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: PYTHONPATH="$PWD:$PWD/src:$PWD/research" python research/pipeline_ideas.py
+        run: PYTHONPATH="$PWD:$PWD/src:$PWD/research" python research/pipeline_daily.py
 
-      - name: commit ledger
+      - name: commit ledgers
         run: |
           git config user.name  "tradefabe-bot"
           git config user.email "davezheng1328@gmail.com"
-          git add pipeline_ideas.csv
+          git add pipeline_ideas.csv artifacts/prelim_log.csv
           if git diff --cached --quiet; then
             echo "nothing proposed today"; exit 0
           fi
-          git commit -qm "pipeline idea: $(date -u +%Y-%m-%dT%H:%M)Z [skip ci]"
+          git commit -qm "pipeline daily: $(date -u +%Y-%m-%dT%H:%M)Z [skip ci]"
           for i in 1 2 3; do
             git pull --rebase --quiet origin main && git push --quiet origin HEAD:main && exit 0
             echo "push attempt $i failed, retrying"; sleep 5

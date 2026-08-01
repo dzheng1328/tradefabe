@@ -114,9 +114,9 @@ second writer from forking the ledger. Check `launchctl list | grep tradefabe` i
   `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below) caps growth.
 - **cost check** (`cost-check.yml`, #155) — weekly, Mondays ~9:37am ET, Alpaca PAPER
   secrets, same paper-only gates as a local run.
-- **pipeline idea** (`pipeline-idea.yml`, #177) — daily, ~10:42am ET. The one LLM-driven
-  step in this repo; needs `ANTHROPIC_API_KEY`. Hard $0.05/day cap enforced in code
-  before any call fires, not logged after.
+- **pipeline daily** (`pipeline-daily.yml`, #177/#178) — daily, ~10:42am ET. Propose (the
+  one LLM-driven step in this repo; needs `ANTHROPIC_API_KEY`, hard $0.05/day cap in code
+  before any call fires) then screen (#175, calibration-only, no secret needed).
 
 Both exist because Claude's own `CronCreate` is session-local and silently vanishes on
 compaction — these can't.
