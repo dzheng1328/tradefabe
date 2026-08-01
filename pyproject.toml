@@ -16,6 +16,10 @@ dependencies = [
     "requests",
     "lxml",
     "plotly",
+    # Family N (#172): Engle-Granger cointegration's ADF stationarity test
+    # (statsmodels.tsa.stattools.adfuller) and OLS hedge-ratio regression. Small,
+    # pure numpy/scipy-based -- no torch/alpaca-style extra needed, unlike those two.
+    "statsmodels",
 ]
 
 [project.optional-dependencies]

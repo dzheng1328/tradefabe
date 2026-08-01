@@ -674,6 +674,111 @@ its 14 single names are not in `UNIVERSE`, and without that every mark would pri
 holdings at NaN. If the extra is missing or inference fails, `run_kronos()` skips the books
 and touches no ledger — an 18-book cycle must not fall over because a model download did.
 
+### N. Pairs / cointegration (edge claimed: relative-value mean reversion between two
+economically-linked assets — a distinct mechanism from family B's single-asset reversal,
+since the bet is on the SPREAD, not on either asset's own direction. #172)
+
+**PRE-REGISTRATION — spec frozen 2026-08-01, before any of the six pairs was tested.**
+Results land in a separate, later commit, same discipline as family L's freeze.
+
+**Pair selection, and why it is not a scan.** A blind cointegration scan over all
+C(15,2)=105 combinations of `UNIVERSE` would pick pairs *because* they cointegrate
+in-sample — meta-level p-hacking, the same trap DOCTRINE's opening section names for
+thresholds. Instead, six pairs were chosen for an economic reason to co-move, BEFORE any
+cointegration test ran, and cointegration is used only as a pass/fail filter on this
+fixed list, not a search criterion (Dave's call, 2026-08-01):
+
+| pair | economic link |
+|---|---|
+| `GLD`/`SLV` | precious metals |
+| `TLT`/`IEF` | treasury duration spread |
+| `EFA`/`EEM` | developed vs. emerging international equities |
+| `SPY`/`QQQ` | broad market vs. tech-heavy |
+| `USO`/`DBC` | oil vs. broad commodities |
+| `LQD`/`HYG` | investment-grade vs. high-yield credit |
+
+All twelve tickers are distinct (no ticker appears in two pairs), so the six spreads
+trade as one combined 12-asset signal through the same `sized_weights()`/
+`size_and_rebalance()`/`net_returns()` pipeline every other family uses — no new sizing
+or cost logic.
+
+**Method — Engle & Granger (1987), the standard two-step cointegration test:**
+1. Calibration window is 2007–2017, identical to DOCTRINE's own core split (never the
+   OOS window a verdict is rendered on). Regress `log(price_A)` on `log(price_B)` (OLS,
+   with intercept) to get the hedge ratio `β` and intercept `α`. FROZEN — never
+   re-estimated in the OOS period, the same "no re-fitting during OOS" discipline every
+   other family already follows.
+2. ADF test the calibration-window residual (`log(A) - β·log(B) - α`) for stationarity.
+   A pair clears the filter at p < 0.05 (standard significance level, not tuned per
+   pair). A pair that fails does not trade OOS at all — dropped from the signal, not
+   retried with a different window.
+
+**Signal, entry/exit — Gatev, Goetzmann & Rouwenhorst (2006)'s standard construction:**
+the frozen spread `log(A_t) - β·log(B_t) - α` is z-scored against its own trailing
+60-day mean/std (matches `engine.VOL_WINDOW`'s existing convention — a live
+normalization of the CURRENT spread level, not a re-fit of the cointegrating
+relationship itself, which stays frozen from calibration). Enter long-the-spread (long
+A, short β·B) at z < −2.0; enter short-the-spread at z > +2.0; exit at z crossing 0
+(mean reversion realized); force-flat at |z| > 4.0 — a structural-break stop, same
+spirit as the engine's existing `MAX_LEG`/`MAX_GROSS` caps, treating an extreme
+divergence as evidence the cointegrating relationship broke rather than more reversion
+to come.
+
+**Rebalance freq D** (daily) — a spread can move meaningfully every session; matches
+`donchian`/`turn_of_month`'s D frequency in families C/I. **Benchmark 60/40**, family
+B's existing convention. **Noise floor:** `harness.noise_floor(prices, "D", trials=500,
+like=<this signal>)` — DOCTRINE v1.5's duty-cycle-matched null, reused as-is (random
+rotations of the actual six-pair signal, so the null pays the same turnover cost the
+candidate does; no custom null construction needed, unlike family L's hourly-specific
+`hourly_null`/`funding_null`, since this signal's turnover shape has no reason to differ
+from the generic D-rebalanced case those were built to correct for). **Cost:** the
+existing `COST_BPS=5.0` per side, unchanged.
+
+**What would make this a genuinely different verdict than families A/B's DEAD rows:**
+the edge, if real, comes from the SPREAD reverting (a relative-value bet with two hedged
+legs), not from either asset's own direction — the closest prior test, family B's
+single-asset `str_reversal_*` (all DEAD), never hedges out market-wide moves, so a
+result here is not a parameter variant of an already-DEAD spec.
+
+**Result, run 2026-07-31 — DEAD.** Only **`LQD`/`HYG`** cleared the cointegration
+filter (ADF p=0.037); the other five failed it outright (p ranging 0.06–0.55) and were
+dropped, never traded OOS, per the pre-registration:
+
+| pair | β | ADF p-value | traded OOS? |
+|---|---|---|---|
+| `GLD`/`SLV` | 0.637 | 0.133 | no |
+| `TLT`/`IEF` | 1.375 | 0.161 | no |
+| `EFA`/`EEM` | 0.826 | 0.551 | no |
+| `SPY`/`QQQ` | 0.732 | 0.058 | no |
+| `USO`/`DBC` | 2.077 | 0.201 | no |
+| `LQD`/`HYG` | 0.843 | **0.037** | **yes** |
+
+The one tradeable spread (163 position changes over 2007–2026) showed essentially no
+edge: Sharpe **0.00**, DSR 0.150 (fails gate 1 outright — not a close call), Calmar
+−0.01 vs. the 60/40 benchmark's 0.45 (fails gate 2), MaxDD −12.1% within the gate-3
+limit but moot given gates 1–2 already fail. `graveyard.csv` carries exactly the one
+row this run produced — a debugging pass hit the append-only ledger three times before
+landing here (two sizing/logic bugs found and fixed, see below), and those stale rows
+were removed before this commit rather than left to pad `family_n_tested()`.
+
+**Two real bugs found and fixed while building this, not just tuning:**
+1. `engine.sized_weights()` divides by `prices.shape[1]` — correct for every other
+   family, which densely populates every column with a view every day, but silently
+   dilutes a structurally SPARSE pairs signal (only one pair's two columns ever
+   nonzero) if the full 12-ticker candidate universe is passed through regardless of
+   how many pairs actually cleared the filter. Fixed by narrowing the traded universe
+   to only the tickers of pairs that passed, before sizing — confirmed the fix
+   matters: MaxDD went from −2.1% (diluted, 1/12 sizing) to the correct −12.1% (1/2
+   sizing) with the Sharpe unchanged (leverage-invariant, as expected).
+2. The z-score entry condition allowed entering a position at |z| already past
+   `Z_STOP` — self-contradictory, since that position would immediately force-flatten
+   next bar. Fixed by bounding entry to `Z_ENTRY < |z| < Z_STOP`. Verified this
+   doesn't change the LQD/HYG result (the edge case never fired in the real data), but
+   is a real correctness fix, caught by `tests/test_pairs_backtest.py`'s own
+   construction, not by re-running until the numbers looked right.
+
+`research/pairs_backtest.py`, `tests/test_pairs_backtest.py`.
+
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
 2. One verdict per spec. Tweaks = a NEW row and a NEW graveyard entry.
