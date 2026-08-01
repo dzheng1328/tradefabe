@@ -1,0 +1,23 @@
+[
+ {
+  "name": "factory_combo_donchian_gen_93d_turn_of_month_gen_3_1",
+  "freq": "D",
+  "legs": [
+   {
+    "name": "donchian_gen_93d",
+    "family": "I",
+    "params": {
+     "window": 93
+    }
+   },
+   {
+    "name": "turn_of_month_gen_3_1",
+    "family": "C",
+    "params": {
+     "first_n": 3,
+     "last_n": 1
+    }
+   }
+  ]
+ }
+]
