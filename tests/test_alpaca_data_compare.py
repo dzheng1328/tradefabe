@@ -5,15 +5,18 @@ import numpy as np
 import pandas as pd
 
 import alpaca_data_compare as m
+# _to_alpaca_symbol moved to alpaca_fetch.py (#156) so hourly_backtest.py's equity-leg
+# swap can share fetch_alpaca_bars without a circular import with alpaca_data_compare.py.
+import alpaca_fetch
 
 
 def test_to_alpaca_symbol_converts_crypto_dash_to_slash():
-    assert m._to_alpaca_symbol("BTC-USD") == "BTC/USD"
-    assert m._to_alpaca_symbol("ETH-USD") == "ETH/USD"
+    assert alpaca_fetch._to_alpaca_symbol("BTC-USD") == "BTC/USD"
+    assert alpaca_fetch._to_alpaca_symbol("ETH-USD") == "ETH/USD"
 
 
 def test_to_alpaca_symbol_leaves_equity_tickers_unchanged():
-    assert m._to_alpaca_symbol("SPY") == "SPY"
+    assert alpaca_fetch._to_alpaca_symbol("SPY") == "SPY"
 
 
 def test_compare_overlap_matches_bars_offset_by_the_real_30min_alignment_gap():
