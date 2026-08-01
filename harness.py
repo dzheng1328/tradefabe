@@ -33,6 +33,10 @@ from tradefabe.signals import (sig_tsmom_12m as sig_tsmom, sig_tsmom_ensemble,
 
 # ---- frozen doctrine parameters (see DOCTRINE.md) ----
 OOS_START   = pd.Timestamp("2018-01-01")
+CALIB_START = pd.Timestamp("2007-01-01")   # DOCTRINE's design/calibration window (v1.0's
+CALIB_END   = pd.Timestamp("2017-12-31")   # "Data split") -- prelim_screen() below is the
+                                            # only thing in this file allowed to look here;
+                                            # everything else in harness.py is OOS-only.
 NULL_TRIALS = 500
 NULL_PCTILE = 95        # vestigial, not a threshold (comment fixed under #116): v1.0's
                          # original decision bar, superseded by bonferroni_bar() (v1.3),
@@ -541,6 +545,101 @@ def evaluate(name, r_full, bench_full, null, freq, n_tested=None, bench_label="6
            "cpcv_sharpe_std": round(v14["cpcv_sharpe_std"], 3) if v14["cpcv_sharpe_std"] is not None else ""}
     pd.DataFrame([row]).to_csv(GRAVEYARD, mode="a", header=not os.path.exists(GRAVEYARD), index=False)
     return s
+
+
+# ---------- calibration-only prelim firewall (DOCTRINE v1.9, #175) ----------
+# For the daily automated research pipeline (#174): a cheap, LENIENT screen a freshly
+# proposed idea must clear on CALIBRATION data (2007-2017) alone before it's worth
+# spending a real, pre-registered OOS test on. The firewall property this exists for:
+# an idea that fails here must be IMPOSSIBLE to distinguish, after the fact, from one that
+# was never proposed at all -- it never touches 2018+ data, never costs a
+# family_n_tested() draw, and never becomes a graveyard.csv row. Selecting ideas by a look
+# at OOS results (even an informal one) is exactly the data-snooping DOCTRINE.md's own
+# rule 2 exists to prevent; this is that rule extended to a step upstream of evaluate().
+PRELIM_TRIALS = 100      # cheap relative to NULL_TRIALS=500 -- this is a screen, not gate 1
+PRELIM_NULL_PCTILE = 50  # the median, deliberately far short of the real p95/DSR bar. This
+                          # screen's one job is to not kill a real idea before OOS ever
+                          # sees it -- a false PASS here just costs one wasted OOS test
+                          # (cheap, recoverable), while a false FAIL discards an edge
+                          # permanently with no record it ever existed. A lenient bar
+                          # trades a higher false-positive rate for a near-zero
+                          # false-negative rate on purpose.
+PRELIM_LOG = os.path.join(ART, "prelim_log.csv")
+
+
+def _calib_slice(df):
+    """Truncates a price/signal frame to the calibration window BEFORE any computation
+    touches it. The firewall is the missing rows, not a downstream filter that could have
+    a bug -- nothing dated after CALIB_END is ever held in memory by a prelim screen for a
+    later step to accidentally read. See test_prelim_screen.py's calibration-blindness
+    test, which mutates the OOS portion of synthetic data and asserts the verdict doesn't
+    move -- the same discipline pairs_backtest.py's fit_pair() test used for #172."""
+    return df.loc[(df.index >= CALIB_START) & (df.index <= CALIB_END)]
+
+
+def _prelim_noise_floor(calib_prices, freq, rv, trials=PRELIM_TRIALS):
+    """Sharpe distribution of `trials` random strategies, scored over the FULL frame
+    passed in with no OOS_START-relative slicing -- unlike noise_floor() above, which
+    unconditionally scores at `r.index >= OOS_START` and so cannot be reused here without
+    silently producing an empty (all-NaN-filtered) sample from calibration-only prices.
+    Callers MUST pass an already `_calib_slice()`-d frame; this function trusts its input
+    rather than re-deriving the window, so the truncation only ever happens in one place."""
+    rng = np.random.default_rng(0)
+    out = []
+    for _ in range(trials):
+        sig = sig_random(calib_prices, rng)
+        r = net_returns(calib_prices, size_and_rebalance(calib_prices, sig, freq, rv))
+        v = stats(r.dropna())["Sharpe"]
+        if np.isfinite(v):
+            out.append(v)
+    return np.array(out)
+
+
+def _log_prelim(name, freq, sharpe, bar, passed):
+    """artifacts/prelim_log.csv -- a SEPARATE, dedicated ledger for every prelim screen
+    ever run, pass or fail. Never graveyard.csv, and never read by family_n_tested(): the
+    whole point of this firewall is that a screened idea leaves a paper trail without ever
+    entering the multiple-testing record that governs real verdicts."""
+    os.makedirs(ART, exist_ok=True)
+    row = {"timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+           "strategy": name, "freq": freq,
+           "calib_sharpe": round(sharpe, 3) if np.isfinite(sharpe) else "",
+           "calib_null_p50": round(bar, 3) if np.isfinite(bar) else "",
+           "passed": passed}
+    pd.DataFrame([row]).to_csv(PRELIM_LOG, mode="a", header=not os.path.exists(PRELIM_LOG), index=False)
+
+
+def prelim_screen(candidate_spec: dict) -> bool:
+    """DOCTRINE v1.9 (#175): the calibration-only prelim firewall. `candidate_spec` is
+    {"name": str, "sig_fn": callable (prices -> signal DataFrame), "freq": "D"|"W"|"M"} --
+    the same shape factory_run.py's own candidate dicts already use.
+
+    Loads prices, truncates to the calibration window FIRST (`_calib_slice()`), and only
+    then builds the signal, the returns, and a calibration-window noise floor -- nothing
+    past CALIB_END is ever touched, let alone decided on. Passes if the candidate's own
+    calibration Sharpe is positive AND beats the calibration null's median
+    (PRELIM_NULL_PCTILE=50, deliberately lenient -- see its own comment above).
+
+    Every call is logged to artifacts/prelim_log.csv regardless of outcome. Returns a
+    plain bool -- pipeline stages downstream (#177/#178) branch on this, not on a richer
+    object, so a passing idea's next stop is real pre-registration, not a second look at
+    these numbers."""
+    name, sig_fn, freq = candidate_spec["name"], candidate_spec["sig_fn"], candidate_spec["freq"]
+
+    prices, _ = load_prices()
+    calib_prices = _calib_slice(prices)
+    rv = realized_vol(calib_prices)
+    calib_signal = _calib_slice(sig_fn(calib_prices))
+
+    r = net_returns(calib_prices, size_and_rebalance(calib_prices, calib_signal, freq, rv))
+    sharpe = stats(r.dropna())["Sharpe"]
+
+    null = _prelim_noise_floor(calib_prices, freq, rv)
+    bar = float(np.percentile(null, PRELIM_NULL_PCTILE)) if len(null) else float("nan")
+    passed = bool(np.isfinite(sharpe) and np.isfinite(bar) and sharpe > 0 and sharpe > bar)
+
+    _log_prelim(name, freq, sharpe, bar, passed)
+    return passed
 
 
 def main():
