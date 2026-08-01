@@ -399,7 +399,8 @@ this for *why*, not to find out what's currently active.
   **Mechanism.** `harness.is_pipeline_origin()` / `pipeline_origin_names()`, mirroring
   `is_factory_origin()` / `factory_origin_names()` exactly: a fixed naming convention
   (`PIPELINE_NAME_PREFIX = "rp_"`) plus a proposal-time ledger (`PIPELINE_LEDGER`,
-  `artifacts/pipeline_ideas.csv`) that #177 (idea generation, not yet built) must write
+  `pipeline_ideas.csv` at repo root, tracked in git like `generated_templates.csv`)
+  that #177 (idea generation, not yet built) must write
   BEFORE `prelim_screen()` (#175) even runs on a name — the same before-the-result
   guarantee every existing origin marker already carries. `family_n_tested()` now
   classifies each candidate into exactly one of three families (factory / pipeline /

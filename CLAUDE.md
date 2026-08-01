@@ -112,10 +112,14 @@ second writer from forking the ledger. Check `launchctl list | grep tradefabe` i
   2026-07-27–31 (#98): ledger segregation (DOCTRINE v1.5, #112/#120) stops factory
   draws inflating `family_n_tested()` for hand-picked candidates, and
   `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below) caps growth.
-- **cost check** (`cost-check.yml`, #155) — weekly, Mondays ~9:37am ET. The one workflow
-  with real secrets (`ALPACA_API_KEY_ID`/`ALPACA_SECRET_KEY`), same paper-only gates as a
-  local run. Exists because Claude's own `CronCreate` is session-local and silently
-  vanishes on compaction — this can't.
+- **cost check** (`cost-check.yml`, #155) — weekly, Mondays ~9:37am ET, Alpaca PAPER
+  secrets, same paper-only gates as a local run.
+- **pipeline idea** (`pipeline-idea.yml`, #177) — daily, ~10:42am ET. The one LLM-driven
+  step in this repo; needs `ANTHROPIC_API_KEY`. Hard $0.05/day cap enforced in code
+  before any call fires, not logged after.
+
+Both exist because Claude's own `CronCreate` is session-local and silently vanishes on
+compaction — these can't.
 
 By hand: `gh workflow run "paper engine" -f job=mark|run|factory`. GitHub disables schedules
 on repos with no *human* activity for ~60 days and the bot's own commits may not count —
@@ -248,9 +252,6 @@ current is a manual step — step 7 of the `ship` skill. Reading it needs `proje
 
 **Don't hand-maintain issue numbers or counts in this file** — they go stale within a day,
 and a stale roadmap once convinced an agent the lab had been idle for a week. Run the command.
-
-**Backfill note:** issues **#41–58** were created 2026-07-25 to record work predating the
-tracker; opened and closed in the same breath. History, not a queue.
 
 ## Explicitly off-limits
 - `~/Documents/daily tickers` — a separate project Dave deliberately stopped. Don't

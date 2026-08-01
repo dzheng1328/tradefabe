@@ -34,6 +34,10 @@ kronos = ["torch>=2.0", "einops>=0.8", "huggingface_hub>=0.33", "safetensors>=0.
 # Alpaca paper-trading broker (#5). Optional and lazily imported, same reasoning as
 # kronos above: the paper engine must keep running with no [alpaca] extra installed.
 alpaca = ["alpaca-py>=0.33", "python-dotenv>=1.0"]
+# Research pipeline idea generation (#177). Optional and lazily imported, same reasoning
+# as kronos/alpaca above -- the paper engine must keep running with no [pipeline] extra
+# installed, and no test in this repo should need a real API key to pass.
+pipeline = ["anthropic>=0.40"]
 
 [project.scripts]
 tradefabe = "tradefabe.cli:main"
