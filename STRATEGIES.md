@@ -378,6 +378,24 @@ Per DOCTRINE rule 1 (forward-only), this produces a NEW graveyard row; the origi
 2026-07-26 verdict above is the pre-registration record and is not edited or removed.
 Results land in a separate, later commit, same discipline as the original freeze above.
 
+**Result, run 2026-07-31 — still DEAD, more decisively.** 2,729 daily observations from
+2016-01-01 (vs. 791 under yfinance's 2023-08-25 start), correctly spanning 2018's vol
+spike, COVID, and the 2022 bear via `evaluate()`'s v1.7 window logic (#115): the
+candidate's own first observation now predates `OOS_START`, so the full 2018-present
+doctrine window is used rather than being silently narrowed to whatever yfinance
+happened to have. Sharpe **−3.64** (was −1.93), **MaxDD −100.0%** (was −40.7%, i.e. this
+turnover-heavy long/short strategy is a full capital-destruction event once COVID's
+whipsaw and the 2022 bear are in the sample, not merely unprofitable). Fails all three
+gates outright. The regime-limitation caveat above no longer applies to this row; it
+does still apply to `crypto_reversal_1h` and `funding_timing_1h`, neither re-run.
+
+`crypto_reversal_1h` and `funding_timing_1h`'s columns in `artifacts/hourly_returns.csv`
+are confirmed byte-identical to before this run (max abs diff 0.0 on every shared date)
+— the wider `equity_tsmom_1h` window was deliberately NOT written into the shared file
+at its full width (would have back-filled years of misleading flat-zero padding onto
+the other two books' live dashboard charts via `book_panel_data()`'s `fillna(0)`); only
+the doctrine verdict above used the full 2016-2026 series.
+
 ### M. Learned forecaster / Kronos (edge claimed: a pretrained sequence model extracts
 structure from raw OHLCV that hand-written signals miss. #105)
 

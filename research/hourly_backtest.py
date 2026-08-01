@@ -51,6 +51,8 @@ from tradefabe.hourly import (FUNDING_LOOKBACK_H, REVERSAL_LOOKBACK_H, TSMOM_LOO
                               CRYPTO_TICKERS, equal_weight,
                               sig_crypto_reversal, sig_equity_tsmom)
 from harness import (evaluate, family_n_tested, benchmark_returns, OOS_START, ART)
+# #156: equity_tsmom_1h's data source only -- see fetch_bars()'s call sites in main().
+from alpaca_fetch import fetch_alpaca_bars, ALPACA_START
 
 HL_API = "https://api.hyperliquid.xyz/info"
 COINS = ("BTC", "ETH")
@@ -212,6 +214,17 @@ def funding_null(funding: pd.DataFrame, trials, rng, oos_start) -> np.ndarray:
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--trials", type=int, default=NULL_TRIALS)
+    # #156: equity_tsmom_1h's Alpaca-sourced data extends back to ~2016, closing the
+    # regime-limitation gap (2018 vol spike/COVID/2022 bear) for that one book. Per the
+    # STRATEGIES.md pre-registration, crypto_reversal_1h and funding_timing_1h are NOT
+    # re-evaluated -- --only skips their evaluate() calls (the graveyard-appending,
+    # n_tested-inflating side effect) while still computing their return series so
+    # hourly_returns.csv keeps all three columns for the dashboard's backtest charts.
+    ap.add_argument("--only", choices=["funding_timing_1h", "crypto_reversal_1h",
+                                       "equity_tsmom_1h"], default=None,
+                    help="evaluate only this book (graveyard.csv); the other two still "
+                         "compute return series for hourly_returns.csv, just don't get "
+                         "a new verdict")
     args = ap.parse_args()
     rng = np.random.default_rng(20260726)
 
@@ -237,36 +250,72 @@ def main():
     print(f"  always-on carry: {stats(hold)['Sharpe']:.2f} Sharpe, "
           f"{(1+hold.mean())**ANN-1:+.2%}/yr  <- what the timing must beat to be worth it")
     print(f"  vs cash, for the record: timing returns {(1+r_ft.mean())**ANN-1:+.2%}/yr absolute")
-    print(f"  building matched null ({args.trials} random on/off timings)...")
-    null_ft = funding_null(funding, args.trials, rng, OOS_START)
-    print(f"  null Sharpe: mean {null_ft.mean():.2f}, p95 {np.percentile(null_ft, 95):.2f}")
-    evaluate("funding_timing_1h", r_ft, hold, null_ft, "H",
-             n_tested=family_n_tested(["funding_timing_1h"]), bench_label="always-on carry")
+    if args.only in (None, "funding_timing_1h"):
+        print(f"  building matched null ({args.trials} random on/off timings)...")
+        null_ft = funding_null(funding, args.trials, rng, OOS_START)
+        print(f"  null Sharpe: mean {null_ft.mean():.2f}, p95 {np.percentile(null_ft, 95):.2f}")
+        evaluate("funding_timing_1h", r_ft, hold, null_ft, "H",
+                 n_tested=family_n_tested(["funding_timing_1h"]), bench_label="always-on carry")
+    else:
+        print("  --only given for a different book -- skipping evaluate() (#156)")
     rows.append(("funding_timing_1h", r_ft))
 
     # ---------------- 2. crypto_reversal_1h ----------------
+    # yfinance, UNCHANGED (#156's pre-registration: this book is not re-run -- Alpaca's
+    # own crypto history doesn't reach further back than what's already covered, so a
+    # different source here would add multiple-testing cost for zero new information).
     cpx = fetch_bars(CRYPTO_TICKERS, "crypto")
     r_cr = _as_daily_series(net_hourly(cpx, equal_weight(sig_crypto_reversal(cpx))))
     print(f"\n[crypto_reversal_1h] {len(r_cr)} daily obs from {r_cr.index.min().date()}")
-    print(f"  building matched null ({args.trials} random hourly strategies)...")
-    null_cr = hourly_null(cpx, args.trials, rng, OOS_START)
-    print(f"  null Sharpe: mean {null_cr.mean():.2f}, p95 {np.percentile(null_cr, 95):.2f}")
     daily_px = fetch_bars(UNIVERSE, "equity")
     bench = benchmark_returns(daily_px.resample("D").last().dropna(how="all"))
-    evaluate("crypto_reversal_1h", r_cr, bench, null_cr, "H",
-             n_tested=family_n_tested(["crypto_reversal_1h"]))
+    if args.only in (None, "crypto_reversal_1h"):
+        print(f"  building matched null ({args.trials} random hourly strategies)...")
+        null_cr = hourly_null(cpx, args.trials, rng, OOS_START)
+        print(f"  null Sharpe: mean {null_cr.mean():.2f}, p95 {np.percentile(null_cr, 95):.2f}")
+        evaluate("crypto_reversal_1h", r_cr, bench, null_cr, "H",
+                 n_tested=family_n_tested(["crypto_reversal_1h"]))
+    else:
+        print("  --only given for a different book -- skipping evaluate() (#156)")
     rows.append(("crypto_reversal_1h", r_cr))
 
     # ---------------- 3. equity_tsmom_1h ----------------
-    epx = daily_px
+    # Alpaca, not yfinance's `daily_px` above (#156) -- reaches back to ~2016 vs
+    # yfinance's rolling-730-day window (cached from 2023-08-25), so this candidate's
+    # own first real observation now predates DOCTRINE's OOS_START=2018-01-01. That
+    # matters concretely: evaluate()'s v1.7 window fix (#115) sets the evaluation
+    # window to max(OOS_START, candidate's own first observation) -- under yfinance
+    # that was max(2018, 2023-08-25) = 2023-08-25, silently missing 2018's vol spike,
+    # COVID, and the 2022 bear entirely. Under Alpaca it's max(2018, ~2016) = 2018,
+    # the FULL doctrine window, which is the entire point of this swap.
+    #
+    # The BENCHMARK must widen to match, via its own bench_et built from `epx` --
+    # reusing `bench` (built from the narrower yfinance daily_px) here would silently
+    # reintroduce the mirror image of the #115 bug this fix depends on: a candidate
+    # window starting 2018 compared against a benchmark that (despite the same ">=
+    # oos_start" slice) still only actually has data from 2023-08-25 onward.
+    epx = fetch_alpaca_bars(UNIVERSE, "equity", ALPACA_START["equity"])
+    bench_et = benchmark_returns(epx.resample("D").last().dropna(how="all"))
     r_et = _as_daily_series(net_hourly(epx, equal_weight(sig_equity_tsmom(epx))))
-    print(f"\n[equity_tsmom_1h] {len(r_et)} daily obs from {r_et.index.min().date()}")
-    print(f"  building matched null ({args.trials} random hourly strategies)...")
-    null_et = hourly_null(epx, args.trials, rng, OOS_START)
-    print(f"  null Sharpe: mean {null_et.mean():.2f}, p95 {np.percentile(null_et, 95):.2f}")
-    evaluate("equity_tsmom_1h", r_et, bench, null_et, "H",
-             n_tested=family_n_tested(["equity_tsmom_1h"]))
-    rows.append(("equity_tsmom_1h", r_et))
+    print(f"\n[equity_tsmom_1h] {len(r_et)} daily obs from {r_et.index.min().date()} (Alpaca, #156)")
+    if args.only in (None, "equity_tsmom_1h"):
+        print(f"  building matched null ({args.trials} random hourly strategies)...")
+        null_et = hourly_null(epx, args.trials, rng, OOS_START)
+        print(f"  null Sharpe: mean {null_et.mean():.2f}, p95 {np.percentile(null_et, 95):.2f}")
+        evaluate("equity_tsmom_1h", r_et, bench_et, null_et, "H",
+                 n_tested=family_n_tested(["equity_tsmom_1h"]))
+    else:
+        print("  --only given for a different book -- skipping evaluate() (#156)")
+    # hourly_returns.csv gets r_et TRUNCATED to daily_px's (yfinance) old window, not the
+    # full Alpaca-wide series -- app.py's book_panel_data() builds one shared DataFrame
+    # from this CSV via pd.DataFrame({name: series, ...}), which outer-joins on index and
+    # NaN-pads any column shorter than the widest one. book_panel_data() then does
+    # `(1 + bt_returns.fillna(0)).cumprod()`, so writing the full 2016-start r_et here
+    # would silently paint years of flat-zero lead-in onto funding_timing_1h's and
+    # crypto_reversal_1h's OWN backtest charts -- both real, currently-live books this
+    # PR is not supposed to touch. The doctrine verdict above already used the full
+    # width via bench_et/r_et; only what reaches the shared CSV is narrowed.
+    rows.append(("equity_tsmom_1h", r_et[r_et.index >= daily_px.index.min()]))
 
     # ---------------- turnover context: the number that usually decides it -------------
     print("\n--- turnover drag, the term that dominates every hourly book ---")

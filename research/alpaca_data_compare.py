@@ -31,6 +31,12 @@ materially different backtest window, produces new `graveyard.csv` rows on a dif
 input and needs its own pre-registration (a STRATEGIES.md/DOCTRINE.md note) first --
 same discipline as every prior doctrine amendment, not a side effect of running this.
 
+**Decision made 2026-07-31 (#156): yes, for `equity_tsmom_1h` only** -- pre-registered
+in STRATEGIES.md's family L section before `hourly_backtest.py`'s equity leg was
+actually swapped. This script itself still only measures; the swap lives in
+`hourly_backtest.py`, and `fetch_alpaca_bars` moved to `alpaca_fetch.py` so both files
+can share it.
+
 Run: PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" .venv/bin/python research/alpaca_data_compare.py
 """
 from __future__ import annotations
@@ -42,18 +48,15 @@ import sys
 import numpy as np
 import pandas as pd
 
-from tradefabe import broker
 from tradefabe.engine import UNIVERSE
 from tradefabe.hourly import CRYPTO_TICKERS
-from tradefabe.paths import ARTIFACTS
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hourly_backtest import fetch_bars as yf_fetch_bars  # noqa: E402
-
-# Alpaca's hourly bars empirically start ~2016 for equities, ~2021 for crypto on this
-# account (confirmed again by fetch_alpaca_bars() below) -- fetching from a bit before
-# that costs nothing (an empty response) and avoids hardcoding an exact cutover date.
-ALPACA_START = {"equity": dt.datetime(2016, 1, 1), "crypto": dt.datetime(2020, 1, 1)}
+# fetch_alpaca_bars/ALPACA_START moved to alpaca_fetch.py (#156) so hourly_backtest.py's
+# equity-leg swap can import the same function without a circular import (hourly_backtest
+# already gets imported BY this file, above).
+from alpaca_fetch import fetch_alpaca_bars, ALPACA_START  # noqa: E402
 
 # The three regimes family L's own docstring names as missing from every hourly source
 # reachable today -- the actual question this script exists to answer.
@@ -62,77 +65,6 @@ REGIME_MARKERS = {
     "COVID crash": dt.datetime(2020, 3, 1),
     "2022 bear market": dt.datetime(2022, 1, 1),
 }
-
-ALPACA_CACHE = os.path.join(ARTIFACTS, "alpaca_hourly_{tag}.csv")
-
-
-def _to_alpaca_symbol(yf_symbol: str) -> str:
-    """yfinance's crypto convention is "BTC-USD"; Alpaca's is "BTC/USD". Equity tickers
-    are identical on both sources."""
-    return yf_symbol.replace("-", "/") if "-" in yf_symbol else yf_symbol
-
-
-def fetch_alpaca_bars(tickers: list[str], tag: str, start: dt.datetime) -> pd.DataFrame:
-    """Alpaca's full available hourly history per ticker, from `start` to now.
-    Snapshotted to artifacts/ (same convention as fetch_bars()'s yfinance cache) -- one
-    real pull is enough evidence for this diagnostic; a re-run shouldn't re-hit the API.
-    Fetches ONE TICKER AT A TIME deliberately: a single multi-symbol request over a
-    decade of hourly bars was still running after several minutes in testing, while
-    single-ticker requests reliably took ~30-40s each -- slower in aggregate, but
-    predictable and each ticker's failure can't take the others down with it."""
-    path = ALPACA_CACHE.format(tag=tag)
-    if os.path.exists(path):
-        px = pd.read_csv(path, index_col=0, parse_dates=True)
-        print(f"[alpaca] {tag}: {len(px)} hourly bars from snapshot {path}")
-        return px
-
-    key_id, secret_key = broker.credentials()
-    # This account's subscription tier can't query SIP (stock) data inside roughly the
-    # last 15 minutes -- `end=now()` failed on EVERY equity ticker with "subscription
-    # does not permit querying recent SIP data". A 20-minute buffer clears it; crypto
-    # has no such restriction, so this costs it nothing.
-    end = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(minutes=20)
-    cols = {}
-    for t in tickers:
-        asym = _to_alpaca_symbol(t)
-        try:
-            if tag == "crypto":
-                from alpaca.data.historical import CryptoHistoricalDataClient
-                from alpaca.data.requests import CryptoBarsRequest
-                from alpaca.data.timeframe import TimeFrame
-                client = CryptoHistoricalDataClient(key_id, secret_key)
-                req = CryptoBarsRequest(symbol_or_symbols=asym, timeframe=TimeFrame.Hour,
-                                        start=start, end=end)
-                df = client.get_crypto_bars(req).df
-            else:
-                from alpaca.data.historical import StockHistoricalDataClient
-                from alpaca.data.requests import StockBarsRequest
-                from alpaca.data.timeframe import TimeFrame
-                client = StockHistoricalDataClient(key_id, secret_key)
-                req = StockBarsRequest(symbol_or_symbols=asym, timeframe=TimeFrame.Hour,
-                                       start=start, end=end)
-                df = client.get_stock_bars(req).df
-        except Exception as e:  # noqa: BLE001 -- one ticker's API hiccup must not sink the run
-            print(f"  [alpaca] {t}: ERROR {type(e).__name__}: {e}")
-            continue
-        if df.empty:
-            print(f"  [alpaca] {t}: no data")
-            continue
-        close = df["close"]
-        if isinstance(close.index, pd.MultiIndex):
-            close = close.droplevel("symbol")
-        close.index = pd.to_datetime(close.index).tz_localize(None)
-        close = close[~close.index.duplicated(keep="last")].sort_index()
-        cols[t] = close
-        print(f"  [alpaca] {t}: {len(close)} bars, {close.index.min().date()} -> "
-              f"{close.index.max().date()}")
-
-    px = pd.DataFrame(cols).sort_index()
-    os.makedirs(ARTIFACTS, exist_ok=True)
-    px.to_csv(path)
-    print(f"[alpaca] {tag}: wrote {len(px)} row(s) -> {path}")
-    return px
-
 
 BAR_ALIGN_TOLERANCE = pd.Timedelta(minutes=35)
 
