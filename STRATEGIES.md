@@ -779,6 +779,50 @@ were removed before this commit rather than left to pad `family_n_tested()`.
 
 `research/pairs_backtest.py`, `tests/test_pairs_backtest.py`.
 
+## Research pipeline — primitive vocabulary (#174/#177)
+
+**PRE-REGISTRATION — frozen 2026-08-01, before any candidate was proposed through it.**
+The daily automated research pipeline's idea-generation step (`research/pipeline_ideas.py`,
+DOCTRINE v1.9/v1.10, #175/#176) is the one genuinely LLM-driven part of this repo
+(README.md's own principle: strategies stay deterministic, "no LLM in the trade loop").
+Rather than let the model write code or invent a mechanism, it picks a **primitive** and
+**parameters** from the fixed vocabulary below — the same split `factory.GENERATION_RANGES`
+already draws between a pre-registered range (fixed here, reviewed once) and the specific
+value drawn (not pre-registered, since it's read off a range that already was). This is
+what stops the pipeline from reopening the meta-level p-hacking risk DOCTRINE.md's opening
+section warns about, in a new, LLM-shaped form.
+
+| primitive | mechanism | parameters |
+|---|---|---|
+| `pair_zscore` | Mean-reversion of the z-scored log-spread between two `UNIVERSE` tickers (simple 1:1 spread — unlike family N's regressed hedge ratio, this primitive has no calibration step of its own; a fitting general-purpose first look, not a substitute for a properly pre-registered pair like family N's) | `ticker_a`, `ticker_b` ∈ UNIVERSE; `z_window` 20–120; `z_entry` 1.5–3.0; `z_stop` 3.0–6.0 |
+| `cross_sectional_rank` | Long the top-K / short the bottom-K of the full `UNIVERSE`, ranked by a fixed metric | `metric` ∈ {momentum, low_vol, reversal}; `lookback` 20–252; `k` 1–7 |
+| `single_asset_trend` | Long/short one ticker by the sign of its own trailing return | `ticker` ∈ UNIVERSE; `lookback` 20–252 |
+| `static_spread_carry` | A fixed, always-on long-short between two tickers — a structural risk-premium bet, not mean-reversion | `ticker_a`, `ticker_b` ∈ UNIVERSE; `long_leg` ∈ {a, b} |
+
+Every proposal is validated against these ranges mechanically (`pipeline_ideas.validate_proposal()`)
+before anything else happens — an out-of-range parameter, an unknown primitive, or a
+missing rationale/citation is rejected before a name is even assigned, let alone before
+`prelim_screen()` (#175) runs. The name is assigned deterministically from
+`(primitive, params)` (`pipeline_ideas.make_name()`), never chosen by the model, and is
+always prefixed `rp_` — #176's origin-classification contract, satisfied by construction.
+
+**Rate limit:** one proposal per day (`already_proposed_today()`, checked against
+`pipeline_ideas.csv`'s own timestamps). **Budget:** a hard $0.05/day ceiling, computed as
+a provable upper bound *before* any model call fires (`estimate_cost()` — conservative
+input-token estimate plus the API's own `max_tokens` cap on output) — Dave's explicit
+call: if a call would definitely exceed it, it must never fire, not just warn afterward.
+Runs via GitHub Actions (`.github/workflows/pipeline-idea.yml`), same durability
+reasoning as `cost-check.yml` (#155): a session-local schedule silently vanishes on
+compaction; this can't, and it runs even while the machine is asleep.
+
+A model response the validator rejects, a day the budget would be exceeded, a day the
+model has nothing to propose, or a duplicate of an already-tested spec are all logged and
+treated as a **clean skip, not a failure** — proposing nothing is a legitimate daily
+outcome, the same principle DOCTRINE v1.9's prelim firewall already applies one step
+downstream.
+
+`research/pipeline_ideas.py`, `tests/test_pipeline_ideas.py`.
+
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
 2. One verdict per spec. Tweaks = a NEW row and a NEW graveyard entry.

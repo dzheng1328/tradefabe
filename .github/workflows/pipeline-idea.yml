@@ -1,0 +1,63 @@
+name: pipeline idea
+
+# Daily idea-proposal step for the research pipeline (#174/#177), scheduled durably via
+# GitHub Actions instead of a live Claude Code session -- same reasoning as cost-check.yml
+# (#155): Claude's own CronCreate scheduler is session-local and silently vanishes on
+# compaction. This can't, and it runs even while the machine is asleep.
+#
+# The one genuinely LLM-driven step in this repo (README.md's own principle: "no LLM in
+# the trade loop... LLMs are for research"). Needs ANTHROPIC_API_KEY as a repo secret
+# (Settings -> Secrets and variables -> Actions). Never committed, never logged -- GitHub
+# redacts secret values from all workflow output.
+#
+# Budget: research/pipeline_ideas.py enforces a hard $0.05/day ceiling IN CODE
+# (DAILY_BUDGET_USD), computed as a provable upper bound before any model call fires --
+# Dave's explicit call, 2026-08-01: if a call would definitely exceed it, it must never
+# fire. A day the cap would be exceeded, or the model has nothing to propose, is a clean
+# skip (exit 0), not a failure -- see propose_idea()'s own docstring.
+
+on:
+  schedule:
+    - cron: "42 14 * * *"    # ~10:42am ET daily (drifts an hour with DST, same accepted
+                              # tradeoff every other cron in this repo makes) -- an
+                              # off-hour offset, avoiding paper-engine.yml's mark/run/
+                              # factory slots and cost-check.yml's Monday slot (#152's
+                              # collision class: never land exactly on another cron's minute)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  propose_idea:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: install
+        run: pip install -e ".[pipeline]"
+
+      - name: propose idea
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: PYTHONPATH="$PWD:$PWD/src:$PWD/research" python research/pipeline_ideas.py
+
+      - name: commit ledger
+        run: |
+          git config user.name  "tradefabe-bot"
+          git config user.email "davezheng1328@gmail.com"
+          git add pipeline_ideas.csv
+          if git diff --cached --quiet; then
+            echo "nothing proposed today"; exit 0
+          fi
+          git commit -qm "pipeline idea: $(date -u +%Y-%m-%dT%H:%M)Z [skip ci]"
+          for i in 1 2 3; do
+            git pull --rebase --quiet origin main && git push --quiet origin HEAD:main && exit 0
+            echo "push attempt $i failed, retrying"; sleep 5
+          done
+          exit 1
