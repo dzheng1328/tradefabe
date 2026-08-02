@@ -19,5 +19,26 @@
     }
    }
   ]
+ },
+ {
+  "name": "factory_combo_donchian_gen_109d_turn_of_month_gen_1_2",
+  "freq": "D",
+  "legs": [
+   {
+    "name": "donchian_gen_109d",
+    "family": "I",
+    "params": {
+     "window": 109
+    }
+   },
+   {
+    "name": "turn_of_month_gen_1_2",
+    "family": "C",
+    "params": {
+     "first_n": 1,
+     "last_n": 2
+    }
+   }
+  ]
  }
 ]
