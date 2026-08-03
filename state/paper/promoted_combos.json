@@ -40,5 +40,26 @@
     }
    }
   ]
+ },
+ {
+  "name": "factory_combo_str_reversal_gen_36d_turn_of_month_gen_5_8",
+  "freq": "D",
+  "legs": [
+   {
+    "name": "str_reversal_gen_36d",
+    "family": "B",
+    "params": {
+     "days": 36
+    }
+   },
+   {
+    "name": "turn_of_month_gen_5_8",
+    "family": "C",
+    "params": {
+     "first_n": 5,
+     "last_n": 8
+    }
+   }
+  ]
  }
 ]
