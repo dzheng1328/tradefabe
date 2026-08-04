@@ -57,13 +57,46 @@ def screen_pending_backlog(screen_fn=None, preregister_fn=None) -> list[dict]:
     pending_screens() finds -- usually 0 or 1 (a research routine, like propose_idea(),
     is expected to write at most one row/day), but a real backlog (e.g. this step not
     having existed yet, or a screen run that failed mid-cycle) is handled the same way.
-    Returns one {"name","passed","preregistered"} summary per candidate screened."""
+    Returns one {"name","passed","preregistered"} summary per candidate screened.
+
+    This is also the ONE mechanical checkpoint an asset_class_trend_hedge candidate
+    (#194) is guaranteed to pass through regardless of origin: the research routine
+    writes PIPELINE_LEDGER rows directly, bypassing pipeline_ideas.validate_proposal()
+    entirely, so its offline asset-class check can't be relied on alone. A candidate
+    that fails either #194 guard is rejected here, before the (comparatively expensive)
+    prelim screen ever runs on it -- and is still logged to PRELIM_LOG (NaN
+    sharpe/bar -- the real calibration Sharpe check never ran) via harness._log_prelim(),
+    the same private helper harness.prelim_screen() itself uses, so pending_screens()
+    doesn't keep resurfacing a guard-rejected name forever; without this it would never
+    appear "screened" and would be retried every single cycle."""
     screen = screen_fn or harness.prelim_screen
     preregister = preregister_fn or pipeline_register.preregister_candidate
 
     results = []
+    calib_prices = None   # loaded lazily -- only an asset_class_trend_hedge candidate
+                          # that already cleared the cheap asset-class check needs it
     for name in pending_screens():
         spec = pipeline_verdict._spec_for(name)
+
+        if spec["primitive"] == "asset_class_trend_hedge":
+            if not pkg_pipeline.legs_differ_by_asset_class(spec["params"]):
+                print(f"[pipeline_daily] {name} (backlog) FAILED the asset-class guard "
+                      f"(#194) -- skipping prelim screen")
+                harness._log_prelim(name, spec["freq"], float("nan"), float("nan"), False)
+                results.append({"name": name, "passed": False, "preregistered": False})
+                continue
+            if calib_prices is None:
+                prices, _ = harness.load_prices()
+                calib_prices = prices.loc[(prices.index >= harness.CALIB_START) &
+                                          (prices.index <= harness.CALIB_END)]
+            if not pkg_pipeline.legs_pass_calibration_corr_cap(
+                    spec["primitive"], spec["params"], calib_prices):
+                print(f"[pipeline_daily] {name} (backlog) FAILED the calibration-"
+                      f"correlation guard (#194) -- skipping prelim screen")
+                harness._log_prelim(name, spec["freq"], float("nan"), float("nan"), False)
+                results.append({"name": name, "passed": False, "preregistered": False})
+                continue
+
         sig_fn = pkg_pipeline.build_signal(spec["primitive"], spec["params"])
         passed = screen({"name": name, "sig_fn": sig_fn, "freq": spec["freq"]})
         print(f"[pipeline_daily] {name} (backlog) "

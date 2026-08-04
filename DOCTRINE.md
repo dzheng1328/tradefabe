@@ -23,7 +23,7 @@ like. We avoid that with four locked rules:
 4. **Fair benchmark.** A diversified strategy is compared to a diversified passive portfolio
    (60/40), not to the single best-performing asset in hindsight.
 
-## Current state — read this first (as of v1.13, 2026-08-05)
+## Current state — read this first (as of v1.14, 2026-08-04)
 
 The sections below this one (Data split through Ledger) are v1.0's ORIGINAL, frozen text —
 kept verbatim as the pre-registration record, per rule 1 above. Eight amendments have since
@@ -89,6 +89,15 @@ history** section below.
   in the same way 1/day was: every attempt is logged before its result is known, and
   the count itself never adapts to how earlier attempts that day went. What changed is
   the source and the number, not the safety property.
+- **The primitive vocabulary grew for the first time, and the new primitive is
+  compositional (v1.14).** `asset_class_trend_hedge` combines two `single_asset_trend`
+  legs into one candidate — every prior primitive expresses exactly one signal. Because
+  combining two zero-edge signals can look like it earns its place through variance
+  reduction alone, this primitive carries two MECHANICAL guards (asset-class difference,
+  a calibration-window correlation cap) no other primitive needs, enforced in
+  `pipeline_daily.screen_pending_backlog()` — the one checkpoint every proposal passes
+  through regardless of whether a human, `pipeline_ideas.propose_idea()`, or the
+  scheduled research routine wrote it.
 
 **Forward-only, same as every amendment below states individually: nothing here re-scores
 `graveyard.csv`.** This section is a reading aid, not a new rule — it changes no threshold,
@@ -578,6 +587,67 @@ this for *why*, not to find out what's currently active.
   conflict under a naive cherry-pick, since git's own 3-way merge sees both sides
   adding a line at the same position relative to their shared ancestor. A no-op on a
   normal day with no such branch.
+
+- **v1.14 (2026-08-04, #194). The primitive vocabulary grows for the first time — a
+  fifth, COMPOSITIONAL primitive, `asset_class_trend_hedge`.** Every primitive since
+  #177 (v1.9/v1.10) expressed exactly one signal; this one combines two
+  `single_asset_trend` legs (own ticker, own lookback each) into one candidate. Dave's
+  explicit call (2026-08-04): "i want to grow the vocab, this is what research is all
+  about" — a routine that can only parameterize the same 4 fixed shapes can pick a
+  better-justified candidate among them, but can't discover anything genuinely new.
+  Growing the vocabulary, not adding a 5th standalone shape, is the actual lever.
+
+  **Why compositional, and why this specific shape.** #194's own issue text weighed two
+  directions against this lab's own evidence (139+ strategies tested, 0 ALIVE
+  predictive; the only two survivors — diversified buy-and-hold, delta-neutral crypto
+  funding carry — are both NON-predictive): structural carry generalization (the only
+  mechanism class with a live survivor here) is blocked on data infrastructure
+  (`tradefabe.engine.load_prices()` is spot ETF closes only, no yield curve or futures
+  term structure) — a real follow-up, not this amendment's scope. Compositional is
+  buildable now and structurally unreachable by any of the first 4 primitives, none of
+  which express "combine two signals into one candidate."
+
+  **The real risk this amendment designs around: two zero-edge signals can look like
+  they earn their place through variance reduction alone, not real economic logic** —
+  not hypothetical here; a v1.1 touching gate 2's diversifier clause was discussed and
+  never approved for exactly this reason (see the amendment above v1.2). Two
+  INDEPENDENT mechanical guards, neither reducible to a rationale field an LLM could
+  write around regardless of whether the underlying relationship is real:
+  1. **Asset-class difference** (`tradefabe.pipeline.ASSET_CLASS`, `legs_differ_by_
+     asset_class()`) — `ticker_a`/`ticker_b` must resolve to different buckets
+     (equity/rates/commodity/real_estate/currency), derived from the ticker itself, not
+     asserted by the proposer. Pure/offline; also checked in
+     `pipeline_ideas.validate_proposal()` for a manually-proposed candidate.
+  2. **Calibration-window (2007–2017) correlation cap** (`legs_pass_calibration_corr_
+     cap()`, `CALIB_CORR_CAP = 0.3`) — the two legs' own trend signals must actually
+     decorrelate on calibration data alone, same calibration-only firewall discipline
+     as `prelim_screen()` (v1.9): nothing past `CALIB_END` is touched before this
+     decides anything, so a claimed relationship that doesn't hold up in-sample is
+     rejected before it ever has a chance to look good OOS.
+
+  **Both guards are enforced in `pipeline_daily.screen_pending_backlog()`, not
+  `validate_proposal()` alone.** The scheduled research routine (v1.13) writes
+  `pipeline_ideas.csv` rows directly, bypassing `validate_proposal()` entirely —
+  `screen_pending_backlog()` is the one checkpoint every pending name passes through
+  regardless of origin, so that's where a real gate has to live. A guard-rejected name
+  is still logged to `prelim_log.csv` (NaN sharpe/bar — the real calibration Sharpe
+  check never runs) so it's marked screened and doesn't resurface every cycle; the real,
+  comparatively expensive `prelim_screen()` never runs on a candidate that already
+  failed one of these two checks.
+
+  **Sizing.** Deliberately NOT `piggyback.py`'s 70% 60/40-core + 30%-sleeve
+  construction, despite #194's issue text citing that pattern as inspiration:
+  `piggyback.target_weights()` computes final portfolio weights directly, bypassing the
+  `PRIMITIVES`/`build_signal()`/`size_and_rebalance()` pipeline every other primitive
+  goes through — retrofitting that construction here would mean `pipeline_verdict.py`,
+  `harness.prelim_screen()`, and `pipeline_daily.screen_pending_backlog()` all learning
+  a second, special-cased evaluation path for one primitive. Instead,
+  `_sig_asset_class_trend_hedge()` returns an ordinary two-column signal (each leg's own
+  trailing-return sign), sized by the exact same per-asset vol-targeting every other
+  primitive already gets and benchmarked the same way in `evaluate()` — zero changes to
+  any downstream consumer. Still genuinely compositional (two tickers, two independent
+  legs, one candidate) — just not the sleeve-on-a-core shape. A future amendment can
+  revisit the sleeve construction if this shape doesn't hold up; not re-litigated here.
 
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 

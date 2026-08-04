@@ -48,7 +48,7 @@ import os
 import pandas as pd
 
 from tradefabe.engine import UNIVERSE
-from tradefabe.pipeline import PRIMITIVES, build_signal, is_numeric_range
+from tradefabe.pipeline import ASSET_CLASS, PRIMITIVES, build_signal, is_numeric_range
 import harness
 
 # The primitive vocabulary and build_signal() moved to tradefabe.pipeline (#180) so a
@@ -122,6 +122,11 @@ def validate_proposal(raw: dict) -> dict | None:
         return None
     if primitive == "pair_zscore" and not (normalized["z_entry"] < normalized["z_stop"]):
         print("[pipeline_ideas] rejected: z_entry must be < z_stop")
+        return None
+    if primitive == "asset_class_trend_hedge" and \
+            ASSET_CLASS[normalized["ticker_a"]] == ASSET_CLASS[normalized["ticker_b"]]:
+        print(f"[pipeline_ideas] rejected: ticker_a and ticker_b must be in different "
+              f"asset classes (both are {ASSET_CLASS[normalized['ticker_a']]!r})")
         return None
 
     return {"primitive": primitive, "params": normalized, "freq": freq,
