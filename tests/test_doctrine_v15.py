@@ -44,15 +44,15 @@ def ledgers(monkeypatch, tmp_path):
                            "promoted_rp_h"]}).to_csv(tmp_path / "pipeline.csv", index=False)
 
     import tradefabe.factory as factory
+    import tradefabe.pipeline as pipeline
     monkeypatch.setattr(factory, "TEMPLATES", {"tmpl_x": (), "tmpl_y": ()}, raising=False)
     monkeypatch.setattr(factory, "load_promoted", lambda: [], raising=False)
-    # promoted_names() currently only knows the factory's three registries -- #180 hasn't
-    # given the pipeline its own yet, so a promoted PIPELINE candidate is simulated via
-    # the same registry the way it will actually work in production until #180 lands.
     monkeypatch.setattr(factory, "load_promoted_generated",
-                        lambda: [{"name": "promoted_gen_99d"}, {"name": "promoted_rp_h"}],
-                        raising=False)
+                        lambda: [{"name": "promoted_gen_99d"}], raising=False)
     monkeypatch.setattr(factory, "load_promoted_combos", lambda: [], raising=False)
+    # #180's own promotion registry, separate from the factory's three.
+    monkeypatch.setattr(pipeline, "load_promoted_pipeline",
+                        lambda: [{"name": "promoted_rp_h"}], raising=False)
     return gy
 
 

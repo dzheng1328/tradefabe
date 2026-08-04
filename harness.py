@@ -170,15 +170,17 @@ def promoted_names() -> set[str]:
     These rejoin the hand-picked family regardless of which search found them: promotion
     IS selection-on-result, which is exactly the thing a multiple-testing correction
     exists to price. A draw nobody acted on is search; the one that got a book is a
-    hypothesis. #180 (the pipeline's own promotion registry, not yet built) must add its
-    loader to the tuple below the same way the factory's three already are -- this
-    function's whole contract is every promotion registry that exists, not the factory's
-    specifically."""
+    hypothesis. #180 added the pipeline's own promotion registry (tradefabe.pipeline.
+    load_promoted_pipeline()) below, the same way the factory's three already were --
+    this function's whole contract is every promotion registry that exists, not the
+    factory's specifically."""
     out: set[str] = set()
     try:
-        from tradefabe import factory
-        for loader in ("load_promoted", "load_promoted_generated", "load_promoted_combos"):
-            fn = getattr(factory, loader, None)
+        from tradefabe import factory, pipeline
+        loaders = [(factory, "load_promoted"), (factory, "load_promoted_generated"),
+                  (factory, "load_promoted_combos"), (pipeline, "load_promoted_pipeline")]
+        for module, loader in loaders:
+            fn = getattr(module, loader, None)
             if fn is None:
                 continue
             for item in (fn() or []):

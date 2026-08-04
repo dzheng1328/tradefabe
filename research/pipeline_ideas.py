@@ -35,144 +35,24 @@ import datetime
 import json
 import os
 
-import numpy as np
 import pandas as pd
 
 from tradefabe.engine import UNIVERSE
+from tradefabe.pipeline import PRIMITIVES, build_signal, is_numeric_range
 import harness
 
-# ---------- the primitive vocabulary (pre-registered, STRATEGIES.md) ----------
-# Fixed here, reviewed once, same discipline as factory.GENERATION_RANGES: the LLM picks
-# a primitive and parameters WITHIN this pre-registered space, never a new mechanism or
-# code. A numeric (lo, hi) 2-tuple is a RANGE; a list or a tuple whose elements aren't
-# both int/float is a CATEGORICAL choice set (see validate_proposal()'s dispatch).
-PRIMITIVES = {
-    "pair_zscore": {
-        "description": ("Mean-reversion of the z-scored log-spread between two UNIVERSE "
-                        "tickers -- long-the-spread when it's unusually low, short when "
-                        "unusually high, flat near the mean. A simple 1:1 log-spread, "
-                        "not a regressed hedge ratio (unlike family N's pre-registered "
-                        "pairs, this primitive has no dedicated calibration step of its "
-                        "own -- appropriate for a cheap, general-purpose first look)."),
-        "params": {"ticker_a": UNIVERSE, "ticker_b": UNIVERSE,
-                   "z_window": (20, 120), "z_entry": (1.5, 3.0), "z_stop": (3.0, 6.0)},
-    },
-    "cross_sectional_rank": {
-        "description": ("Long the top-K, short the bottom-K of the full UNIVERSE ranked "
-                        "by a fixed metric over a lookback window."),
-        "params": {"metric": ("momentum", "low_vol", "reversal"),
-                   "lookback": (20, 252), "k": (1, 7)},
-    },
-    "single_asset_trend": {
-        "description": ("Long/short a single ticker by the sign of its own trailing "
-                        "return over a lookback window."),
-        "params": {"ticker": UNIVERSE, "lookback": (20, 252)},
-    },
-    "static_spread_carry": {
-        "description": ("A fixed, always-on long-short between two tickers -- a "
-                        "structural risk-premium bet, not a mean-reversion signal."),
-        "params": {"ticker_a": UNIVERSE, "ticker_b": UNIVERSE, "long_leg": ("a", "b")},
-    },
-}
-
-
-def _sig_pair_zscore(params):
-    a, b = params["ticker_a"], params["ticker_b"]
-    window, entry, stop = params["z_window"], params["z_entry"], params["z_stop"]
-
-    def sig(prices):
-        spread = np.log(prices[a]) - np.log(prices[b])
-        z = (spread - spread.rolling(window).mean()) / spread.rolling(window).std()
-        pos = np.zeros(len(z))
-        state = 0.0
-        for i, zi in enumerate(z.to_numpy()):
-            if np.isnan(zi):
-                state = 0.0
-            elif state == 0.0:
-                if -stop < zi < -entry:
-                    state = 1.0
-                elif entry < zi < stop:
-                    state = -1.0
-            elif state == 1.0:
-                if zi >= 0 or zi < -stop:
-                    state = 0.0
-            elif state == -1.0:
-                if zi <= 0 or zi > stop:
-                    state = 0.0
-            pos[i] = state
-        pos_s = pd.Series(pos, index=z.index)
-        out = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
-        out[a] = pos_s
-        out[b] = -pos_s
-        return out
-    return sig
-
-
-def _sig_cross_sectional_rank(params):
-    metric, lookback, k = params["metric"], params["lookback"], params["k"]
-
-    def sig(prices):
-        if metric == "momentum":
-            score = prices / prices.shift(lookback) - 1
-        elif metric == "reversal":
-            score = -(prices / prices.shift(lookback) - 1)
-        elif metric == "low_vol":
-            score = -prices.pct_change().rolling(lookback).std()
-        else:
-            raise ValueError(f"unknown metric {metric!r}")
-        rank = score.rank(axis=1, ascending=False)
-        n = score.notna().sum(axis=1)   # per-row count -- must align on axis=0, not the
-                                         # default axis=1 a bare `rank > (n - k)` would use
-        out = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
-        out[rank <= k] = 1.0
-        out[rank.gt(n - k, axis=0)] = -1.0
-        return out
-    return sig
-
-
-def _sig_single_asset_trend(params):
-    ticker, lookback = params["ticker"], params["lookback"]
-
-    def sig(prices):
-        out = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
-        out[ticker] = np.sign(prices[ticker] / prices[ticker].shift(lookback) - 1)
-        return out
-    return sig
-
-
-def _sig_static_spread_carry(params):
-    a, b = params["ticker_a"], params["ticker_b"]
-    long_leg = params["long_leg"]
-
-    def sig(prices):
-        out = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
-        out[a] = 1.0 if long_leg == "a" else -1.0
-        out[b] = -1.0 if long_leg == "a" else 1.0
-        return out
-    return sig
-
-
-_BUILDERS = {
-    "pair_zscore": _sig_pair_zscore,
-    "cross_sectional_rank": _sig_cross_sectional_rank,
-    "single_asset_trend": _sig_single_asset_trend,
-    "static_spread_carry": _sig_static_spread_carry,
-}
-
-
-def build_signal(primitive: str, params: dict):
-    """Reconstructs a signal function from a primitive name + params -- pure and
-    deterministic, so it can be rebuilt identically in a later process the same way
-    factory.rebuild_signal() reconstructs a generated candidate's signal."""
-    if primitive not in _BUILDERS:
-        raise ValueError(f"unknown primitive {primitive!r}")
-    return _BUILDERS[primitive](params)
+# The primitive vocabulary and build_signal() moved to tradefabe.pipeline (#180) so a
+# PROMOTED candidate's signal can be rebuilt inside the installed package (runner.py,
+# `tradefabe run`) without a research/-relative PYTHONPATH -- the same reason
+# factory.rebuild_signal() lives in the package, not in research/factory_run.py. Nothing
+# about the LLM-facing proposal/validation logic below moved, only the deterministic
+# primitive -> signal-function mapping; PRIMITIVES/build_signal are re-imported (not
+# redefined) so every existing caller/test importing them off `pipeline_ideas` keeps
+# working unchanged.
 
 
 # ---------- validation ----------
-def _is_numeric_range(bound) -> bool:
-    return (isinstance(bound, tuple) and len(bound) == 2
-            and all(isinstance(b, (int, float)) and not isinstance(b, bool) for b in bound))
+_is_numeric_range = is_numeric_range
 
 
 def validate_proposal(raw: dict) -> dict | None:

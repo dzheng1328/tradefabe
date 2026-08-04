@@ -23,7 +23,7 @@ like. We avoid that with four locked rules:
 4. **Fair benchmark.** A diversified strategy is compared to a diversified passive portfolio
    (60/40), not to the single best-performing asset in hindsight.
 
-## Current state — read this first (as of v1.11, 2026-08-01)
+## Current state — read this first (as of v1.12, 2026-08-04)
 
 The sections below this one (Data split through Ledger) are v1.0's ORIGINAL, frozen text —
 kept verbatim as the pre-registration record, per rule 1 above. Eight amendments have since
@@ -73,8 +73,16 @@ history** section below.
 - **Pre-registration checkpoint (research-pipeline candidates only, v1.11) is FULLY
   AUTOMATIC.** A candidate that clears the prelim screen is committed to
   `STRATEGIES.md` the same run, no human review — Dave's explicit call. Every upstream
-  safety property (calibration-only screening, segregated `n_tested`, the full OOS gate
-  once #180 exists) is unchanged; only this one checkpoint's human pause was removed.
+  safety property (calibration-only screening, segregated `n_tested`, the full OOS gate,
+  v1.12) is unchanged; only this one checkpoint's human pause was removed.
+- **OOS test + promotion cap for pre-registered pipeline candidates (v1.12).** Once
+  pre-registered (v1.11), a candidate runs the SAME `evaluate()`/`noise_floor()` gate
+  every other family goes through, against its own segregated `n_tested` bucket — no
+  lighter bar for arriving via an automatic checkpoint. ALIVE promotes to a live paper
+  book, capped at its OWN pool (`tradefabe.pipeline.MAX_PIPELINE_PROMOTED = 10`, Dave's
+  explicit call, separate from `MAX_FACTORY_PROMOTED`). DEAD is terminal: one
+  `graveyard.csv` row and nothing more, never promoted "anyway" the way the factory's
+  original #98 mistake did.
 
 **Forward-only, same as every amendment below states individually: nothing here re-scores
 `graveyard.csv`.** This section is a reading aid, not a new rule — it changes no threshold,
@@ -432,7 +440,7 @@ this for *why*, not to find out what's currently active.
 - **v1.11 (2026-08-01, #179). The pre-registration checkpoint is FULLY AUTOMATIC.** A
   candidate that clears #175's prelim screen is frozen to `STRATEGIES.md` and a durable
   ledger (`pipeline_preregistered.csv`) the same run, no PR, no human review, before the
-  full OOS test (#180, not yet built) fires. Dave's explicit call, stated honestly
+  full OOS test (#180) fires. Dave's explicit call, stated honestly
   rather than glossed over: #179's own design question leaned the other way ("pre-
   registration is supposed to be a real commitment made with judgment, not a rubber
   stamp a script clears on its way to the next step"), and that argument is not wrong —
@@ -466,6 +474,48 @@ this for *why*, not to find out what's currently active.
   real capital or an unrecoverable action. If automatic pre-registration produces a
   pattern of regrettable commits, the fix is switching this one checkpoint back to
   human-in-the-loop, not redesigning the pipeline.
+
+- **v1.12 (2026-08-04, #180). The OOS test runner + promotion cap for pre-registered
+  pipeline candidates.** `research/pipeline_verdict.py`'s `run_pending_oos_tests()`
+  finds every candidate pre-registered (v1.11) with no `graveyard.csv` row yet
+  (`pipeline_preregistered.csv` minus `harness.graveyard_strategy_names()`), rebuilds
+  its signal from the spec `research/pipeline_ideas.py` logged at proposal time
+  (`PIPELINE_LEDGER`), and runs it through the exact same `evaluate()`/`noise_floor()`
+  gate every family in this lab goes through — DSR/CPCV, the same three kill gates, no
+  lighter bar for having arrived via an automatic pre-registration checkpoint. `n_tested`
+  is the pipeline's own segregated bucket (v1.10): a pipeline candidate's `rp_` prefix
+  classifies it automatically, so it is corrected against pipeline-origin draws only,
+  never inflating the bar for hand-picked or factory candidates.
+
+  **Promotion is capped, and the cap is its OWN pool.** #180's own issue text raised
+  this explicitly as an open design question — share `MAX_FACTORY_PROMOTED` (#147), or
+  get a separate one? Dave's explicit call (2026-08-04): separate.
+  `tradefabe.pipeline.MAX_PIPELINE_PROMOTED = 10`, not the factory's 20 — appropriate
+  given the pipeline proposes at most ONE candidate/day (#177's rate limit) against the
+  factory's ~20/cycle, so this pool was always going to fill far slower regardless of
+  the exact number. At/over the cap, a candidate is still evaluated and logged; it just
+  doesn't promote until a slot is freed by `tradefabe retire`, mirroring #147's own
+  "not a retirement path" property exactly.
+
+  **DEAD is terminal — explicitly, not by omission.** A DEAD verdict gets its one
+  `graveyard.csv` row and nothing else happens: no promotion "anyway," no exception.
+  This is the factory's own original mistake (#98) named directly in #180's issue text
+  as the failure mode to not repeat — the factory's "best of cycle, regardless of
+  verdict" rule exists only because it always promotes exactly one candidate per cycle
+  to preserve research value even on a day nothing is a real edge; the pipeline has no
+  such per-cycle quota; a DEAD pipeline candidate is simply DEAD.
+
+  **Mechanism for a promoted book.** `tradefabe.pipeline.promote_pipeline()` is a new
+  registry (`promoted_pipeline.json`), same shape as `factory.promote_generated()` —
+  idempotent by name, carries primitive+params so a fresh process can rebuild the exact
+  signal. Wired into `harness.promoted_names()` (so a promoted pipeline candidate
+  rejoins the hand-picked family for `n_tested`, same as a promoted factory candidate
+  already does) and into `runner.py`'s `PIPELINE_BOOKS`/`ALL_BOOKS` (so `tradefabe run`
+  actually rebalances it). The primitive vocabulary and `build_signal()` moved from
+  `research/pipeline_ideas.py` to `src/tradefabe/pipeline.py` for this — `runner.py` is
+  part of the INSTALLED package and needs to reconstruct a promoted candidate's signal
+  with no `research/`-relative `PYTHONPATH`, the same reason `factory.rebuild_signal()`
+  already lives in the package rather than in `research/factory_run.py`.
 
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 

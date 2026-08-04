@@ -195,6 +195,20 @@ def load_factory_backtest():
 
 
 @st.cache_data
+def load_pipeline_backtest():
+    """Backtest OOS returns for PROMOTED research-pipeline candidates (#180) -- same shape
+    and same reasoning as load_factory_backtest(): research/pipeline_verdict.py persists
+    one column here only for a candidate that actually gets promoted (OOS-ALIVE and under
+    the pipeline's own cap), not every pre-registered candidate it ever OOS-tests. A live
+    pipeline book with no entry here has no backtest curve at all -- see
+    book_panel_data(). None if no pipeline candidate has ever been promoted yet."""
+    path = os.path.join(ART, "pipeline_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+@st.cache_data
 def load_hourly_backtest():
     """Backtest OOS returns for family L, the hourly strategies (research/hourly_backtest.py,
     #86). A fourth curve source beside full/piggyback/factory: these are daily-AGGREGATED
@@ -446,14 +460,16 @@ def themed_layout(**overrides):
 
 # ==================================================================== per-book normalization
 def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, piggy=None,
-                    factory_bt=None, hourly_bt=None, kronos_bt=None):
+                    factory_bt=None, hourly_bt=None, kronos_bt=None, pipeline_bt=None):
     """Normalize a live paper book into one shape the panel can render, regardless of
     whether it's an equity-signal book (backtest in full_returns.csv, real ticker
     positions), a piggyback construction (backtest in piggyback_returns.csv, same
     positions shape as an equity book), a promoted strategy-factory candidate (backtest
     in factory_returns.csv, #28b -- only promoted candidates get a persisted curve, not
-    all 20/day tested), a family L hourly book (backtest in hourly_returns.csv, #86), or
-    the carry book (backtest in a separate study, funding-accrual, no ticker positions).
+    all 20/day tested), a family L hourly book (backtest in hourly_returns.csv, #86), a
+    promoted research-pipeline candidate (backtest in pipeline_returns.csv, #180 -- same
+    only-promoted-gets-a-curve reasoning as the factory), or the carry book (backtest in
+    a separate study, funding-accrual, no ticker positions).
 
     EVERY source that can produce a live book must be listed here. The fallback is a bare
     `full[name]`, which raises KeyError and takes the whole dashboard down -- adding
@@ -480,6 +496,8 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
             # Slicing at 2018 here would be a no-op on the data but would mislabel the
             # chart and compute stats over a window the verdict never used.
             oos_start = pd.Timestamp(KRONOS_OOS_START)
+        elif pipeline_bt is not None and name in pipeline_bt.columns:
+            bt_returns = pipeline_bt[name]
         else:
             bt_returns = full[name]
         bt_curve = (1 + bt_returns.fillna(0)).cumprod()
@@ -1108,7 +1126,8 @@ def render_paper_books(psum, phist, full, meta, gy_last):
     piggy = load_piggyback_backtest()
     factory_bt = load_factory_backtest()
     data = book_panel_data(pick, phist, full, meta, gy_last, price_now, price_date, piggy,
-                           factory_bt, load_hourly_backtest(), load_kronos_backtest())
+                           factory_bt, load_hourly_backtest(), load_kronos_backtest(),
+                           load_pipeline_backtest())
     render_strategy_panel(pick, data, color_of[pick])
 
 
@@ -1458,17 +1477,19 @@ def render_risk_register():
 
 
 def _dead_strategy_returns(name, oos, piggy, factory_bt=None, hourly_bt=None,
-                           kronos_bt=None, pairs_bt=None):
+                           kronos_bt=None, pairs_bt=None, pipeline_bt=None):
     """Best-effort OOS return series for ANY graveyard entry (ALIVE or DEAD), for the
     strategy detail view below. Bare strategies live in `oos` (full_returns.csv, sliced
     to OOS_START by the caller); piggyback constructions in `piggy`
     (piggyback_returns.csv, already OOS-only at source -- see piggyback_backtest.py);
     promoted strategy-factory candidates in `factory_bt` (factory_returns.csv, #28b --
-    only promoted candidates get a curve, not all 20/day tested). Returns None if none
-    of the sources has this name (e.g. insider_buying_21d, whose backtest lives in a
-    differently-shaped artifact, artifacts/insider_curves.csv, or a DEAD factory
-    candidate that was never promoted) -- the caller falls back to graveyard.csv's own
-    logged summary stats rather than crashing."""
+    only promoted candidates get a curve, not all 20/day tested); promoted research-
+    pipeline candidates in `pipeline_bt` (pipeline_returns.csv, #180 -- same only-
+    promoted-gets-a-curve reasoning). Returns None if none of the sources has this name
+    (e.g. insider_buying_21d, whose backtest lives in a differently-shaped artifact,
+    artifacts/insider_curves.csv, or a DEAD factory/pipeline candidate that was never
+    promoted) -- the caller falls back to graveyard.csv's own logged summary stats
+    rather than crashing."""
     if name in oos.columns:
         return oos[name].fillna(0)
     if piggy is not None and name in piggy.columns:
@@ -1481,11 +1502,13 @@ def _dead_strategy_returns(name, oos, piggy, factory_bt=None, hourly_bt=None,
         return kronos_bt[name].dropna()
     if pairs_bt is not None and name in pairs_bt.columns:
         return pairs_bt[name].dropna()
+    if pipeline_bt is not None and name in pipeline_bt.columns:
+        return pipeline_bt[name].dropna()
     return None
 
 
 def render_strategy_detail(gy_last, oos, piggy, factory_bt=None, hourly_bt=None,
-                           kronos_bt=None, pairs_bt=None):
+                           kronos_bt=None, pairs_bt=None, pipeline_bt=None):
     """Per-strategy detail for ANY graveyard entry, not just the strategies that made it
     to a live paper book -- the "Verdicts" table above is the full ledger, but until this
     every DEAD strategy was just one flat row in it, with no blurb/chart/stat-card
@@ -1503,7 +1526,8 @@ def render_strategy_detail(gy_last, oos, piggy, factory_bt=None, hourly_bt=None,
     blurb = strategy_description(pick)
     st.markdown(f'<div class="tf-blurb">{blurb}</div>', unsafe_allow_html=True)
 
-    r = _dead_strategy_returns(pick, oos, piggy, factory_bt, hourly_bt, kronos_bt, pairs_bt)
+    r = _dead_strategy_returns(pick, oos, piggy, factory_bt, hourly_bt, kronos_bt, pairs_bt,
+                               pipeline_bt)
     if r is not None:
         s = ann_stats(r)
         c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -1592,7 +1616,8 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
     piggy = load_piggyback_backtest()
     factory_bt = load_factory_backtest()
     render_strategy_detail(gy_last, oos, piggy, factory_bt, load_hourly_backtest(),
-                           load_kronos_backtest(), load_pairs_backtest())
+                           load_kronos_backtest(), load_pairs_backtest(),
+                           load_pipeline_backtest())
 
     st.subheader("The luck floor — is anything distinguishable from random?")
     freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}

@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tradefabe import books, factory, runner
+from tradefabe import books, factory, pipeline, runner
 
 
 def test_factory_books_reflects_promoted_json_at_import_time(monkeypatch, tmp_path):
@@ -91,6 +91,40 @@ def test_run_book_rebalances_a_generated_candidate_via_rebuilt_signal(monkeypatc
 
     sig_fn = factory.rebuild_signal(spec["family"], spec["params"])
     get_weights = runner._make_generated_get_weights(sig_fn)
+    runner._run_book(spec["name"], spec["freq"], get_weights, px, "2024-06-01", px.iloc[-1], verbose=False)
+
+    book = books.load(spec["name"])
+    assert book["last_rebalance"] == "2024-06-01"
+    assert book["positions"]
+
+
+# ---------------------------------------------------------------- PIPELINE_BOOKS (#180)
+def test_pipeline_books_reflects_promoted_pipeline_json_at_import_time(monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline, "PROMOTED_PIPELINE_PATH", tmp_path / "promoted_pipeline.json")
+    spec = {"name": "rp_single_asset_trend_A_90", "primitive": "single_asset_trend",
+            "freq": "M", "params": {"ticker": "A", "lookback": 90}}
+    pipeline.promote_pipeline(spec)
+
+    reloaded_runner = importlib.reload(runner)
+    try:
+        names = [p["name"] for p in reloaded_runner.PIPELINE_BOOKS]
+        assert names == [spec["name"]]
+        assert spec["name"] in reloaded_runner.ALL_BOOKS
+    finally:
+        importlib.reload(runner)
+
+
+def test_run_book_rebalances_a_pipeline_candidate_via_rebuilt_signal(monkeypatch, tmp_path):
+    """A promoted pipeline book has no name-keyed static registry either (same shape as a
+    generated factory candidate) -- runner.py must reconstruct its signal fn from
+    persisted primitive+params and still rebalance identically."""
+    monkeypatch.setattr(books, "STATE_DIR", tmp_path)
+    px = _trending_prices()
+    spec = {"name": "rp_single_asset_trend_A_90", "primitive": "single_asset_trend",
+            "freq": "M", "params": {"ticker": "A", "lookback": 90}}
+
+    sig_fn = pipeline.build_signal(spec["primitive"], spec["params"])
+    get_weights = runner._make_pipeline_get_weights(sig_fn)
     runner._run_book(spec["name"], spec["freq"], get_weights, px, "2024-06-01", px.iloc[-1], verbose=False)
 
     book = books.load(spec["name"])

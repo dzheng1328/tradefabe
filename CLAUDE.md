@@ -114,9 +114,10 @@ second writer from forking the ledger. Check `launchctl list | grep tradefabe` i
   `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below) caps growth.
 - **cost check** (`cost-check.yml`, #155) — weekly, Mondays ~9:37am ET, Alpaca PAPER
   secrets, same paper-only gates as a local run.
-- **pipeline daily** (`pipeline-daily.yml`, #177-179) — daily, ~10:42am ET. Propose (the
-  one LLM-driven step; needs `ANTHROPIC_API_KEY`, hard $0.05/day cap) → screen (#175,
-  calibration-only) → pre-register on a pass (#179, fully automatic, no human review).
+- **pipeline daily** (`pipeline-daily.yml`, #177-180) — daily, ~10:42am ET. Propose (LLM
+  step, needs `ANTHROPIC_API_KEY`, $0.05/day cap) → screen (#175, calibration-only) →
+  pre-register on a pass (#179, automatic) → OOS-test pending candidates, promote ALIVE
+  ones capped at 10 (#180, own pool, separate from `MAX_FACTORY_PROMOTED`).
 
 Both exist because Claude's own `CronCreate` is session-local and silently vanishes on
 compaction — these can't.
@@ -246,12 +247,12 @@ the same DSR/CPCV gate.
 ## Roadmap
 **`gh issue list` is authoritative. The board is a lagging VIEW** —
 https://github.com/users/dzheng1328/projects/1. When they disagree, the issues win. It has
-drifted 13 issues behind before (#117 backfilled it) and will again, because keeping it
-current is a manual step — step 7 of the `ship` skill. Reading it needs `project` scope
-(`gh auth refresh -s project`; plain `repo` is not enough, and `read:project` can't write).
+drifted 13 issues behind before (#117) and will again — keeping it current is manual, step 7
+of the `ship` skill. Reading it needs `project` scope (`gh auth refresh -s project`; plain
+`repo` isn't enough, `read:project` can't write).
 
-**Don't hand-maintain issue numbers or counts in this file** — they go stale within a day,
-and a stale roadmap once convinced an agent the lab had been idle for a week. Run the command.
+**Don't hand-maintain issue numbers or counts in this file** — they go stale within a day, and
+once convinced an agent the lab had been idle for a week. Run the command.
 
 ## Explicitly off-limits
 - `~/Documents/daily tickers` — a separate project Dave deliberately stopped. Don't
