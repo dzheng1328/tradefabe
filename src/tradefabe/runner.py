@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import pandas as pd
 import yfinance as yf
-from . import books, signals, piggyback, factory, hourly, kronos_live, pricing
+from . import books, signals, piggyback, factory, hourly, kronos_live, pricing, pipeline
 from .carry_live import run_carry
 from .carry_risk import check_carry_risk
 from .engine import sized_weights
@@ -31,8 +31,16 @@ GENERATED_BOOKS = factory.load_promoted_generated()
 # registries above; each entry carries its legs' full specs so the signal functions can be
 # rebuilt in this process.
 COMBO_BOOKS = factory.load_promoted_combos()
+# Promoted research-pipeline candidates (#180), OOS-ALIVE and cleared through the SAME
+# doctrine gate as everything else. Own registry, own cap (pipeline.MAX_PIPELINE_PROMOTED
+# = 10), separate from the factory's -- these are a different kind of candidate, per
+# #180's own issue text, not competing for the factory's slots. Same re-read-at-import
+# contract as GENERATED_BOOKS/COMBO_BOOKS; each entry carries its primitive+params so
+# pipeline.build_signal() can rebuild the exact signal function fresh every process.
+PIPELINE_BOOKS = pipeline.load_promoted_pipeline()
 ALL_BOOKS = (EQUITY_BOOKS + PIGGYBACK_BOOKS + FACTORY_BOOKS
-             + [g["name"] for g in GENERATED_BOOKS] + [c["name"] for c in COMBO_BOOKS])
+             + [g["name"] for g in GENERATED_BOOKS] + [c["name"] for c in COMBO_BOOKS]
+             + [p["name"] for p in PIPELINE_BOOKS])
 
 
 def _prices() -> pd.DataFrame:
@@ -54,6 +62,15 @@ def _make_generated_get_weights(sig_fn):
     signals.target_weights()/piggyback.target_weights()/factory.target_weights(), a
     generated candidate has no name-keyed static registry to look `name` up in, so this
     closes over the already-reconstructed sig_fn directly instead."""
+    def get_weights(px, name):
+        return sized_weights(px, sig_fn(px)).iloc[-1].fillna(0.0)
+    return get_weights
+
+
+def _make_pipeline_get_weights(sig_fn):
+    """A get_weights(px, name)-shaped callable for a promoted PIPELINE book -- same shape
+    as _make_generated_get_weights(): a pipeline candidate has no name-keyed static
+    registry either, so this closes over the already-reconstructed sig_fn directly."""
     def get_weights(px, name):
         return sized_weights(px, sig_fn(px)).iloc[-1].fillna(0.0)
     return get_weights
@@ -196,6 +213,10 @@ def run_daily(verbose: bool = True) -> pd.DataFrame:
         _run_book(g["name"], g["freq"], get_weights, px, today, last, verbose, stamp)
     for c in COMBO_BOOKS:
         _run_book(c["name"], c["freq"], _make_combo_get_weights(c), px, today, last, verbose, stamp)
+    for p in PIPELINE_BOOKS:
+        sig_fn = pipeline.build_signal(p["primitive"], p["params"])
+        get_weights = _make_pipeline_get_weights(sig_fn)
+        _run_book(p["name"], p["freq"], get_weights, px, today, last, verbose, stamp)
     carry = run_carry()
     if verbose:
         if books.is_retired(carry):

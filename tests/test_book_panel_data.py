@@ -96,6 +96,23 @@ def test_book_panel_data_uses_hourly_source_for_family_l():
     assert len(data["bt_curve"]) > 0
 
 
+def test_book_panel_data_uses_pipeline_bt_source_for_a_promoted_pipeline_candidate():
+    """The same bug, a third time -- a promoted research-pipeline candidate (#180) has no
+    entry in full/piggyback/factory/hourly/kronos_returns.csv either; pipeline_returns.csv
+    is its own dedicated fifth (in this lookup) source, same only-promoted-gets-a-curve
+    reasoning as factory_bt."""
+    name = "rp_single_asset_trend_SPY_90"
+    pipeline_bt = _returns_frame(name)
+    full = pd.DataFrame({"unrelated": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
+    dates = pd.bdate_range("2026-01-01", periods=3)
+    data = app.book_panel_data(name, _phist(name, dates, [100_000, 100_050, 100_100]),
+                               full, _meta(), _gy_last_row(name), None, None,
+                               piggy=None, factory_bt=None, hourly_bt=None, kronos_bt=None,
+                               pipeline_bt=pipeline_bt)
+    assert data["kind"] == "equity"
+    assert len(data["bt_curve"]) > 0
+
+
 # ---------------------------------------------------------------- accrual-only deployment (#149)
 # carry_kronos_vol/funding_timing_1h (ACCRUAL_ONLY_BOOKS, #143) never populate
 # `positions`/`cash` -- their equity moves through kronos_live.run_carry_kronos()'s /
