@@ -1,8 +1,18 @@
 """
-pipeline_ideas.py — the research pipeline's idea-generation step (#177).
+pipeline_ideas.py — the research pipeline's original idea-generation step (#177).
 
-The one genuinely LLM-driven step in this repo, consistent with README.md's own
-principle: strategies are deterministic, "no LLM in the trade loop" -- LLMs are for
+NOT WIRED INTO THE DAILY CRON as of 2026-08-04: research/pipeline_daily.py no longer
+calls propose_idea(). Dave's explicit call: proposal now comes from a scheduled Claude
+Code Routine (real research, real web-search tool use, running under his Pro
+subscription) that writes PIPELINE_LEDGER directly, replacing this module's $0.05/day-
+capped, closed-book, single-shot Haiku call for that job. This module -- propose_idea(),
+validate_proposal(), build_prompt(), the budget machinery -- is kept working and tested
+(the routine replicates propose_idea()'s exact PIPELINE_LEDGER row contract by hand, so
+this file is still the reference for that shape) as a still-usable manual fallback, not
+because anything here is broken.
+
+Originally: the one genuinely LLM-driven step in this repo, consistent with README.md's
+own principle: strategies are deterministic, "no LLM in the trade loop" -- LLMs are for
 research, not trading decisions. Nothing downstream of a proposal is nondeterministic:
 the LLM picks a PRIMITIVE and PARAMETERS from a fixed, pre-registered vocabulary
 (PRIMITIVES below), never code, and build_signal() turns that choice into an ordinary,

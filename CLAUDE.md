@@ -114,10 +114,11 @@ second writer from forking the ledger. Check `launchctl list | grep tradefabe` i
   `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below) caps growth.
 - **cost check** (`cost-check.yml`, #155) — weekly, Mondays ~9:37am ET, Alpaca PAPER
   secrets, same paper-only gates as a local run.
-- **pipeline daily** (`pipeline-daily.yml`, #177-180) — daily, ~10:42am ET. Propose (LLM
-  step, needs `ANTHROPIC_API_KEY`, $0.05/day cap) → screen (#175, calibration-only) →
-  pre-register on a pass (#179, automatic) → OOS-test pending candidates, promote ALIVE
-  ones capped at 10 (#180, own pool, separate from `MAX_FACTORY_PROMOTED`).
+- **pipeline daily** (`pipeline-daily.yml`, #177-181) — daily, ~10:42am ET. Screens
+  (#175) → pre-registers on a pass (#179, automatic) → OOS-tests pending candidates,
+  promoting ALIVE ones capped at 10 (#180, own pool, not `MAX_FACTORY_PROMOTED`).
+  **Proposal isn't in this workflow** — a Claude Code Routine (claude.ai, not a repo
+  file) writes PIPELINE_LEDGER directly under Dave's Pro plan. No `ANTHROPIC_API_KEY`.
 
 Both exist because Claude's own `CronCreate` is session-local and silently vanishes on
 compaction — these can't.
@@ -235,14 +236,13 @@ the same DSR/CPCV gate.
   zero baseline; `drawdown_chart()` is the one chart that legitimately anchors at 0.
 - **`congress_copy` is verdicted but deliberately has NO `graveyard.csv` row.**
   `research/congress_backtest.py` reproduces it (NANC alpha −0.28%/yr, t = −0.12, R² 0.93 on
-  SPY+QQQ — pure tech beta). Judged by factor regression, not the gates, so a row would be
-  mostly empty fields pretending to be a gate run.
-- **`tsmom_12m` and `green_line_200d` opening identical-to-the-cent is not a bug** — a
-  uniform uptrend agreed on sign. `test_tsmom_and_green_line_genuinely_diverge` settles it;
-  don't re-open without new evidence.
+  SPY+QQQ — pure tech beta). Judged by factor regression, not the gates.
+- **`tsmom_12m`/`green_line_200d` opening identical-to-the-cent is not a bug** — a uniform
+  uptrend agreed on sign. `test_tsmom_and_green_line_genuinely_diverge` settles it; don't
+  re-open without new evidence.
 - **iCloud conflict copies (`"<name> 2.<ext>"`)** are guarded by `.gitignore`, a CI step and
-  `tests/test_repo_location.py` — one such copy of the paper-engine workflow once ran as a
-  second live workflow. The guards hold only while the repo stays outside `~/Documents`.
+  `tests/test_repo_location.py` — one such copy once ran as a second live paper-engine
+  workflow. The guards hold only while the repo stays outside `~/Documents`.
 
 ## Roadmap
 **`gh issue list` is authoritative. The board is a lagging VIEW** —

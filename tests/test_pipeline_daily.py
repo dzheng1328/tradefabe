@@ -1,21 +1,12 @@
-"""research/pipeline_daily.py (#178, extended by #179-181): the pipeline's daily driver.
+"""research/pipeline_daily.py (#178, extended by #179-181; #177's propose() call
+retired 2026-08-04): the pipeline's daily driver.
 
-Deliberately thin, per #178's own design questions: propose_idea() (#177) already
-returns something prelim_screen() (#175) can run with no translation, and
-prelim_screen() already logs every outcome for audit. #179 adds one more step on a
-pass: preregister_candidate(). #180 adds a step run UNCONDITIONALLY every cycle
-regardless of today's own proposal outcome: run_pending_oos_tests(). #181 adds
-screen_pending_backlog() -- also unconditional -- for the gap #180 didn't cover: a row
-can now land in PIPELINE_LEDGER from something other than propose_idea()'s own
-in-process API call (a research routine writing the ledger directly), and
-already_proposed_today() would make propose() return None on any day a row already
-exists, so without this step that externally-added row would never get screened at
-all. There's no new mechanism to test in propose/screen themselves, only that the
-wiring calls the right thing at the right time -- and, just as important, does NOT
-call prelim_screen() on a day nothing was proposed, does NOT call
-preregister_candidate() on a day the screen fails, and DOES still call the backlog and
-OOS-test steps in every case (a backlog must clear even on a day with nothing new to
-propose).
+Deliberately thin. Screening (#175) and pre-registration (#179) of whatever's pending in
+PIPELINE_LEDGER, and OOS-testing (#180) of whatever's pending pre-registration, both run
+UNCONDITIONALLY every cycle -- no gate on "did anything new happen today," since a
+research routine (not this module) is what writes new PIPELINE_LEDGER rows now, and a
+backlog from any source must still clear. There's no new mechanism to test here, only
+that both steps actually run every cycle.
 """
 import json
 import os
@@ -28,105 +19,48 @@ import harness
 import pipeline_daily as pd_
 import pipeline_register
 
-IDEA = {"name": "rp_single_asset_trend_SPY_90", "sig_fn": lambda prices: prices, "freq": "M",
-        "primitive": "single_asset_trend", "params": {"ticker": "SPY", "lookback": 90},
-        "rationale": "x", "citation": "y"}
+
+def test_both_steps_run_with_nothing_pending():
+    calls = []
+    result = pd_.run_daily_cycle(backlog_fn=lambda: calls.append("backlog") or [],
+                                 oos_test_fn=lambda: calls.append("oos") or [])
+    assert calls == ["backlog", "oos"]
+    assert result == {"backlog_screened": [], "oos_tested": []}
 
 
-def test_nothing_proposed_means_nothing_screened_or_preregistered():
-    def fake_propose():
-        return None
-
-    def fake_screen(idea):
-        raise AssertionError("prelim_screen must not be called when nothing was proposed")
-
-    def fake_preregister(idea):
-        raise AssertionError("preregister must not be called when nothing was proposed")
-
-    result = pd_.run_daily_cycle(propose_fn=fake_propose, screen_fn=fake_screen,
-                                 preregister_fn=fake_preregister,
-                                 backlog_fn=lambda: [], oos_test_fn=lambda: [])
-    assert result == {"proposed": False, "name": None, "passed": None,
-                      "preregistered": False, "backlog_screened": [], "oos_tested": []}
-
-
-def test_a_failed_screen_is_reported_and_never_preregistered():
-    def fake_preregister(idea):
-        raise AssertionError("a failed screen must never reach pre-registration")
-
-    result = pd_.run_daily_cycle(propose_fn=lambda: IDEA, screen_fn=lambda c: False,
-                                 preregister_fn=fake_preregister,
-                                 backlog_fn=lambda: [], oos_test_fn=lambda: [])
-    assert result == {"proposed": True, "name": IDEA["name"], "passed": False,
-                      "preregistered": False, "backlog_screened": [], "oos_tested": []}
-
-
-def test_a_passed_screen_is_preregistered_with_the_exact_object_propose_returned():
-    seen = {}
-
-    def fake_preregister(candidate):
-        seen["candidate"] = candidate
-        return True
-
-    result = pd_.run_daily_cycle(propose_fn=lambda: IDEA, screen_fn=lambda c: True,
-                                 preregister_fn=fake_preregister,
-                                 backlog_fn=lambda: [], oos_test_fn=lambda: [])
-    assert seen["candidate"] is IDEA
-    assert result == {"proposed": True, "name": IDEA["name"], "passed": True,
-                      "preregistered": True, "backlog_screened": [], "oos_tested": []}
-
-
-def test_an_idempotent_preregister_result_is_reported_faithfully():
-    """preregister_candidate() returns False for an already-registered name (#179's own
-    idempotency) -- run_daily_cycle() must report that truthfully, not always True."""
-    result = pd_.run_daily_cycle(propose_fn=lambda: IDEA, screen_fn=lambda c: True,
-                                 preregister_fn=lambda c: False,
-                                 backlog_fn=lambda: [], oos_test_fn=lambda: [])
-    assert result["preregistered"] is False
-
-
-def test_the_oos_test_step_runs_even_on_a_day_nothing_was_proposed():
+def test_the_oos_test_step_runs_even_with_an_empty_backlog():
     """#180's own point: a backlog of pre-registered-but-untested candidates must clear
-    on every cycle, not only on a cycle that also proposed something new today."""
+    on every cycle, independent of whatever the screening backlog step found."""
     calls = []
 
     def fake_oos_test():
         calls.append(1)
         return [{"name": "rp_old_backlog_candidate", "verdict": "DEAD", "promoted": False}]
 
-    result = pd_.run_daily_cycle(propose_fn=lambda: None, backlog_fn=lambda: [],
-                                 oos_test_fn=fake_oos_test)
+    result = pd_.run_daily_cycle(backlog_fn=lambda: [], oos_test_fn=fake_oos_test)
     assert calls == [1]
     assert result["oos_tested"] == [{"name": "rp_old_backlog_candidate", "verdict": "DEAD",
                                      "promoted": False}]
 
 
-def test_the_screening_backlog_step_runs_even_on_a_day_nothing_was_proposed():
-    """#181's own point: a PIPELINE_LEDGER row added by something other than propose()
-    (a research routine writing the ledger directly) must still get screened on a day
-    propose() itself found nothing new -- these are independent, not one gating the
-    other."""
-    calls = []
-
-    def fake_backlog():
-        calls.append(1)
-        return [{"name": "rp_routine_written", "passed": True, "preregistered": True}]
-
-    result = pd_.run_daily_cycle(propose_fn=lambda: None, backlog_fn=fake_backlog,
-                                 oos_test_fn=lambda: [])
-    assert calls == [1]
+def test_the_screening_backlog_result_is_reported_faithfully():
+    """#181's own point: a PIPELINE_LEDGER row added by a research routine (writing the
+    ledger directly, not through this module) must still get screened -- reported
+    through, not swallowed."""
+    result = pd_.run_daily_cycle(
+        backlog_fn=lambda: [{"name": "rp_routine_written", "passed": True, "preregistered": True}],
+        oos_test_fn=lambda: [])
     assert result["backlog_screened"] == [{"name": "rp_routine_written", "passed": True,
                                            "preregistered": True}]
 
 
 def test_defaults_wire_to_the_real_functions():
     """No stand-ins snuck into the default wiring -- an unpatched call must reach the
-    real #177/#175/#179/#180/#181 functions, not a private copy."""
+    real #175/#179/#180/#181 functions, not a private copy. propose_idea() (#177) is
+    deliberately NOT referenced here anymore -- see the module's own docstring for why."""
     import inspect
     src = inspect.getsource(pd_.run_daily_cycle)
-    assert "pipeline_ideas.propose_idea" in src
-    assert "harness.prelim_screen" in src
-    assert "pipeline_register.preregister_candidate" in src
+    assert "pipeline_ideas" not in src
     assert "screen_pending_backlog" in src
     assert "pipeline_verdict.run_pending_oos_tests" in src
 
