@@ -23,7 +23,7 @@ like. We avoid that with four locked rules:
 4. **Fair benchmark.** A diversified strategy is compared to a diversified passive portfolio
    (60/40), not to the single best-performing asset in hindsight.
 
-## Current state — read this first (as of v1.12, 2026-08-04)
+## Current state — read this first (as of v1.13, 2026-08-05)
 
 The sections below this one (Data split through Ledger) are v1.0's ORIGINAL, frozen text —
 kept verbatim as the pre-registration record, per rule 1 above. Eight amendments have since
@@ -83,6 +83,12 @@ history** section below.
   explicit call, separate from `MAX_FACTORY_PROMOTED`). DEAD is terminal: one
   `graveyard.csv` row and nothing more, never promoted "anyway" the way the factory's
   original #98 mistake did.
+- **Proposal rate limit is up to 10/day, FIXED, not "until one passes" (v1.13).**
+  #174's original design ("rate-limited to one new idea per day... 'generate many, keep
+  the best' would move multiple-testing into an untracked step") is satisfied by FIXED
+  in the same way 1/day was: every attempt is logged before its result is known, and
+  the count itself never adapts to how earlier attempts that day went. What changed is
+  the source and the number, not the safety property.
 
 **Forward-only, same as every amendment below states individually: nothing here re-scores
 `graveyard.csv`.** This section is a reading aid, not a new rule — it changes no threshold,
@@ -516,6 +522,62 @@ this for *why*, not to find out what's currently active.
   part of the INSTALLED package and needs to reconstruct a promoted candidate's signal
   with no `research/`-relative `PYTHONPATH`, the same reason `factory.rebuild_signal()`
   already lives in the package rather than in `research/factory_run.py`.
+
+- **v1.13 (2026-08-05, #181). The proposal rate limit moves from ONE fixed candidate a
+  day to UP TO TEN, still fixed, and the source of proposals itself changes.**
+  `research/pipeline_ideas.py`'s in-process, $0.05/day-capped Haiku API call (#177)
+  stopped being the daily cron's proposal mechanism on 2026-08-04 — Dave's explicit
+  call: a scheduled Claude Code Routine (claude.ai, running under his Pro subscription,
+  real research with real web-search tool use, not a closed-book single-shot call)
+  writes `pipeline_ideas.csv` directly instead, via 10 separate daily triggers, each
+  producing at most one proposal.
+
+  **Ten, not "keep researching until one clears the screen."** This distinction is the
+  whole safety argument. #175's calibration screen is DELIBERATELY LENIENT (beats the
+  calibration-window median, not its 95th percentile) — trading a higher false-positive
+  rate for a near-zero false-negative rate, on purpose, per its own v1.9 docstring. That
+  is a reasonable trade when a candidate gets ONE look. It stops being one the moment a
+  process can just keep generating candidates until the lenient bar clears: independent
+  draws against a criterion that's `passed if beats-the-median` will eventually clear it
+  by chance, almost regardless of whether any candidate has real merit — quietly turning
+  a real (if lenient) filter into a rubber stamp always eventually satisfied. A FIXED
+  count doesn't have that failure mode: some runs, and some days, legitimately produce
+  zero candidates worth screening further, which is the screen doing its job. Ten is
+  fixed the identical way one was — not adaptive to how earlier attempts that day went,
+  every attempt logged to `pipeline_ideas.csv` before its screen result is known, same
+  before-the-result guarantee every other origin marker in this repo already carries.
+
+  **What this does NOT change.** Every downstream safety property is untouched: the
+  calibration-only firewall (v1.9), the pipeline's own segregated `n_tested` bucket
+  (v1.10) — which prices in the higher volume automatically, the same way it already
+  prices in the factory's ~20/cycle — the fully-automatic pre-registration checkpoint
+  (v1.11), and the OOS gate + promotion cap (v1.12) are all identical regardless of
+  which source proposed a candidate or how many were tried that day.
+
+  **v1.12's own reasoning for `MAX_PIPELINE_PROMOTED = 10` leaned on proposal volume
+  being "far slower" than the factory's ~20/cycle "regardless of the exact number" —
+  that comparison is meaningfully weaker now that daily proposal volume can be up to 10,
+  half the factory's rate, not a rounding error next to it.** Not re-litigated here:
+  the cap is still a hard, functioning limit either way, and changing it is Dave's call
+  to make deliberately if he wants to, the same way the original number was — this
+  amendment only flags that the ORIGINAL JUSTIFICATION for 10 (not the cap itself) is
+  now stale, so a future reader doesn't mistake it for still-current reasoning.
+
+  **Mechanism.** `research/merge_routine_branches.py` is a new safety net, first step
+  of every `pipeline-daily.yml` cycle: the routine is instructed to push its
+  `pipeline_ideas.csv` append directly to main (an explicit, documented exception to
+  CLAUDE.md's general "never push to main" rule, the same exception every other
+  automated ledger write in this repo already relies on) but isn't guaranteed to —
+  on 2026-08-03 it landed on a fresh branch instead, a cautious and CORRECT read of the
+  general rule before it had the exception spelled out. This module finds any such
+  branch, verifies its diff touches ONLY `pipeline_ideas.csv` as a pure line addition
+  (anything else — another file, a removed or modified row — is left for manual
+  review, never force-merged), and folds its new rows onto main via a plain
+  diff-extracted append rather than `git cherry-pick`/`git merge` — confirmed by test
+  that two branches based on the same original main tip (e.g. two same-day proposals)
+  conflict under a naive cherry-pick, since git's own 3-way merge sees both sides
+  adding a line at the same position relative to their shared ancestor. A no-op on a
+  normal day with no such branch.
 
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 
