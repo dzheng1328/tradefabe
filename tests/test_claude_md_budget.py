@@ -29,9 +29,15 @@ import os
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Bytes, not tokens: no tokenizer is a dependency of this repo, and bytes/4 is a good enough
-# proxy for English prose. 18,000 bytes is ~4,500 tokens, ~8% above the 2026-07-29 measurement
-# (16,657) -- enough headroom for a real addition, tight enough to notice drift.
-CLAUDE_MD_MAX_BYTES = 18_000
+# proxy for English prose. Raised 2026-08-04 (#182/#194 session): a new primitive
+# (asset_class_trend_hedge), a real automation bug found and fixed retroactively (#182's
+# safety review), and two new hooks + a skill genuinely earned two new load-bearing rules
+# here (disable-model-invocation skills are otherwise undiscoverable by an agent; the
+# doctrine-auditor gap that let #195 merge unreviewed) -- not narrative, per this file's
+# own "raising the cap" test above. 20,000 bytes is ~5,000 tokens, ~7% above the
+# 2026-08-04 measurement (18,770) -- enough headroom for a real addition, tight enough to
+# notice drift.
+CLAUDE_MD_MAX_BYTES = 20_000
 
 
 def test_claude_md_stays_within_its_token_budget():

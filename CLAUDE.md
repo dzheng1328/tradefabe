@@ -41,6 +41,17 @@ Verify `state=MERGED` as its own step. Never `--delete-branch`, never `&&`/`;` t
 inside `"$(cat <<'EOF')"` — it has corrupted a commit message and an issue comment. `<<EOF`
 still expands; `<<'EOF'` does not.
 
+**Two skills here are `disable-model-invocation: true`** — `.claude/skills/ship` (`/ship`)
+and `.claude/skills/new-strategy` (`/new-strategy`). An agent cannot discover or invoke
+these any other way; if you're about to hand-run the branch/PR/CI-wait/merge/verify/cleanup
+sequence above, or the pre-register-before-results sequence for a new candidate, ask Dave to
+run the matching one instead — that's the whole reason they're written down.
+
+**Before merging any PR touching `STRATEGIES.md`/`graveyard.csv`, run the
+`doctrine-auditor` subagent first.** It exists exactly for this and got skipped once
+already (#195, 2026-08-04) — a new primitive merged with no doctrine review, caught only
+in retrospect. Its 5 checks catch the failure class this whole repo exists to prevent.
+
 ## The one-line finding
 Every predictive strategy tested is DEAD against pre-registered kill rules — trend,
 congress-copy, insider-copy, thematic, day-trading wicks, a pretrained OHLCV foundation
