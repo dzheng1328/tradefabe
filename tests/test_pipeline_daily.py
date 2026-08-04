@@ -140,6 +140,75 @@ def test_screen_pending_backlog_passes_rationale_and_citation_to_preregister(scr
     assert seen["spec"]["citation"] == "y"
 
 
+# ---------------------------------------------------------------- compositional-leg guards (#194)
+def _calib_prices(seed, tickers, n=2000):
+    rng = np.random.default_rng(seed)
+    idx = pd.bdate_range(harness.CALIB_START, periods=n)
+    return pd.DataFrame({t: 100 * np.exp(np.cumsum(rng.normal(0.0002, 0.01, n)))
+                         for t in tickers}, index=idx)
+
+
+def test_screen_pending_backlog_rejects_same_asset_class_without_loading_prices(scratch, monkeypatch):
+    def boom():
+        raise AssertionError("load_prices must not be called -- the cheap asset-class "
+                              "check should reject this before any data is touched")
+    monkeypatch.setattr(harness, "load_prices", boom)
+
+    _write_ledger_row("rp_asset_class_trend_hedge_SPY_QQQ", primitive="asset_class_trend_hedge",
+                      params={"ticker_a": "SPY", "ticker_b": "QQQ",
+                              "lookback_a": 90, "lookback_b": 60})
+
+    def fake_preregister(spec):
+        raise AssertionError("a guard-rejected candidate must never reach pre-registration")
+
+    results = pd_.screen_pending_backlog(preregister_fn=fake_preregister)
+    assert results == [{"name": "rp_asset_class_trend_hedge_SPY_QQQ", "passed": False,
+                        "preregistered": False}]
+
+
+def test_screen_pending_backlog_rejects_correlated_legs_on_calibration_data(scratch, monkeypatch):
+    identical = _calib_prices(3, ["TLT"])["TLT"]
+    calib_prices = pd.DataFrame({"TLT": identical, "SPY": identical})
+    monkeypatch.setattr(harness, "load_prices", lambda: (calib_prices, "SYNTHETIC (test)"))
+
+    _write_ledger_row("rp_asset_class_trend_hedge_TLT_SPY", primitive="asset_class_trend_hedge",
+                      params={"ticker_a": "TLT", "ticker_b": "SPY",
+                              "lookback_a": 60, "lookback_b": 60})
+
+    def fake_preregister(spec):
+        raise AssertionError("a guard-rejected candidate must never reach pre-registration")
+
+    results = pd_.screen_pending_backlog(preregister_fn=fake_preregister)
+    assert results == [{"name": "rp_asset_class_trend_hedge_TLT_SPY", "passed": False,
+                        "preregistered": False}]
+
+
+def test_a_guard_rejected_candidate_does_not_resurface_on_the_next_cycle(scratch, monkeypatch):
+    """The bug this test exists to catch: a name rejected by the #194 guards must still
+    be marked 'screened' (PRELIM_LOG), or pending_screens() retries it forever."""
+    monkeypatch.setattr(harness, "load_prices",
+                        lambda: (_ for _ in ()).throw(AssertionError("must not be called")))
+    _write_ledger_row("rp_asset_class_trend_hedge_SPY_QQQ", primitive="asset_class_trend_hedge",
+                      params={"ticker_a": "SPY", "ticker_b": "QQQ",
+                              "lookback_a": 90, "lookback_b": 60})
+    pd_.screen_pending_backlog(preregister_fn=lambda spec: True)
+    assert pd_.pending_screens() == []
+
+
+def test_screen_pending_backlog_still_screens_a_valid_compositional_candidate(scratch, monkeypatch):
+    calib_prices = _calib_prices(3, ["TLT", "SPY"])
+    monkeypatch.setattr(harness, "load_prices", lambda: (calib_prices, "SYNTHETIC (test)"))
+
+    _write_ledger_row("rp_asset_class_trend_hedge_TLT_SPY", primitive="asset_class_trend_hedge",
+                      params={"ticker_a": "TLT", "ticker_b": "SPY",
+                              "lookback_a": 60, "lookback_b": 60})
+
+    results = pd_.screen_pending_backlog(screen_fn=lambda c: True,
+                                         preregister_fn=lambda spec: True)
+    assert results == [{"name": "rp_asset_class_trend_hedge_TLT_SPY", "passed": True,
+                        "preregistered": True}]
+
+
 def test_screen_pending_backlog_with_real_defaults_actually_preregisters(scratch, monkeypatch):
     """End-to-end with the real prelim_screen()/preregister_candidate() (no fakes) --
     catches a wiring bug fakes would hide, same reasoning test_pipeline_ideas.py's own

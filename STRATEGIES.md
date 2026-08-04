@@ -798,6 +798,29 @@ section warns about, in a new, LLM-shaped form.
 | `cross_sectional_rank` | Long the top-K / short the bottom-K of the full `UNIVERSE`, ranked by a fixed metric | `metric` ∈ {momentum, low_vol, reversal}; `lookback` 20–252; `k` 1–7 |
 | `single_asset_trend` | Long/short one ticker by the sign of its own trailing return | `ticker` ∈ UNIVERSE; `lookback` 20–252 |
 | `static_spread_carry` | A fixed, always-on long-short between two tickers — a structural risk-premium bet, not mean-reversion | `ticker_a`, `ticker_b` ∈ UNIVERSE; `long_leg` ∈ {a, b} |
+| `asset_class_trend_hedge` | Two independent `single_asset_trend` legs held in one candidate — the first primitive to combine two signals rather than express one. `ticker_a`/`ticker_b` must come from two DIFFERENT `tradefabe.pipeline.ASSET_CLASS` buckets (equity/rates/commodity/real_estate/currency, derived from the ticker, not asserted) | `ticker_a`, `ticker_b` ∈ UNIVERSE (different asset class); `lookback_a`, `lookback_b` 20–252 |
+
+**Vocabulary expansion — `asset_class_trend_hedge` added 2026-08-04 (#194).** Dave's
+explicit call: the original 4 primitives can only ever parameterize the same 4 shapes;
+growing the vocabulary (not just picking among the 4) is the actual lever for the
+routine to discover something genuinely new. This is the first COMPOSITIONAL primitive
+— see #194's own issue text for why it starts here rather than with structural carry
+(the only other mechanism class with a live survivor in this lab, but blocked on data
+infrastructure this repo doesn't have yet). Because a compositional primitive can look
+like it earns its place through variance reduction alone rather than real economic
+logic, it carries two MECHANICAL guards no other primitive needs, neither reducible to a
+rationale field the LLM could write around:
+1. **Asset-class difference** (`pipeline.legs_differ_by_asset_class()`) — offline, checked
+   in `validate_proposal()` for a manually-proposed candidate.
+2. **Calibration-window (2007–2017) correlation cap** (`pipeline.legs_pass_calibration_corr_cap()`,
+   `CALIB_CORR_CAP = 0.3`) — the two legs' own trend signals must actually decorrelate on
+   calibration data alone, not just be asserted to.
+
+Both guards run in `pipeline_daily.screen_pending_backlog()`, the one checkpoint every
+pending name passes through regardless of origin — necessary because the scheduled
+research routine (see the rate-limit note below) writes `pipeline_ideas.csv` rows
+directly, bypassing `validate_proposal()` entirely, so the offline check alone can't be
+relied on for a routine-written proposal.
 
 Every proposal is validated against these ranges mechanically (`pipeline_ideas.validate_proposal()`)
 before anything else happens — an out-of-range parameter, an unknown primitive, or a

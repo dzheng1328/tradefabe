@@ -53,6 +53,8 @@ def test_build_signal_produces_a_valid_frame_for_every_primitive():
         "cross_sectional_rank": {"metric": "momentum", "lookback": 90, "k": 3},
         "single_asset_trend": {"ticker": "SPY", "lookback": 90},
         "static_spread_carry": {"ticker_a": "TLT", "ticker_b": "IEF", "long_leg": "a"},
+        "asset_class_trend_hedge": {"ticker_a": "TLT", "ticker_b": "SPY",
+                                    "lookback_a": 90, "lookback_b": 60},
     }
     for primitive, params in cases.items():
         sig = pi.build_signal(primitive, params)(px)
@@ -117,6 +119,26 @@ def test_validate_proposal_rejects_entry_not_less_than_stop():
 def test_validate_proposal_never_raises_on_a_malformed_dict():
     assert pi.validate_proposal({}) is None
     assert pi.validate_proposal({"primitive": "single_asset_trend"}) is None
+
+
+def test_validate_proposal_rejects_same_asset_class_legs():
+    """#194's cheap, offline half of the compositional-primitive guard: SPY and QQQ are
+    both 'equity' in tradefabe.pipeline.ASSET_CLASS, so this must reject even though every
+    OTHER structural check (param bounds, distinct tickers) passes."""
+    raw = {"primitive": "asset_class_trend_hedge",
+           "params": {"ticker_a": "SPY", "ticker_b": "QQQ", "lookback_a": 90, "lookback_b": 60},
+           "freq": "M", "rationale": "x", "citation": "y"}
+    assert pi.validate_proposal(raw) is None
+
+
+def test_validate_proposal_accepts_cross_asset_class_legs():
+    raw = {"primitive": "asset_class_trend_hedge",
+           "params": {"ticker_a": "TLT", "ticker_b": "SPY", "lookback_a": 90, "lookback_b": 60},
+           "freq": "M", "rationale": "duration vs rate-sensitive equity", "citation": "n/a"}
+    out = pi.validate_proposal(raw)
+    assert out is not None
+    assert out["params"] == {"ticker_a": "TLT", "ticker_b": "SPY",
+                             "lookback_a": 90, "lookback_b": 60}
 
 
 # ---------------------------------------------------------------- naming (#176's contract)

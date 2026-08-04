@@ -60,6 +60,40 @@ PRIMITIVES = {
                         "structural risk-premium bet, not a mean-reversion signal."),
         "params": {"ticker_a": UNIVERSE, "ticker_b": UNIVERSE, "long_leg": ("a", "b")},
     },
+    "asset_class_trend_hedge": {
+        "description": ("Two independent single_asset_trend legs (own trailing-return "
+                        "sign, own lookback) held in one candidate -- 'combine two "
+                        "signals into one candidate', unlike the other three primitives "
+                        "above, which each touch a single ticker or a single ranked "
+                        "basket. ticker_a and ticker_b MUST come from two DIFFERENT "
+                        "asset classes (equity/rates/commodity/real_estate/currency, "
+                        "see ASSET_CLASS below, derived from the ticker itself -- not "
+                        "asserted by you) -- a mechanical stand-in for 'these two legs "
+                        "have a real, checkable relationship', not a correlation "
+                        "search. Your citation must name the SPECIFIC mechanism you "
+                        "expect to make the two legs offset (e.g. a rate-sensitivity "
+                        "argument for a bond-vs-equity-sector pair), not just that they "
+                        "happen to be uncorrelated -- this is also checked mechanically "
+                        "against calibration-window (2007-2017) data before the "
+                        "proposal can proceed, so a claimed relationship that doesn't "
+                        "actually hold up gets rejected regardless of how it reads."),
+        "params": {"ticker_a": UNIVERSE, "ticker_b": UNIVERSE,
+                   "lookback_a": (20, 252), "lookback_b": (20, 252)},
+    },
+}
+
+# ---------- asset-class buckets for asset_class_trend_hedge (#194) ----------
+# Fixed here, reviewed once, same discipline as PRIMITIVES itself. A leg pair's asset
+# class is derived from the TICKER, not asserted by the LLM -- the point is that this
+# check can't be gamed by a plausible-sounding but false economic claim. Covers every
+# UNIVERSE ticker exactly once; test_asset_class_covers_the_full_universe() in
+# tests/test_tradefabe_pipeline.py guards against UNIVERSE drifting out of sync with it.
+ASSET_CLASS = {
+    "SPY": "equity", "QQQ": "equity", "IWM": "equity", "EFA": "equity", "EEM": "equity",
+    "TLT": "rates", "IEF": "rates", "LQD": "rates", "HYG": "rates",
+    "GLD": "commodity", "SLV": "commodity", "DBC": "commodity", "USO": "commodity",
+    "VNQ": "real_estate",
+    "UUP": "currency",
 }
 
 
@@ -139,11 +173,24 @@ def _sig_static_spread_carry(params):
     return sig
 
 
+def _sig_asset_class_trend_hedge(params):
+    a, b = params["ticker_a"], params["ticker_b"]
+    lookback_a, lookback_b = params["lookback_a"], params["lookback_b"]
+
+    def sig(prices):
+        out = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+        out[a] = np.sign(prices[a] / prices[a].shift(lookback_a) - 1)
+        out[b] = np.sign(prices[b] / prices[b].shift(lookback_b) - 1)
+        return out
+    return sig
+
+
 _BUILDERS = {
     "pair_zscore": _sig_pair_zscore,
     "cross_sectional_rank": _sig_cross_sectional_rank,
     "single_asset_trend": _sig_single_asset_trend,
     "static_spread_carry": _sig_static_spread_carry,
+    "asset_class_trend_hedge": _sig_asset_class_trend_hedge,
 }
 
 
@@ -160,6 +207,44 @@ def build_signal(primitive: str, params: dict):
 def is_numeric_range(bound) -> bool:
     return (isinstance(bound, tuple) and len(bound) == 2
             and all(isinstance(b, (int, float)) and not isinstance(b, bool) for b in bound))
+
+
+# ---------- mechanical guards for asset_class_trend_hedge (#194) ----------
+# Two INDEPENDENT checks, neither reducible to a prompt ask: legs_differ_by_asset_class()
+# is pure/offline (no price data, safe to call from validate_proposal()'s otherwise pure
+# contract); legs_pass_calibration_corr_cap() needs calibration-window prices and is only
+# ever called from the screening step (research/pipeline_daily.py's
+# screen_pending_backlog()) -- the one chokepoint EVERY pending name passes through
+# regardless of whether it was written by pipeline_ideas.propose_idea() or by the
+# research routine directly (the routine bypasses validate_proposal() entirely).
+CALIB_CORR_CAP = 0.3   # |corr| between the two legs' own trend signals, on calibration
+                       # data ALONE, must clear this -- a claimed offsetting relationship
+                       # that doesn't actually decorrelate in 2007-2017 data is rejected
+                       # regardless of how the citation reads.
+
+
+def legs_differ_by_asset_class(params: dict) -> bool:
+    """True iff ticker_a and ticker_b resolve to different ASSET_CLASS buckets. Also
+    rejects ticker_a == ticker_b as a side effect (a ticker always shares its own asset
+    class), so no separate identical-ticker check is needed for this primitive."""
+    return ASSET_CLASS[params["ticker_a"]] != ASSET_CLASS[params["ticker_b"]]
+
+
+def legs_pass_calibration_corr_cap(primitive: str, params: dict, calib_prices) -> bool:
+    """True iff the two legs' own trend signals decorrelate below CALIB_CORR_CAP on
+    `calib_prices` -- caller's responsibility to have ALREADY truncated this to the
+    calibration window (harness.CALIB_START/CALIB_END) before it ever reaches here, same
+    firewall discipline as harness._calib_slice()/prelim_screen(): the missing rows are
+    the firewall, not a downstream filter. A no-op (returns True) for every other
+    primitive, since only this one makes a two-leg offsetting claim to check."""
+    if primitive != "asset_class_trend_hedge":
+        return True
+    a, b = params["ticker_a"], params["ticker_b"]
+    lookback_a, lookback_b = params["lookback_a"], params["lookback_b"]
+    sig_a = np.sign(calib_prices[a] / calib_prices[a].shift(lookback_a) - 1)
+    sig_b = np.sign(calib_prices[b] / calib_prices[b].shift(lookback_b) - 1)
+    corr = sig_a.corr(sig_b)
+    return bool(np.isfinite(corr) and abs(corr) <= CALIB_CORR_CAP)
 
 
 # ---------- promotion registry for OOS-ALIVE pipeline candidates (#180) ----------
