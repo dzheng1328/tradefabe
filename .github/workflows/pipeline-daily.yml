@@ -56,6 +56,19 @@ on:
 permissions:
   contents: write
 
+# Never let two cycles write state at once (same pattern and reasoning as
+# paper-engine.yml's own concurrency block) -- found missing here by #182's retroactive
+# safety review (DOCTRINE v1.16): this workflow has the identical schedule +
+# workflow_dispatch combination paper-engine.yml already guards, and without this, two
+# concurrent runs could each read promoted_pipeline.json's count BEFORE either commits,
+# both see the same headroom, and both promote -- the in-code MAX_PIPELINE_PROMOTED
+# check is only as real as the assumption that runs are serialized, which nothing
+# previously enforced. Queue rather than cancel: a run cancelled mid-write could leave a
+# partial ledger, the same reasoning paper-engine.yml's own comment already gives.
+concurrency:
+  group: pipeline-daily
+  cancel-in-progress: false
+
 jobs:
   pipeline_daily:
     runs-on: ubuntu-latest
