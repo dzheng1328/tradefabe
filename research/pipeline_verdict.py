@@ -59,19 +59,25 @@ def pending_candidates() -> list[str]:
 
 
 def _spec_for(name: str) -> dict:
-    """Pulls a pending candidate's full spec (primitive, params, freq) back from
-    PIPELINE_LEDGER (pipeline_ideas.record_proposal() writes one row per proposal, at
-    proposal time -- long before pre-registration or this OOS test). This is the SAME
-    ledger #176 already reads for origin classification; #180 just also reads its
-    primitive/params/freq columns, which #176 itself never needed."""
+    """Pulls a pending candidate's full spec back from PIPELINE_LEDGER
+    (pipeline_ideas.record_proposal() writes one row per proposal, at proposal time --
+    long before screening, pre-registration, or this OOS test). This is the SAME ledger
+    #176 already reads for origin classification; #180 just also reads its
+    primitive/params/freq/rationale/citation columns, which #176 itself never needed.
+
+    Returns every field a caller downstream of proposal could need -- #180's OOS test
+    only reads primitive/params/freq, but pipeline_daily.py's screening backlog (added
+    when #181's research routine started writing PIPELINE_LEDGER rows directly, not
+    through propose_idea()'s in-process API call) needs rationale/citation too, to
+    pre-register a passing candidate the same way preregister_candidate() always has."""
     ledger = pd.read_csv(harness.PIPELINE_LEDGER)
     rows = ledger[ledger["name"] == name]
     if not len(rows):
-        raise RuntimeError(f"{name!r} is pre-registered but has no PIPELINE_LEDGER row -- "
-                           "cannot reconstruct its spec")
+        raise RuntimeError(f"{name!r} has no PIPELINE_LEDGER row -- cannot reconstruct its spec")
     row = rows.iloc[-1]
     return {"name": name, "primitive": row["primitive"], "freq": row["freq"],
-            "params": json.loads(row["params"])}
+            "params": json.loads(row["params"]), "rationale": row["rationale"],
+            "citation": row["citation"]}
 
 
 def pipeline_owned_count() -> int:
