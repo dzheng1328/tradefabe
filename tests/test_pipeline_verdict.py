@@ -111,7 +111,8 @@ def test_spec_for_reconstructs_the_full_proposal(scratch):
     _record_pipeline_ledger_row(NAME_A, "single_asset_trend", {"ticker": "SPY", "lookback": 90}, "M")
     spec = pv._spec_for(NAME_A)
     assert spec == {"name": NAME_A, "primitive": "single_asset_trend", "freq": "M",
-                    "params": {"ticker": "SPY", "lookback": 90}}
+                    "params": {"ticker": "SPY", "lookback": 90},
+                    "rationale": "x", "citation": "y"}
 
 
 def test_spec_for_raises_for_a_name_with_no_ledger_row(scratch):
