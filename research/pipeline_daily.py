@@ -1,34 +1,27 @@
 """
-pipeline_daily.py — the research pipeline's daily driver (#178, extended by #179-181).
+pipeline_daily.py — the research pipeline's daily driver (#178, extended by #179-181;
+#177's own in-process propose() call retired 2026-08-04, superseded by a Claude Code
+Routine).
 
-Genuinely thin on purpose, per #178's own design questions: #177's propose_idea()
-already returns a dict harness.prelim_screen() (#175) can run against with no
-translation, and prelim_screen() already logs every call -- pass or fail -- to
-artifacts/prelim_log.csv for audit. There is no new mechanism in the propose/screen
-steps, only the wiring: propose, then (if something was proposed) screen it.
+Originally: propose (#177's in-process Haiku API call) -> screen (#175) -> pre-register
+on a pass (#179) -> OOS-test regardless (#180). #177's propose_idea() is no longer
+called from here -- Dave's explicit call, 2026-08-04: proposal now comes from a
+scheduled Claude Code Routine (real research, real tool use, running under his Pro
+subscription, not a $0.05/day-capped closed-book Haiku call) that writes PIPELINE_LEDGER
+(pipeline_ideas.csv) directly. research/pipeline_ideas.py's propose_idea()/build_signal()/
+validate_proposal() etc. still exist and are still tested (their contract -- a name/
+primitive/params/freq/rationale/citation row -- is exactly what the routine replicates
+by hand) but nothing in the automated daily cron calls propose_idea() anymore; it's kept
+as a still-usable manual fallback, not wired into this driver.
 
-#179 adds a THIRD step, automatic on a pass: pipeline_register.preregister_candidate()
-freezes the candidate's spec to STRATEGIES.md and a durable ledger -- DOCTRINE v1.11's
-fully-automatic checkpoint (Dave's explicit call, 2026-08-01), no human review before
-the full OOS test runs. A failed screen, or no proposal at all, never reaches this step.
-
-#180 adds a FOURTH step, run UNCONDITIONALLY every cycle regardless of what happened to
-today's own proposal (or whether one was even made): pipeline_verdict.run_pending_oos_
-tests() OOS-tests every pre-registered candidate that doesn't have a graveyard.csv row
-yet. Unconditional, not gated on today's `preregistered` result, so a backlog -- e.g.
-this step being added after a few days of #179 running alone -- clears on the next
-cycle rather than staying stuck forever.
-
-#181 adds a fifth step for the same reason: PIPELINE_LEDGER (pipeline_ideas.csv) can now
-gain a row from something OTHER than propose_idea()'s own in-process API call -- a
-research routine that writes the ledger directly (real research, real tool use, not the
-cheap single-shot call). Once ANY row exists for today, already_proposed_today() makes
-propose() return None, so the ORIGINAL propose->screen wiring above would silently never
-screen that externally-added row -- it isn't "nothing proposed today," it's "something
-was proposed by someone else." screen_pending_backlog() closes that gap the same way
-#180 closed the pre-registered-but-untested one: find every PIPELINE_LEDGER name with no
-prelim_log.csv row yet, and screen (then pre-register on a pass) each one, unconditional
-of today's own propose() outcome.
+This module's job now: screen (#175) whatever's sitting in PIPELINE_LEDGER unscreened,
+pre-register on a pass (#179), and OOS-test (#180) whatever's pre-registered and
+untested -- both UNCONDITIONALLY every cycle, regardless of whether anything new landed
+in the ledger today. That "unconditional, clears a backlog" property is deliberate for
+both steps: pending_screens()/screen_pending_backlog() (#181) exist because
+already_proposed_today() would otherwise make a since-retired propose() step swallow an
+externally-added row as "nothing proposed today"; pipeline_verdict.run_pending_oos_tests()
+(#180) has the identical shape one stage later.
 
 Usage: PYTHONPATH=src:.:research python research/pipeline_daily.py
 """
@@ -38,7 +31,6 @@ import os
 import pandas as pd
 
 import harness
-import pipeline_ideas
 import pipeline_register
 import pipeline_verdict
 from tradefabe import pipeline as pkg_pipeline
@@ -81,39 +73,17 @@ def screen_pending_backlog(screen_fn=None, preregister_fn=None) -> list[dict]:
     return results
 
 
-def run_daily_cycle(propose_fn=None, screen_fn=None, preregister_fn=None,
-                    backlog_fn=None, oos_test_fn=None) -> dict:
-    """Runs one day of the pipeline: propose (#177), screen (#175), pre-register on a
-    pass (#179), screen+pre-register any OTHER pending PIPELINE_LEDGER row regardless
-    (#181), then OOS-test every pending pre-registered candidate regardless (#180). Each
-    `*_fn` is injectable for testing; all five default to the real functions. Returns a
-    small summary dict; never raises on a normal "nothing happened today" outcome, since
-    that's expected, not exceptional."""
-    propose = propose_fn or pipeline_ideas.propose_idea
-    screen = screen_fn or harness.prelim_screen
-    preregister = preregister_fn or pipeline_register.preregister_candidate
+def run_daily_cycle(backlog_fn=None, oos_test_fn=None) -> dict:
+    """Runs one day of the pipeline: screen+pre-register (#175/#179) whatever's pending
+    in PIPELINE_LEDGER, then OOS-test (#180) whatever's pending pre-registration --
+    unconditional, every cycle, regardless of whether anything new landed today. Both
+    `*_fn` are injectable for testing; both default to the real functions. Returns a
+    small summary dict; never raises on a normal "nothing pending" outcome, since that's
+    expected, not exceptional."""
     backlog = backlog_fn or screen_pending_backlog
     oos_test = oos_test_fn or pipeline_verdict.run_pending_oos_tests
 
-    idea = propose()
-    if idea is None:
-        print("[pipeline_daily] nothing proposed today -- nothing to screen")
-        result = {"proposed": False, "name": None, "passed": None, "preregistered": False}
-    else:
-        passed = screen(idea)
-        print(f"[pipeline_daily] {idea['name']} "
-              f"{'PASSED' if passed else 'FAILED'} the prelim screen")
-        if not passed:
-            result = {"proposed": True, "name": idea["name"], "passed": False,
-                      "preregistered": False}
-        else:
-            preregistered = preregister(idea)
-            result = {"proposed": True, "name": idea["name"], "passed": True,
-                      "preregistered": preregistered}
-
-    result["backlog_screened"] = backlog()
-    result["oos_tested"] = oos_test()
-    return result
+    return {"backlog_screened": backlog(), "oos_tested": oos_test()}
 
 
 def main():
