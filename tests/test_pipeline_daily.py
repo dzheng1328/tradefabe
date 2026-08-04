@@ -20,6 +20,7 @@ propose).
 import json
 import os
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -205,10 +206,20 @@ def test_screen_pending_backlog_passes_rationale_and_citation_to_preregister(scr
     assert seen["spec"]["citation"] == "y"
 
 
-def test_screen_pending_backlog_with_real_defaults_actually_preregisters(scratch):
-    """End-to-end with the real prelim_screen()/preregister_candidate() (no fakes) on a
-    trending synthetic-enough real ticker -- catches a wiring bug fakes would hide,
-    same reasoning test_pipeline_ideas.py's real prelim_screen() test uses."""
+def test_screen_pending_backlog_with_real_defaults_actually_preregisters(scratch, monkeypatch):
+    """End-to-end with the real prelim_screen()/preregister_candidate() (no fakes) --
+    catches a wiring bug fakes would hide, same reasoning test_pipeline_ideas.py's own
+    real-prelim_screen() test uses, including its fix for the same trap: load_prices()
+    must be mocked to synthetic data, or this test does real network I/O and blows
+    conftest.py's 5s per-test budget (measured 6.21s against the real network in CI)."""
+    idx = pd.bdate_range(harness.CALIB_START, periods=3000)
+    rng = np.random.default_rng(7)
+    calib_prices = pd.DataFrame(
+        {t: 100 * np.exp(np.cumsum(rng.normal(0.0002, 0.01, 3000))) for t in
+         ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "IEF", "LQD", "HYG",
+          "GLD", "SLV", "DBC", "USO", "VNQ", "UUP"]}, index=idx)
+    monkeypatch.setattr(harness, "load_prices", lambda: (calib_prices, "SYNTHETIC (test)"))
+
     _write_ledger_row("rp_single_asset_trend_SPY_90")
     results = pd_.screen_pending_backlog()
     assert len(results) == 1
