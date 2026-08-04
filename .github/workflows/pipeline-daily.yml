@@ -91,13 +91,32 @@ jobs:
           AFTER=$(git branch --list 'claude/*' --format='%(refname:short)')
           MERGED=$(comm -23 <(echo "$BEFORE" | sort) <(echo "$AFTER" | sort))
           if [ -n "$MERGED" ]; then
+            PUSHED=""
             for i in 1 2 3; do
-              git pull --rebase --quiet origin main && git push --quiet origin main && break
+              if git pull --rebase --quiet origin main && git push --quiet origin main; then
+                PUSHED=1
+                break
+              fi
               echo "push attempt $i failed, retrying"; sleep 5
             done
-            for b in $MERGED; do
-              git push origin --delete "$b" 2>/dev/null || true
-            done
+            # Only delete the remote claude/* branch once its content is CONFIRMED on
+            # origin/main -- merge_routine_branches.py already deleted the LOCAL branch
+            # unconditionally (harmless, this checkout is ephemeral either way), but the
+            # remote copy is the only other copy of that day's proposal. Deleting it
+            # regardless of push success (the bug found by #182's retroactive safety
+            # review, 2026-08-04) meant a sustained push failure could destroy the only
+            # record of a proposal with no log of its actual content to recover from.
+            # Leaving the branch in place on a failed push is free and safe: tomorrow's
+            # run re-fetches it, and merge_routine_branches.py's own
+            # extract_new_rows()/branch_is_ledger_only() checks make re-processing an
+            # already-landed branch a correctly-detected no-op, not a double-append.
+            if [ -n "$PUSHED" ]; then
+              for b in $MERGED; do
+                git push origin --delete "$b" 2>/dev/null || true
+              done
+            else
+              echo "push failed after 3 attempts -- leaving remote branch(es) [$MERGED] in place for a later cycle to retry, rather than deleting the only other copy"
+            fi
           fi
 
       - name: run daily cycle (screen pending, pre-register on a pass, OOS-test pending)
