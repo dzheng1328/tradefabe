@@ -23,7 +23,7 @@ like. We avoid that with four locked rules:
 4. **Fair benchmark.** A diversified strategy is compared to a diversified passive portfolio
    (60/40), not to the single best-performing asset in hindsight.
 
-## Current state — read this first (as of v1.15, 2026-08-04)
+## Current state — read this first (as of v1.16, 2026-08-04)
 
 The sections below this one (Data split through Ledger) are v1.0's ORIGINAL, frozen text —
 kept verbatim as the pre-registration record, per rule 1 above. Eight amendments have since
@@ -104,6 +104,16 @@ history** section below.
   Empirical evidence for two of #182's checklist items already existed and passes
   (`tests/test_prelim_screen.py`, `tests/test_doctrine_v15.py`); a full council-style
   holistic review has NOT run. Recorded honestly, not closed as fully resolved.
+- **The council review DID run (v1.16) and found a real structural gap: no
+  `concurrency:` guard.** `pipeline-daily.yml` had the identical schedule +
+  workflow_dispatch combination `paper-engine.yml` already guards against running
+  twice at once, without the guard itself -- meaning the in-code
+  `MAX_PIPELINE_PROMOTED` check was only as real as an unenforced assumption that runs
+  never overlap. Fixed. Also settled #182's open "daily budget" question: this repo is
+  PUBLIC, so GitHub Actions minutes cost nothing regardless of volume, and the LLM
+  routine runs under Dave's flat Pro subscription, not metered per-run -- there is no
+  dollar figure to write down. The real constraint is research value, not cost; see
+  v1.16 for what that means in practice.
 
 **Forward-only, same as every amendment below states individually: nothing here re-scores
 `graveyard.csv`.** This section is a reading aid, not a new rule — it changes no threshold,
@@ -704,6 +714,44 @@ this for *why*, not to find out what's currently active.
   before flipping the switch) cannot be satisfied after the fact by construction —
   Dave's call on whether the pipeline's actual track record since launch is sufficient
   evidence to treat that gap as closed, or whether it should still happen explicitly.
+
+- **v1.16 (2026-08-04, #182). The council-style review v1.15 deferred actually ran, and
+  found a real (if lower-stakes) near-miss of the factory's #98 pattern, not a repeat
+  of it.**
+
+  **Verdict on the literal #98 pattern (promote with no cap, ever): closed, not
+  repeated.** `MAX_PIPELINE_PROMOTED=10` is checked in code before every promotion,
+  DEAD is terminal, both tested. The pipeline's stated goal — protect the graveyard's
+  shared evidentiary integrity the way #98 didn't — is met.
+
+  **What the review actually found: `pipeline-daily.yml` was missing the
+  `concurrency:` guard `paper-engine.yml` already has for the identical reason.**
+  Both workflows combine a `schedule` trigger with `workflow_dispatch`, and
+  `paper-engine.yml`'s own comment already states why that combination needs one:
+  "never let two cycles write state at once." Without it, two overlapping runs of
+  `pipeline_daily.py` could each read `promoted_pipeline.json`'s count before either
+  commits, both see the same headroom, and both promote — the in-code cap is only as
+  real as the assumption that runs are serialized, and nothing previously enforced
+  that assumption. Fixed by copying `paper-engine.yml`'s exact pattern: `concurrency:
+  {group: pipeline-daily, cancel-in-progress: false}` — queue rather than cancel, so a
+  run cancelled mid-write can't leave a partial ledger.
+
+  **#182's open "daily Actions/token budget" question is now settled, not just
+  deferred again: there is no dollar figure to write down.** `gh repo view` confirms
+  this repo is PUBLIC, so GitHub Actions minutes are free regardless of volume — no
+  billing constraint exists to budget against. The research routine itself runs under
+  Dave's flat Claude Pro subscription (v1.13), not metered per run, so there's no
+  per-proposal dollar cost either, unlike the retired Haiku call's explicit
+  `DAILY_BUDGET_USD` (v1.9). Measured locally: `harness.noise_floor()` at 500 trials
+  (`NULL_TRIALS`) — the single most expensive step in a daily cycle — takes ~1.8s;
+  even a worst-case day (candidates spanning all three D/W/M frequencies, up to 10
+  pending OOS tests) stays well under a minute of real compute, dwarfed by GH Actions'
+  own checkout/install overhead. **The actual constraint here is research value, not
+  cost** — a pipeline that keeps running forever with nothing left worth testing is a
+  waste of attention (the graveyard filling with low-value DEAD rows, more noise for
+  anyone reading `STRATEGIES.md`) rather than a waste of money. No stopping rule is
+  set here; that's a real, still-open call, but it isn't a budget number, and it isn't
+  a promotion-integrity risk either.
 
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 
