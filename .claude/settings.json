@@ -24,6 +24,16 @@
             "type": "command",
             "command": "CMD=$(jq -r \".tool_input.command // \\\"\\\"\"); printf \"%s\" \"$CMD\" | grep -qE \"^[[:space:]]*git add\" && printf \"%s\" \"$CMD\" | grep -q \"state/\" && printf \"%s\" '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"state/ is owned by the paper-engine Action; committing local writes caused the PR 92 conflict. Confirm ONLY if deliberately opening or repairing a book. Otherwise discard: git checkout -- state/\"}}'; exit 0",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r \".tool_input.command // \\\"\\\"\"); case \"$CMD\" in *\"git commit\"*) D=\"${CLAUDE_PROJECT_DIR:-/Users/dzheng/tradefabe}\"; EMAIL=$(git -C \"$D\" config --local user.email 2>/dev/null); if [ \"$EMAIL\" != \"76966554+dzheng1328@users.noreply.github.com\" ]; then printf %s '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Local git user.email is not the noreply alias -- commits would be misattributed (cost PR #189 a 3rd co-author identity). Run: git config --local user.email 76966554+dzheng1328@users.noreply.github.com, then retry.\"}}'; exit 0; fi; if printf %s \"$CMD\" | grep -qiE \"co-authored-by:.*(claude|anthropic)\"; then printf %s '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Never add a Co-Authored-By trailer for Claude/Anthropic here -- every tradefabe commit shows Dave alone as author, intentionally. The Generated-with-Claude-Code disclosure LINE is fine; the trailer is not.\"}}'; exit 0; fi;; esac; exit 0",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r \".tool_input.command // \\\"\\\"\"); if printf %s \"$CMD\" | grep -qE \"gh pr merge\"; then PR=$(printf %s \"$CMD\" | grep -oE \"gh pr merge [0-9]+\" | grep -oE \"[0-9]+\"); if [ -n \"$PR\" ]; then TOUCHED=$(gh pr diff \"$PR\" --name-only 2>/dev/null | grep -E \"^(STRATEGIES\\.md|graveyard\\.csv)$\"); if [ -n \"$TOUCHED\" ]; then printf %s '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"This PR touches STRATEGIES.md/graveyard.csv -- has the doctrine-auditor subagent reviewed it? Its 5 checks (pre-registration ordering, matched null, declared deviations, multiple-testing hygiene, reproducibility) catch exactly the failure class DOCTRINE.md exists to prevent. Confirm only if it already ran, or you are deliberately skipping it.\"}}'; exit 0; fi; fi; fi; exit 0",
+            "timeout": 15
           }
         ]
       }
