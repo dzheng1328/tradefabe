@@ -37,6 +37,13 @@ name: pipeline daily
 # Instructions-text fix reliably holds, this runs every cycle regardless and is a safe
 # no-op on a normal day with no such branch.
 
+# KILL SWITCH (#181, #182): `gh workflow disable "pipeline daily"` stops BOTH the
+# schedule below AND workflow_dispatch, with zero code change and no touch to any
+# pipeline logic underneath -- the single, obvious toggle #181 called for. Reverse with
+# `gh workflow enable "pipeline daily"`. This is a GitHub-native mechanism (not
+# repo-specific machinery), so it needed documenting here rather than building, and
+# living right next to the trigger is the point -- CLAUDE.md has no byte budget left to
+# hold it (test_claude_md_budget.py).
 on:
   schedule:
     - cron: "42 14 * * *"    # ~10:42am ET daily (drifts an hour with DST, same accepted
@@ -87,8 +94,16 @@ jobs:
         run: |
           git config user.name  "tradefabe-bot"
           git config user.email "davezheng1328@gmail.com"
-          git add pipeline_ideas.csv artifacts/prelim_log.csv STRATEGIES.md \
-                 pipeline_preregistered.csv graveyard.csv
+          # `git add <explicit paths>` fails (exit 128) and stages NOTHING if any ONE
+          # path doesn't exist yet -- pipeline_preregistered.csv is only created once a
+          # candidate actually clears pre-registration for the first time (#179), so
+          # this silently dropped every commit until that happened (found #182, 2026-08-04:
+          # both real runs of this workflow so far had failed here). Loop + existence
+          # check so a not-yet-created ledger never blocks the ones that DID change.
+          for f in pipeline_ideas.csv artifacts/prelim_log.csv STRATEGIES.md \
+                  pipeline_preregistered.csv graveyard.csv; do
+            [ -f "$f" ] && git add "$f"
+          done
           git add -A state artifacts 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "nothing happened today"; exit 0

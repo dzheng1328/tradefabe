@@ -23,7 +23,7 @@ like. We avoid that with four locked rules:
 4. **Fair benchmark.** A diversified strategy is compared to a diversified passive portfolio
    (60/40), not to the single best-performing asset in hindsight.
 
-## Current state — read this first (as of v1.14, 2026-08-04)
+## Current state — read this first (as of v1.15, 2026-08-04)
 
 The sections below this one (Data split through Ledger) are v1.0's ORIGINAL, frozen text —
 kept verbatim as the pre-registration record, per rule 1 above. Eight amendments have since
@@ -98,6 +98,12 @@ history** section below.
   `pipeline_daily.screen_pending_backlog()` — the one checkpoint every proposal passes
   through regardless of whether a human, `pipeline_ideas.propose_idea()`, or the
   scheduled research routine wrote it.
+- **#182's pre-launch safety review ran retroactively, after the cron was already live,
+  and found a real bug (v1.15).** `pipeline-daily.yml` had failed both times it had
+  ever run; a kill switch documented, not built (native `gh workflow disable`).
+  Empirical evidence for two of #182's checklist items already existed and passes
+  (`tests/test_prelim_screen.py`, `tests/test_doctrine_v15.py`); a full council-style
+  holistic review has NOT run. Recorded honestly, not closed as fully resolved.
 
 **Forward-only, same as every amendment below states individually: nothing here re-scores
 `graveyard.csv`.** This section is a reading aid, not a new rule — it changes no threshold,
@@ -648,6 +654,56 @@ this for *why*, not to find out what's currently active.
   any downstream consumer. Still genuinely compositional (two tickers, two independent
   legs, one candidate) — just not the sleeve-on-a-core shape. A future amendment can
   revisit the sleeve construction if this shape doesn't hold up; not re-litigated here.
+
+- **v1.15 (2026-08-04, #182). The pre-launch safety review ran AFTER the cron was
+  already live, not before — recorded honestly, since #182's own issue text is explicit
+  that it exists to catch this lab's own version of the factory's #98 "no exit
+  condition" problem, and "the review didn't happen when it was supposed to" is exactly
+  the kind of gap it was designed to surface.**
+
+  **What #182 asked for and what actually happened, item by item:**
+  1. *Council-style holistic design review* — NOT run. Flagged for Dave, not run
+     unilaterally (the `council` skill is user-invoked).
+  2. *Empirically confirm a prelim-rejected idea never touches OOS data or
+     graveyard.csv* — already covered, `tests/test_prelim_screen.py`'s calibration-
+     blindness test, confirmed passing (not re-derived this amendment, just verified).
+  3. *Empirically confirm the segregated n_tested bucket is actually segregated* —
+     already covered, `tests/test_doctrine_v15.py`, confirmed passing.
+  4. *Decide the promotion cap and daily budget as explicit numbers* — the cap was
+     already decided (`MAX_PIPELINE_PROMOTED = 10`, v1.12). A daily Actions-minutes/
+     token budget was never written down; still not decided here.
+  5. *Dave's explicit sign-off to flip the cron on* — never happened as a discrete
+     step; #181 shipped with `pipeline-daily.yml`'s schedule trigger already live,
+     skipping the sequencing #182 was designed to enforce.
+
+  **What this amendment actually found and fixed, discovered BECAUSE the review ran
+  late rather than despite it:** `pipeline-daily.yml` had failed on both of the only
+  two times it had ever run (2026-08-02, 2026-08-03). The first failure (a
+  `research/pipeline_ideas.py` API call the workflow no longer needs) was already
+  fixed by #190/#191 before this amendment. The second, found here: the "commit
+  ledgers" step's `git add pipeline_ideas.csv ... pipeline_preregistered.csv
+  graveyard.csv` fails ENTIRELY (stages nothing, exits 128) if any ONE of those
+  explicit paths doesn't exist yet — `pipeline_preregistered.csv` is only created the
+  first time a candidate clears pre-registration (#179), which hadn't happened yet, so
+  this would have silently dropped every day's commit indefinitely. Fixed with a
+  per-file existence check in a loop (confirmed to survive `bash -e`, the shell this
+  step actually runs under — a `[ -f "$f" ] && git add "$f"` failing test is exempted
+  from `errexit` because it isn't the last command in its `&&` list, verified
+  empirically, not just read off the bash manual).
+
+  **The kill switch #181 called "non-negotiable, built in from day one" was
+  documented, not built — because it already exists natively.** `gh workflow disable
+  "pipeline daily"` stops both the schedule and `workflow_dispatch` with zero code
+  change, `gh workflow enable "pipeline daily"` reverses it. This wasn't discoverable
+  as a real, known lever before this amendment, so it's now documented directly in
+  `pipeline-daily.yml`'s own header (not here — `CLAUDE.md` has essentially no byte
+  budget left as of this amendment, `test_claude_md_budget.py`).
+
+  **Not closed as fully resolved.** #182 stays open: item 1 (council review) and item 4
+  (an explicit written budget number) are genuinely undecided, and item 5 (sign-off
+  before flipping the switch) cannot be satisfied after the fact by construction —
+  Dave's call on whether the pipeline's actual track record since launch is sufficient
+  evidence to treat that gap as closed, or whether it should still happen explicitly.
 
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 
