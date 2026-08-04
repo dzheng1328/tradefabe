@@ -23,7 +23,7 @@ like. We avoid that with four locked rules:
 4. **Fair benchmark.** A diversified strategy is compared to a diversified passive portfolio
    (60/40), not to the single best-performing asset in hindsight.
 
-## Current state — read this first (as of v1.10, 2026-08-01)
+## Current state — read this first (as of v1.11, 2026-08-01)
 
 The sections below this one (Data split through Ledger) are v1.0's ORIGINAL, frozen text —
 kept verbatim as the pre-registration record, per rule 1 above. Eight amendments have since
@@ -70,6 +70,11 @@ history** section below.
   about ALIVE/DEAD, touches no 2018+ data, costs no `family_n_tested()` draw, and never
   writes `graveyard.csv` — only its own `artifacts/prelim_log.csv`. Not part of the three
   gates above; a firewall upstream of them.
+- **Pre-registration checkpoint (research-pipeline candidates only, v1.11) is FULLY
+  AUTOMATIC.** A candidate that clears the prelim screen is committed to
+  `STRATEGIES.md` the same run, no human review — Dave's explicit call. Every upstream
+  safety property (calibration-only screening, segregated `n_tested`, the full OOS gate
+  once #180 exists) is unchanged; only this one checkpoint's human pause was removed.
 
 **Forward-only, same as every amendment below states individually: nothing here re-scores
 `graveyard.csv`.** This section is a reading aid, not a new rule — it changes no threshold,
@@ -423,6 +428,44 @@ this for *why*, not to find out what's currently active.
   **Forward-only, same as v1.5: no `graveyard.csv` row scored before this amendment is
   reclassified.** A row's `n_tested` reflects the bucket definition in force when it was
   written; comparing `n_tested` across amendments was never valid and remains not so.
+
+- **v1.11 (2026-08-01, #179). The pre-registration checkpoint is FULLY AUTOMATIC.** A
+  candidate that clears #175's prelim screen is frozen to `STRATEGIES.md` and a durable
+  ledger (`pipeline_preregistered.csv`) the same run, no PR, no human review, before the
+  full OOS test (#180, not yet built) fires. Dave's explicit call, stated honestly
+  rather than glossed over: #179's own design question leaned the other way ("pre-
+  registration is supposed to be a real commitment made with judgment, not a rubber
+  stamp a script clears on its way to the next step"), and that argument is not wrong —
+  it is simply outweighed here by the pipeline's actual point, a genuinely hands-off
+  daily cycle. A human bottleneck at this specific checkpoint would make the pipeline
+  "propose + screen automatically, human approves the expensive step," not the thing
+  #174 set out to build.
+
+  **What "automatic" does NOT weaken.** Every upstream safety property this pipeline
+  already has stays exactly as strict: the candidate still had to clear #175's
+  calibration-only firewall (never touching OOS data to get here), it is still
+  segregated into its own `n_tested` bucket (v1.10) so it cannot inflate the bar for
+  hand-picked or factory candidates, and #180's own OOS test — once built — is the SAME
+  DSR/CPCV gate every strategy in this lab goes through, no lighter bar for having
+  arrived via an automatic checkpoint. What's removed is only the pause between
+  "cheaply screened as promising" and "worth the expensive test" — the ONE step in the
+  whole pipeline where a human's judgment was optional rather than load-bearing to a
+  safety property.
+
+  **Mechanism.** `research/pipeline_register.py`'s `preregister_candidate()` renders the
+  validated proposal (#177's full spec — primitive, params, freq, rationale, citation)
+  as programmatically-generated STRATEGIES.md prose — the same information every
+  hand-tested family's pre-registration carries, minus a human writing it — and stamps
+  `pipeline_preregistered.csv` (append-only, mirroring every other ledger in this repo)
+  so #180 has a machine-readable way to find "pre-registered, not yet OOS-tested"
+  candidates without parsing markdown. Idempotent by name, same as `factory.promote()`.
+
+  **Reversible if it goes wrong.** Nothing here is a one-way door: #181's kill switch
+  (not yet built) can pause the whole daily cycle, and — worst case — a bad automatic
+  pre-registration is a `STRATEGIES.md` edit and a graveyard row like any other, not
+  real capital or an unrecoverable action. If automatic pre-registration produces a
+  pattern of regrettable commits, the fix is switching this one checkpoint back to
+  human-in-the-loop, not redesigning the pipeline.
 
 ## Paper-testing verdicts (v1.2, retirement clause amended by v1.6)
 
