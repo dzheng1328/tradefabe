@@ -61,5 +61,25 @@
     }
    }
   ]
+ },
+ {
+  "name": "factory_combo_str_reversal_gen_25d_low_vol_xsec_gen_112d",
+  "freq": "W",
+  "legs": [
+   {
+    "name": "str_reversal_gen_25d",
+    "family": "B",
+    "params": {
+     "days": 25
+    }
+   },
+   {
+    "name": "low_vol_xsec_gen_112d",
+    "family": "D",
+    "params": {
+     "vol_window": 112
+    }
+   }
+  ]
  }
 ]
