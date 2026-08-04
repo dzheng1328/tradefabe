@@ -806,30 +806,37 @@ missing rationale/citation is rejected before a name is even assigned, let alone
 `(primitive, params)` (`pipeline_ideas.make_name()`), never chosen by the model, and is
 always prefixed `rp_` — #176's origin-classification contract, satisfied by construction.
 
-**Rate limit:** one proposal per day (`already_proposed_today()`, checked against
-`pipeline_ideas.csv`'s own timestamps). **Budget:** a hard $0.05/day ceiling, computed as
-a provable upper bound *before* any model call fires (`estimate_cost()` — conservative
-input-token estimate plus the API's own `max_tokens` cap on output) — Dave's explicit
-call: if a call would definitely exceed it, it must never fire, not just warn afterward.
-Runs via GitHub Actions (`.github/workflows/pipeline-idea.yml`), same durability
-reasoning as `cost-check.yml` (#155): a session-local schedule silently vanishes on
-compaction; this can't, and it runs even while the machine is asleep.
+**Rate limit, as of 2026-08-05: up to 10 proposals/day, FIXED (not "until one
+passes").** Proposal generation moved from `pipeline_ideas.py`'s in-process, $0.05/day-
+capped Haiku API call (retired 2026-08-04) to a scheduled Claude Code Routine (claude.ai,
+running under Dave's Pro subscription, real web-search tool use) — 10 separate daily
+triggers, each producing at most one proposal, writing `pipeline_ideas.csv` directly.
+FIXED at 10, not "keep researching until one clears the screen": the calibration screen
+(#175) is deliberately lenient, so an until-success loop would eventually clear it by
+pure chance almost regardless of merit — some runs, and some days, legitimately produce
+zero candidates worth screening further, and that's the screen doing its job, not a
+failure. `pipeline_ideas.py`'s own budget/API machinery still exists and is still
+tested — the reference for `pipeline_ideas.csv`'s row shape, which the routine
+replicates by hand — but nothing in the automated daily cron calls it anymore.
 
-A model response the validator rejects, a day the budget would be exceeded, a day the
-model has nothing to propose, or a duplicate of an already-tested spec are all logged and
-treated as a **clean skip, not a failure** — proposing nothing is a legitimate daily
-outcome, the same principle DOCTRINE v1.9's prelim firewall already applies one step
-downstream.
+A malformed row, a duplicate of an already-tested or already-proposed spec, or a day
+with fewer than 10 genuinely new ideas are all logged and treated as a **clean skip,
+not a failure** — proposing fewer than the daily cap is a legitimate outcome, the same
+principle DOCTRINE v1.9's prelim firewall already applies one step downstream.
 
-**The daily cycle (#178, `research/pipeline_daily.py`)** wires proposal to screening:
-`propose_idea()`'s output, if any, is passed straight into `harness.prelim_screen()` —
-deliberately thin, since #177 already returns something the screen can run with no
-translation and the screen already logs every outcome. `.github/workflows/pipeline-daily.yml`
-runs this once a day; a failed screen, like an unproposed day, is a logged outcome, not
-a pipeline failure.
+**The daily cycle (#178, extended #180/#181, `research/pipeline_daily.py`)** screens
+(#175) and pre-registers on a pass (#179) whatever's sitting in `pipeline_ideas.csv`
+unscreened, then OOS-tests (#180) whatever's pre-registered and untested — both
+unconditional every cycle, regardless of how many (if any) new rows landed today.
+`.github/workflows/pipeline-daily.yml` runs this once a day, first merging in any
+routine proposal that landed on a branch instead of main
+(`research/merge_routine_branches.py`, a safety net, #181) before screening. A failed
+screen, like an unproposed day, is a logged outcome, not a pipeline failure.
 
-`research/pipeline_ideas.py`, `research/pipeline_daily.py`, `tests/test_pipeline_ideas.py`,
-`tests/test_pipeline_daily.py`.
+`research/pipeline_ideas.py`, `research/pipeline_daily.py`, `research/pipeline_verdict.py`,
+`research/merge_routine_branches.py`, `src/tradefabe/pipeline.py`,
+`tests/test_pipeline_ideas.py`, `tests/test_pipeline_daily.py`, `tests/test_pipeline_verdict.py`,
+`tests/test_merge_routine_branches.py`, `tests/test_tradefabe_pipeline.py`.
 
 ## Rules of the roster
 1. A strategy's spec (signal, universe, freq) is frozen **before** its OOS verdict.
