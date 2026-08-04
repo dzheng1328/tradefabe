@@ -410,7 +410,13 @@ def propose_idea(llm_fn=None) -> dict | None:
     sig_fn = build_signal(proposal["primitive"], proposal["params"])
     print(f"[pipeline_ideas] proposed {name} ({proposal['primitive']}, "
           f"freq={proposal['freq']}) -- {proposal['rationale']}")
-    return {"name": name, "sig_fn": sig_fn, "freq": proposal["freq"]}
+    # {"name","sig_fn","freq"} is harness.prelim_screen()'s (#175) whole contract; the
+    # rest (primitive/params/rationale/citation) rides along for #179's pre-registration
+    # step, which needs the full spec to render STRATEGIES.md prose, not just what the
+    # screen itself reads.
+    return {"name": name, "sig_fn": sig_fn, "freq": proposal["freq"],
+            "primitive": proposal["primitive"], "params": proposal["params"],
+            "rationale": proposal["rationale"], "citation": proposal["citation"]}
 
 
 def main():
