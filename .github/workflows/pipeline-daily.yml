@@ -29,6 +29,13 @@ name: pipeline daily
 # call 2026-08-04, separate from the factory's MAX_FACTORY_PROMOTED=20). A DEAD verdict
 # is terminal: logged to graveyard.csv, never promoted "anyway" (the factory's own
 # original #98 mistake).
+#
+# FIRST step is always merge_routine_branches.py (2026-08-05): the routine is instructed
+# to commit its PIPELINE_LEDGER append directly to main, but on 2026-08-03 it landed on
+# a fresh `claude/*` branch instead (a cautious, correct-per-the-instructions-it-had-then
+# read of CLAUDE.md's general "never push to main" rule). Rather than assume an
+# Instructions-text fix reliably holds, this runs every cycle regardless and is a safe
+# no-op on a normal day with no such branch.
 
 on:
   schedule:
@@ -55,6 +62,23 @@ jobs:
 
       - name: install
         run: pip install -e .
+
+      - name: merge pending research-routine branches (safety net)
+        run: |
+          git fetch origin 'refs/heads/claude/*:refs/heads/claude/*' 2>/dev/null || true
+          BEFORE=$(git branch --list 'claude/*' --format='%(refname:short)')
+          PYTHONPATH="$PWD:$PWD/src:$PWD/research" python research/merge_routine_branches.py --repo .
+          AFTER=$(git branch --list 'claude/*' --format='%(refname:short)')
+          MERGED=$(comm -23 <(echo "$BEFORE" | sort) <(echo "$AFTER" | sort))
+          if [ -n "$MERGED" ]; then
+            for i in 1 2 3; do
+              git pull --rebase --quiet origin main && git push --quiet origin main && break
+              echo "push attempt $i failed, retrying"; sleep 5
+            done
+            for b in $MERGED; do
+              git push origin --delete "$b" 2>/dev/null || true
+            done
+          fi
 
       - name: run daily cycle (screen pending, pre-register on a pass, OOS-test pending)
         run: PYTHONPATH="$PWD:$PWD/src:$PWD/research" python research/pipeline_daily.py
