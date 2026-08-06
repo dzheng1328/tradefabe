@@ -799,6 +799,7 @@ section warns about, in a new, LLM-shaped form.
 | `single_asset_trend` | Long/short one ticker by the sign of its own trailing return | `ticker` ∈ UNIVERSE; `lookback` 20–252 |
 | `static_spread_carry` | A fixed, always-on long-short between two tickers — a structural risk-premium bet, not mean-reversion | `ticker_a`, `ticker_b` ∈ UNIVERSE; `long_leg` ∈ {a, b} |
 | `asset_class_trend_hedge` | Two independent `single_asset_trend` legs held in one candidate — the first primitive to combine two signals rather than express one. `ticker_a`/`ticker_b` must come from two DIFFERENT `tradefabe.pipeline.ASSET_CLASS` buckets (equity/rates/commodity/real_estate/currency, derived from the ticker, not asserted) | `ticker_a`, `ticker_b` ∈ UNIVERSE (different asset class); `lookback_a`, `lookback_b` 20–252 |
+| `curve_carry` | A DV01-neutral TLT/IEF position whose direction trend-follows the real FRED curve slope (`DGS10 - DGS2`): steepening → short TLT / long IEF, flattening → long TLT / short IEF, sized so the two legs' duration exposure roughly offsets. Fixed to TLT/IEF only — no `ticker_a`/`ticker_b` choice like other primitives, since real duration data is only pre-registered for this pair | `lookback` 20–252 |
 
 **Vocabulary expansion — `asset_class_trend_hedge` added 2026-08-04 (#194).** Dave's
 explicit call: the original 4 primitives can only ever parameterize the same 4 shapes;
@@ -821,6 +822,37 @@ pending name passes through regardless of origin — necessary because the sched
 research routine (see the rate-limit note below) writes `pipeline_ideas.csv` rows
 directly, bypassing `validate_proposal()` entirely, so the offline check alone can't be
 relied on for a routine-written proposal.
+
+**Vocabulary expansion — `curve_carry` added 2026-08-05 (Phase 2 of the carry-
+generalization design, `docs/superpowers/specs/2026-08-04-carry-generalization-design.md`).**
+Of 139+ strategies ever tested in this lab, exactly one predictive-adjacent mechanism has
+ever survived: delta-neutral crypto funding carry. `curve_carry` is the first attempt to
+generalize that mechanism class beyond crypto, using real Treasury yield-curve data
+(`src/tradefabe/rates.py`, free FRED endpoint) rather than price-derived proxies. Unlike
+`static_spread_carry`'s unhedged long-short (a directional duration bet, not actually
+carry's risk structure), `curve_carry`'s legs are sized so their DV01s roughly offset —
+`TLT_DURATION = 16.0`, `IEF_DURATION = 7.5`, pre-registered point estimates from the
+verified 2026-08 range (TLT ~15–16.5yr, IEF ~7–8yr effective duration; iShares fact
+sheets, mid-2026), fixed and reviewed once, never fetched live or re-derived from data —
+isolating the position to curve-shape/roll-down carry instead of a parallel-shift level
+bet, the standard institutional "duration-neutral curve steepener/flattener" shape.
+
+**Guard: calibration-window hedge-effectiveness, not divergence from another primitive.**
+`pipeline.curve_carry_hedge_is_effective()` checks that the position's own calibration-
+window (2007–2017) daily returns decorrelate below `CALIB_CORR_CAP = 0.3` (reused, not
+reinvented) from `DGS10`'s own daily change — confirming the DV01 hedge actually
+cancelled level risk in calibration data, not just on paper. Wired into
+`pipeline_daily.screen_pending_backlog()` the same way `asset_class_trend_hedge`'s guards
+are: before the (comparatively expensive) prelim screen ever runs, and logged via
+`harness._log_prelim()` on rejection so a guard-failed candidate doesn't resurface forever.
+
+**Direction is mechanical, not routine-discretionary.** Every other primitive with a
+directional choice (e.g. `static_spread_carry`'s `long_leg`) lets the routine pick it.
+`curve_carry` doesn't — direction is `sign(slope_today − slope_{today−lookback})` on the
+curve slope itself, reusing the exact trend-signal SHAPE `single_asset_trend` already
+uses (sign of a trailing change over a pre-registered, routine-chosen window), just
+applied to curve data instead of price data. `lookback` (20–252, same range) is the only
+free parameter — no new arbitrary "steep enough" cutoff was invented for this primitive.
 
 Every proposal is validated against these ranges mechanically (`pipeline_ideas.validate_proposal()`)
 before anything else happens — an out-of-range parameter, an unknown primitive, or a
@@ -857,9 +889,10 @@ routine proposal that landed on a branch instead of main
 screen, like an unproposed day, is a logged outcome, not a pipeline failure.
 
 `research/pipeline_ideas.py`, `research/pipeline_daily.py`, `research/pipeline_verdict.py`,
-`research/merge_routine_branches.py`, `src/tradefabe/pipeline.py`,
+`research/merge_routine_branches.py`, `src/tradefabe/pipeline.py`, `src/tradefabe/rates.py`,
 `tests/test_pipeline_ideas.py`, `tests/test_pipeline_daily.py`, `tests/test_pipeline_verdict.py`,
-`tests/test_merge_routine_branches.py`, `tests/test_tradefabe_pipeline.py`.
+`tests/test_merge_routine_branches.py`, `tests/test_tradefabe_pipeline.py`,
+`tests/test_curve_carry.py`, `tests/test_rates.py`.
 
 ## Research pipeline — pre-registered candidates (#179)
 
