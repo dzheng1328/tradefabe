@@ -34,6 +34,7 @@ import harness
 import pipeline_register
 import pipeline_verdict
 from tradefabe import pipeline as pkg_pipeline
+from tradefabe import rates as pkg_rates
 
 
 def pending_screens() -> list[str]:
@@ -93,6 +94,22 @@ def screen_pending_backlog(screen_fn=None, preregister_fn=None) -> list[dict]:
                     spec["primitive"], spec["params"], calib_prices):
                 print(f"[pipeline_daily] {name} (backlog) FAILED the calibration-"
                       f"correlation guard (#194) -- skipping prelim screen")
+                harness._log_prelim(name, spec["freq"], float("nan"), float("nan"), False)
+                results.append({"name": name, "passed": False, "preregistered": False})
+                continue
+
+        if spec["primitive"] == "curve_carry":
+            if calib_prices is None:
+                prices, _ = harness.load_prices()
+                calib_prices = prices.loc[(prices.index >= harness.CALIB_START) &
+                                          (prices.index <= harness.CALIB_END)]
+            curve, _ = pkg_rates.load_yield_curve()
+            calib_curve = curve.loc[(curve.index >= harness.CALIB_START) &
+                                    (curve.index <= harness.CALIB_END)]
+            if not pkg_pipeline.curve_carry_hedge_is_effective(
+                    spec["params"], calib_prices, calib_curve):
+                print(f"[pipeline_daily] {name} (backlog) FAILED the curve_carry "
+                      f"hedge-effectiveness guard -- skipping prelim screen")
                 harness._log_prelim(name, spec["freq"], float("nan"), float("nan"), False)
                 results.append({"name": name, "passed": False, "preregistered": False})
                 continue
