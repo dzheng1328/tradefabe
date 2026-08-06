@@ -31,8 +31,6 @@ from tradefabe.dashboard import (
 BASE = os.path.dirname(os.path.abspath(__file__))
 ART  = os.path.join(BASE, "artifacts")
 
-# ---- design tokens (validated reference palette, light mode) ----
-
 st.set_page_config(page_title="tradefabe lab", page_icon=":material/monitoring:", layout="wide")
 
 # ---- lab-protocol visual identity (works with Streamlit, not against it) ----
@@ -274,9 +272,6 @@ def load_price_snapshot():
     return px.iloc[-1], px.index[-1]
 
 
-# ==================================================================== stats
-
-
 # Delta-neutral carry/gated-carry books (#143). These update equity via a direct
 # multiplicative funding accrual (kronos_live.run_carry_kronos(), hourly.run_funding_timing(),
 # carry_live.run_carry()) and NEVER call books.rebalance_to()/log_trades() -- there is no
@@ -349,28 +344,8 @@ def badge(text, kind="muted"):
     return f'<span class="tf-badge tf-badge--{kind}">{text}</span>'
 
 
-# ==================================================================== plotly theming
-
-
-# ==================================================================== per-book normalization
-
-
-# ==================================================================== chart builders
-
-
-# Minimum points a range slice must yield before it's worth drawing as a chart -- one
-# point is a dot, not a line, and tells you nothing about direction.
-# Fraction of the visible high-low span padded onto each end of the y-axis.
-
-
 def _select_book(name):
     st.session_state.selected_book = name
-
-
-# Family taxonomy -- same letters/order as STRATEGIES.md's own "Families" section, reused
-# here rather than inventing a separate one. Extend BOOK_FAMILIES/BOOK_FAMILY together
-# whenever a genuinely new family shows up (e.g. the strategy factory, #28); a book with
-# no entry here falls back to an "Other" group rather than crashing.
 
 
 # Per-family extra metrics beyond the generic 6-stat row, for strategies whose economics
@@ -379,11 +354,6 @@ def _select_book(name):
 # it yet -- add an entry here only once a specific family's generic-6 stats turn out to
 # miss something, not preemptively (#31).
 FAMILY_EXTRA_METRICS = {}
-
-
-                       # surfaces for Dave's manual review. Not a retirement trigger:
-                       # nothing here closes, freezes, or hides a book on its own: see
-                       # books_up_for_review()'s docstring.
 
 
 def render_book_status(psum, phist, gy_last=None):
@@ -527,11 +497,6 @@ def render_paper_books(psum, phist, full, meta, gy_last):
                            factory_bt, load_hourly_backtest(), load_kronos_backtest(),
                            load_pipeline_backtest())
     render_strategy_panel(pick, data, color_of[pick])
-
-
-# Plain-English, one-line description of what each book actually does -- shown between
-# the strategy header and the Sharpe/Sortino/Calmar row. Add a new line here whenever a
-# book is added; STRATEGIES.md has the full spec if the wording needs to be checked.
 
 
 def render_strategy_panel(name, data, color):

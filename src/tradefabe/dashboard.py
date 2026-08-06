@@ -19,6 +19,7 @@ ART = str(ARTIFACTS)
 ANN  = 252
 
 
+# ---- design tokens (validated reference palette, light mode) ----
 SURF, PAGE  = "#fcfcfb", "#f9f9f7"
 
 
@@ -83,6 +84,7 @@ def load_book_json(name):
         return json.load(fh)
 
 
+# ==================================================================== stats
 def ann_stats(r):
     r = pd.Series(r).dropna()
     if len(r) < 30:
@@ -125,6 +127,7 @@ def money(v):
     return f"${v:,.0f}"
 
 
+# ==================================================================== plotly theming
 def _rgba(hex_color, alpha):
     h = hex_color.lstrip("#")
     r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
@@ -146,6 +149,7 @@ def themed_layout(**overrides):
     return base
 
 
+# ==================================================================== per-book normalization
 def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, piggy=None,
                     factory_bt=None, hourly_bt=None, kronos_bt=None, pipeline_bt=None):
     """Normalize a live paper book into one shape the panel can render, regardless of
@@ -286,6 +290,7 @@ def trades_frame(book):
     return df[cols].sort_values("ts", ascending=False, kind="stable").reset_index(drop=True)
 
 
+# ==================================================================== chart builders
 RANGE_WINDOWS = {
     "5H": pd.Timedelta(hours=5),
     "1D": pd.Timedelta(days=1),
@@ -296,9 +301,10 @@ RANGE_WINDOWS = {
 }
 
 
+# Minimum points a range slice must yield before it's worth drawing as a chart -- one
+# point is a dot, not a line, and tells you nothing about direction.
 MIN_CHART_POINTS = 2
-
-
+# Fraction of the visible high-low span padded onto each end of the y-axis.
 Y_PAD = 0.30
 
 
@@ -452,6 +458,10 @@ def fmt_full_dollars(v):
     return f"{sign}${abs(v):,.2f}"
 
 
+# Family taxonomy -- same letters/order as STRATEGIES.md's own "Families" section, reused
+# here rather than inventing a separate one. Extend BOOK_FAMILIES/BOOK_FAMILY together
+# whenever a genuinely new family shows up (e.g. the strategy factory, #28); a book with
+# no entry here falls back to an "Other" group rather than crashing.
 BOOK_FAMILIES = {
     "A": "Trend / momentum",
     "B": "Mean reversion",
@@ -549,6 +559,9 @@ def book_family(name):
 
 
 REVIEW_AGE_DAYS = 60   # #147 -- how long a factory-promoted book monitors before it
+                       # surfaces for Dave's manual review. Not a retirement trigger:
+                       # nothing here closes, freezes, or hides a book on its own: see
+                       # books_up_for_review()'s docstring.
 
 
 def factory_owned_names() -> set:
@@ -677,6 +690,9 @@ def sort_books_flat(psum, phist, gy_last=None, show_monitor_only=True, sort_key=
     return list(df.to_dict("records"))
 
 
+# Plain-English, one-line description of what each book actually does -- shown between
+# the strategy header and the Sharpe/Sortino/Calmar row. Add a new line here whenever a
+# book is added; STRATEGIES.md has the full spec if the wording needs to be checked.
 STRATEGY_DESCRIPTIONS = {
     "tsmom_12m": "Goes long or short on the sign of the trailing 12-month return — "
                  "a trend-follower betting that news gets underreacted to, not overreacted to.",
