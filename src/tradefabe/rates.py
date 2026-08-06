@@ -43,4 +43,27 @@ def load_yield_curve(series=RATES_SERIES, start=START):
         cached = pd.read_csv(RATES_CACHE, index_col=0, parse_dates=True)
         if _cache_is_fresh(RATES_CACHE):
             return cached, "cache"
-    raise NotImplementedError("fetch path added in Task 2")
+    try:
+        resp = requests.get(FRED_URL, params={"id": ",".join(series)}, timeout=10)
+        resp.raise_for_status()
+        raw = pd.read_csv(StringIO(resp.text), parse_dates=["observation_date"])
+        raw = raw.set_index("observation_date").sort_index()
+        raw.index.name = None
+        raw = raw.loc[raw.index >= pd.Timestamp(start)]
+        raw = raw[[c for c in series if c in raw.columns]]
+        if raw.empty:
+            raise RuntimeError("FRED returned no rows for the requested series/range")
+        raw.to_csv(RATES_CACHE)
+        return raw, "FRED"
+    except Exception as e:
+        if cached is not None:
+            print(f"[warn] live yield-curve data unavailable ({e}); "
+                  f"falling back to STALE cache.", file=sys.stderr)
+            return cached, "cache (stale)"
+        print(f"[warn] live yield-curve data unavailable ({e}); "
+              f"generating SYNTHETIC data.", file=sys.stderr)
+        return _synthetic_curve(series, start), "SYNTHETIC (do not trust the numbers)"
+
+
+def _synthetic_curve(series, start):
+    raise NotImplementedError("synthetic fallback added in Task 3")

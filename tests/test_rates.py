@@ -32,3 +32,59 @@ def test_load_yield_curve_returns_fresh_cache_without_network_call(scratch_cache
     assert source == "cache"
     assert list(result.columns) == ["DGS2", "DGS10"]
     assert len(result) == 2
+
+
+class _FakeResponse:
+    def __init__(self, text):
+        self.text = text
+    def raise_for_status(self):
+        pass
+
+
+def test_load_yield_curve_fetches_from_fred_on_cache_miss(scratch_cache, monkeypatch):
+    csv_text = (
+        "observation_date,DGS2,DGS10,DGS30\n"
+        "2024-01-02,4.33,3.95,4.10\n"
+        "2024-01-03,4.35,3.99,4.15\n"
+    )
+    calls = []
+
+    def _fake_get(url, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return _FakeResponse(csv_text)
+
+    monkeypatch.setattr(rates.requests, "get", _fake_get)
+
+    result, source = rates.load_yield_curve(start="2024-01-01")
+
+    assert source == "FRED"
+    assert calls[0][0] == rates.FRED_URL
+    assert calls[0][1] == {"id": "DGS2,DGS10,DGS30"}
+    assert list(result.columns) == ["DGS2", "DGS10", "DGS30"]
+    assert result.loc[pd.Timestamp("2024-01-02"), "DGS10"] == 3.95
+    assert os.path.exists(scratch_cache)   # cache was written
+
+
+def test_load_yield_curve_drops_rows_before_start(scratch_cache, monkeypatch):
+    csv_text = (
+        "observation_date,DGS10\n"
+        "2023-12-29,3.88\n"
+        "2024-01-02,3.95\n"
+    )
+    monkeypatch.setattr(rates.requests, "get",
+                         lambda url, params=None, timeout=None: _FakeResponse(csv_text))
+    result, _ = rates.load_yield_curve(series=("DGS10",), start="2024-01-01")
+    assert pd.Timestamp("2023-12-29") not in result.index
+    assert pd.Timestamp("2024-01-02") in result.index
+
+
+def test_empty_fred_field_parses_as_nan(scratch_cache, monkeypatch):
+    csv_text = (
+        "observation_date,DGS10\n"
+        "2024-01-02,3.95\n"
+        "2024-01-03,\n"          # empty field, e.g. a no-quote trading day
+    )
+    monkeypatch.setattr(rates.requests, "get",
+                         lambda url, params=None, timeout=None: _FakeResponse(csv_text))
+    result, _ = rates.load_yield_curve(series=("DGS10",), start="2024-01-01")
+    assert pd.isna(result.loc[pd.Timestamp("2024-01-03"), "DGS10"])
