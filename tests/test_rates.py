@@ -174,3 +174,26 @@ def test_align_to_trading_days_preserves_all_trading_days():
     aligned = rates.align_to_trading_days(curve, trading_days)
     assert len(aligned) == 3
     assert list(aligned.index) == list(trading_days)
+
+
+def test_load_and_align_compose_end_to_end(scratch_cache, monkeypatch):
+    """The two halves of this module used together, the way a future primitive
+    (Phase 2, curve_carry) actually will: fetch, then align to a trading calendar that
+    doesn't match FRED's own calendar."""
+    csv_text = (
+        "observation_date,DGS10\n"
+        "2024-01-02,3.95\n"
+        "2024-01-03,3.97\n"
+        "2024-01-05,4.01\n"      # 2024-01-04 (a trading day) has no FRED observation
+    )
+    monkeypatch.setattr(rates.requests, "get",
+                         lambda url, params=None, timeout=None: _FakeResponse(csv_text))
+
+    curve, source = rates.load_yield_curve(series=("DGS10",), start="2024-01-01")
+    assert source == "FRED"
+
+    trading_days = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"])
+    aligned = rates.align_to_trading_days(curve, trading_days)
+
+    assert aligned.loc[pd.Timestamp("2024-01-04"), "DGS10"] == 3.97
+    assert aligned.loc[pd.Timestamp("2024-01-05"), "DGS10"] == 4.01
