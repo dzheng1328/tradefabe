@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 import app
+import tradefabe.dashboard as dashboard
 
 
 def _psum(names):
@@ -57,7 +58,7 @@ def test_book_family_falls_back_to_unmapped_marker_for_anything_else():
 def test_book_family_resolves_a_generated_name_via_the_ledger_fallback(monkeypatch):
     # #28b: a generated candidate's family can't have a static dict entry (the
     # parameter is drawn fresh each cycle) -- must resolve via generated_templates.csv.
-    monkeypatch.setattr(app, "_load_generated_ledger",
+    monkeypatch.setattr(dashboard, "_load_generated_ledger",
                         lambda: {"tsmom_gen_147d": {"family": "A", "rationale": "..."}})
     assert app.book_family("tsmom_gen_147d") == "A"
     assert app.book_family("some_other_unmapped_name") == "?"   # ledger miss still falls through
