@@ -65,12 +65,19 @@ one), the `"."` coercion, and cache staleness behavior.
 
 ## Phase 2 — `curve_carry` primitive (new mechanism, doctrine-reviewed)
 
-**Mechanism:** a structural position in existing UNIVERSE duration ETFs (TLT vs IEF, or
-TLT vs a cash-like leg) whose sizing or direction is gated by the REAL FRED curve slope
-(e.g. `DGS10 - DGS2`) rather than being always-on-static (`static_spread_carry`) or
-derived from price action the way every current primitive is. This is a genuinely new
-mechanism class — external-data-gated regime, not a price-derived signal — buildable
-with zero UNIVERSE expansion.
+**RESOLVED (2026-08-05, Dave's call) — the exact mechanism:** a DV01-neutral TLT/IEF
+position (see duration constants below) whose DIRECTION trend-follows the curve slope
+itself — `sign(slope_today − slope_{today − lookback})` on `DGS10 − DGS2`, where
+`lookback` is drawn from the exact same `(20, 252)` range `single_asset_trend` already
+uses. Steepening trend → short TLT / long IEF (DV01-weighted); flattening trend → long
+TLT / short IEF. This reuses the vocabulary's existing trend-primitive SHAPE (sign of a
+trailing change over a routine-chosen, pre-registered window) applied to curve data
+instead of price data — no new arbitrary "steep enough" cutoff invented; `lookback` is
+the only free parameter, same as every comparable primitive already exposes. Fixed to
+TLT/IEF specifically (no free ticker choice like `static_spread_carry`'s), since real
+duration data is only pre-registered for this pair — a genuinely new mechanism class
+(external-data-gated regime direction, DV01-neutral sizing), not derived from price
+action alone the way every current primitive is, buildable with zero UNIVERSE expansion.
 
 **RESOLVED (2026-08-05, Dave's call): the guard directly tests hedge effectiveness,
 not divergence from `static_spread_carry`.** Once the legs are DV01-hedged, the
