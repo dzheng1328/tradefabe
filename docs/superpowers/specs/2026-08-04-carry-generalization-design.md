@@ -72,37 +72,48 @@ derived from price action the way every current primitive is. This is a genuinel
 mechanism class — external-data-gated regime, not a price-derived signal — buildable
 with zero UNIVERSE expansion.
 
-**Guard requirement (mirrors #194's asset-class + calibration-corr guards):** the
-curve-gated version's calibration-window (2007–2017) behavior must measurably differ
-from the existing always-on `static_spread_carry` TLT/IEF proposal — otherwise this is
-the same static bet with extra steps, exactly the "two zero-edge signals dressed up as
-new" risk DOCTRINE v1.14 designed around for compositional primitives.
+**RESOLVED (2026-08-05, Dave's call): the guard directly tests hedge effectiveness,
+not divergence from `static_spread_carry`.** Once the legs are DV01-hedged, the
+original "must differ from the unhedged static version" comparison stopped fitting —
+a duration-hedged position is already structurally distinct from an unhedged one, so
+that comparison wasn't testing the thing that actually matters. The real question is
+whether the hedge worked: on calibration-window (2007–2017) data, the position's daily
+P&L must have LOW correlation with a rate-level-move proxy (`DGS10`'s daily change) —
+reusing `CALIB_CORR_CAP = 0.3`, the exact same threshold already pre-registered and
+reviewed for `asset_class_trend_hedge` (v1.14), rather than inventing a new number.
+Passes iff duration-neutrality actually held in calibration data, not just in the
+static weights on paper — a mechanical, non-gameable check in the same spirit as
+#194's two guards, applied to a different target.
 
-**Open question, deliberately not resolved here:** the exact guard threshold (how much
-divergence from the static version counts as "measurably different") needs to be picked
-by Dave BEFORE looking at how any threshold choice performs on calibration data — picking
-it by backward-fitting from calibration performance would be the same meta-level
-p-hacking DOCTRINE.md exists to prevent, one level up. This spec flags the need for a
-threshold; it does not set one.
+**Decided by precedent, not re-litigated: pipeline-only, not a 6th factory family.**
+`asset_class_trend_hedge` — the only other primitive added since launch — was
+pipeline-only, not added to `GENERATION_RANGES`. `curve_carry` follows the same
+precedent for the same reason: the factory's parameter-sweep model (many draws per
+cycle, promote the single best regardless of verdict) doesn't fit a primitive whose
+"parameters" are pre-registered duration constants, not a range to sweep. Revisit only
+if a real reason to widen factory search surfaces later — not scoped here.
 
-**Open question, deliberately not resolved here:** whether `curve_carry` becomes a 6th
-factory family (`GENERATION_RANGES`) in addition to a pipeline primitive, or
-pipeline-only like `asset_class_trend_hedge` was. Factory promotion picks one
-best-ranked candidate per cycle regardless of verdict — adding a family there widens
-search breadth but wasn't scoped as part of this design's Phase 2 decision.
-
-**Council finding (2026-08-04), incorporated here — the leg structure must be
-duration-hedged, not a bare long/short pair.** `DOCTRINE.md` is explicit that
+**RESOLVED (2026-08-05, Dave's call): the leg structure is duration-hedged (option a),
+using static pre-registered duration constants.** `DOCTRINE.md` is explicit that
 `carry_btc_eth`'s edge is delta-neutral funding-rate capture (long spot, short perp,
 zero exposure to price direction). An unhedged long-TLT/short-IEF position is not
 that — it's a directional bet on rate-level moves (duration exposure), structurally
 closer to the trend family (0-for-many in this lab) than to the delta-neutral trade
-that actually survived. Borrowing carry's track record by label without its risk
-structure would not actually test the hypothesis this spec is funded on. Phase 2's
-leg construction must either (a) duration-hedge the position (e.g. size the two legs
-so their DV01s roughly offset, isolating curve-shape/roll-down carry rather than a
-level bet) or (b) drop the "carry" framing honestly and evaluate it as a directional
-rates mechanism on those terms. This is now a Phase 2 requirement, not a caveat.
+that actually survived. `curve_carry`'s legs are sized so their DV01s roughly offset
+(`w_TLT × TLT_DURATION ≈ w_IEF × IEF_DURATION`), isolating the position to curve-shape/
+roll-down carry rather than a parallel-shift level bet — a duration-neutral curve
+steepener/flattener, the standard institutional shape for this trade, buildable with
+static ETF weights alone (no options/futures needed).
+
+**Duration constants, pre-registered here (verified 2026-08-04, not assumed):**
+`TLT_DURATION ≈ 15–16.5 years`, `IEF_DURATION ≈ 7–8 years` (iShares fact sheets,
+mid-2026; sources: ishares.com TLT fact sheet, 247wallst.com TLT-vs-IEF analysis
+2026-07-10). **Fixed and reviewed once, same discipline as `ASSET_CLASS`** — not
+fetched live or re-derived per run, since duration drifts slowly and a
+data-dependent hedge ratio would reopen the same meta-level p-hacking risk a fixed
+`CALIB_CORR_CAP`-style constant avoids. Exact midpoint values (and any future
+revision) are Dave's call at implementation time, not backward-fit from how a
+particular ratio performs on calibration data.
 
 **Wiring:** once built, `curve_carry` goes through the exact same downstream path every
 other primitive already uses — `prelim_screen()` → pre-register → OOS test → promote
