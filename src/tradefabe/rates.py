@@ -78,3 +78,15 @@ def _synthetic_curve(series, start):
         walk = level + np.cumsum(rng.normal(0, 0.01, len(idx)))
         data[name] = np.clip(walk, 0.01, 8.0)
     return pd.DataFrame(data, index=idx)
+
+
+def align_to_trading_days(curve, trading_index):
+    """No-lookahead-safe join: each trading day gets the most recent FRED observation AT
+    OR BEFORE it, never a future one. pd.merge_asof(direction="backward") enforces this
+    by construction -- unlike reindex().ffill(), it cannot match a date after the trading
+    day regardless of how the two indices are anchored relative to each other."""
+    curve_sorted = curve.sort_index()
+    left = pd.DataFrame({"date": pd.DatetimeIndex(trading_index).sort_values()})
+    right = curve_sorted.reset_index().rename(columns={curve_sorted.index.name or "index": "date"})
+    merged = pd.merge_asof(left, right, on="date", direction="backward")
+    return merged.set_index("date")

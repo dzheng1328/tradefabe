@@ -122,3 +122,55 @@ def test_synthetic_curve_is_deterministic():
     a = rates._synthetic_curve(rates.RATES_SERIES, "2020-01-01")
     b = rates._synthetic_curve(rates.RATES_SERIES, "2020-01-01")
     pd.testing.assert_frame_equal(a, b)
+
+
+def test_align_to_trading_days_never_uses_a_future_observation():
+    """The core no-lookahead guarantee. The curve has observations on day 1 and day 5
+    only (day 5 is a LATER, future value relative to day 3). A trading day on day 3 must
+    get day 1's value, never day 5's -- a naive reindex().ffill() anchored wrong, or a
+    forward-direction merge_asof, would leak day 5's value backward."""
+    curve = pd.DataFrame(
+        {"DGS10": [4.00, 4.50]},
+        index=pd.to_datetime(["2024-01-01", "2024-01-05"]),
+    )
+    trading_days = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-05"])
+
+    aligned = rates.align_to_trading_days(curve, trading_days)
+
+    assert aligned.loc[pd.Timestamp("2024-01-03"), "DGS10"] == 4.00
+    assert aligned.loc[pd.Timestamp("2024-01-05"), "DGS10"] == 4.50
+
+
+def test_align_to_trading_days_handles_a_trading_day_before_any_observation():
+    curve = pd.DataFrame({"DGS10": [4.00]}, index=pd.to_datetime(["2024-01-05"]))
+    trading_days = pd.to_datetime(["2024-01-02", "2024-01-05"])
+
+    aligned = rates.align_to_trading_days(curve, trading_days)
+
+    assert pd.isna(aligned.loc[pd.Timestamp("2024-01-02"), "DGS10"])
+    assert aligned.loc[pd.Timestamp("2024-01-05"), "DGS10"] == 4.00
+
+
+def test_align_to_trading_days_bridges_a_bank_holiday_gap():
+    """FRED's calendar has no concept of a trading day -- a bank holiday that isn't a
+    trading day must not shift anything. Curve has data on the Friday before and the
+    Tuesday after a Monday bank holiday; the trading index skips the holiday entirely
+    (as real trading calendars do)."""
+    curve = pd.DataFrame(
+        {"DGS10": [4.10, 4.20]},
+        index=pd.to_datetime(["2024-01-12", "2024-01-16"]),   # Fri, Tue (Mon = holiday)
+    )
+    trading_days = pd.to_datetime(["2024-01-12", "2024-01-16"])
+
+    aligned = rates.align_to_trading_days(curve, trading_days)
+
+    assert aligned.loc[pd.Timestamp("2024-01-12"), "DGS10"] == 4.10
+    assert aligned.loc[pd.Timestamp("2024-01-16"), "DGS10"] == 4.20
+
+
+def test_align_to_trading_days_preserves_all_trading_days():
+    curve = pd.DataFrame({"DGS10": [4.00]}, index=pd.to_datetime(["2024-01-01"]))
+    trading_days = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+    aligned = rates.align_to_trading_days(curve, trading_days)
+    assert len(aligned) == 3
+    assert list(aligned.index) == list(trading_days)
