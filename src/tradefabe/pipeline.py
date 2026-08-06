@@ -26,6 +26,7 @@ import pandas as pd
 
 from .paths import STATE_DIR
 from .engine import UNIVERSE
+from . import rates
 
 # ---------- the primitive vocabulary (pre-registered, STRATEGIES.md) ----------
 # Fixed here, reviewed once, same discipline as factory.GENERATION_RANGES: the LLM picks
@@ -79,6 +80,19 @@ PRIMITIVES = {
                         "actually hold up gets rejected regardless of how it reads."),
         "params": {"ticker_a": UNIVERSE, "ticker_b": UNIVERSE,
                    "lookback_a": (20, 252), "lookback_b": (20, 252)},
+    },
+    "curve_carry": {
+        "description": ("A DV01-neutral TLT/IEF position whose direction trend-follows "
+                        "the real FRED curve slope (DGS10 - DGS2): steepening -> short "
+                        "TLT / long IEF, flattening -> long TLT / short IEF, sized so "
+                        "the two legs' duration exposure roughly offsets. Fixed to "
+                        "TLT/IEF only -- no ticker_a/ticker_b choice like other "
+                        "primitives -- since real duration data is only pre-registered "
+                        "for this pair. This is checked mechanically after you propose "
+                        "(the calibration-window hedge-effectiveness guard), so a "
+                        "claimed duration-neutral setup that doesn't actually hold up "
+                        "gets rejected regardless of how the citation reads."),
+        "params": {"lookback": (20, 252)},
     },
 }
 
@@ -244,6 +258,67 @@ def legs_pass_calibration_corr_cap(primitive: str, params: dict, calib_prices) -
     sig_a = np.sign(calib_prices[a] / calib_prices[a].shift(lookback_a) - 1)
     sig_b = np.sign(calib_prices[b] / calib_prices[b].shift(lookback_b) - 1)
     corr = sig_a.corr(sig_b)
+    return bool(np.isfinite(corr) and abs(corr) <= CALIB_CORR_CAP)
+
+
+# ---------- curve_carry (Phase 2, docs/superpowers/specs/2026-08-04-carry-generalization-
+# design.md) -- the first primitive gated by external data, not price action alone.
+# Fixed to TLT/IEF only: real duration data is only pre-registered for this pair.
+TLT_DURATION = 16.0   # effective duration, years -- frozen point estimate from the
+IEF_DURATION = 7.5    # verified 2026-08 range (TLT ~15-16.5yr, IEF ~7-8yr). Reviewed
+                       # once, same discipline as ASSET_CLASS -- never fetched live or
+                       # re-derived from data.
+
+
+def _sig_curve_carry(params):
+    lookback = params["lookback"]
+
+    def sig(prices):
+        curve, _ = rates.load_yield_curve()
+        curve = curve.loc[curve.index <= prices.index.max()]
+        aligned = rates.align_to_trading_days(curve, prices.index)
+        slope = aligned["DGS10"] - aligned["DGS2"]
+        direction = np.sign(slope - slope.shift(lookback)).fillna(0.0)
+        k_tlt = IEF_DURATION / (TLT_DURATION + IEF_DURATION)
+        k_ief = TLT_DURATION / (TLT_DURATION + IEF_DURATION)
+        out = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+        out["TLT"] = -direction * k_tlt
+        out["IEF"] = direction * k_ief
+        return out
+    return sig
+
+
+_BUILDERS["curve_carry"] = _sig_curve_carry   # registered here, not in the dict literal
+                                              # above -- _sig_curve_carry is defined after
+                                              # it for file-organization reasons (grouped
+                                              # with its own guard and constants)
+
+
+def curve_carry_hedge_is_effective(params: dict, calib_prices, calib_curve) -> bool:
+    """True iff curve_carry's own daily returns, computed on calib_prices/calib_curve
+    ALONE, decorrelate below CALIB_CORR_CAP from DGS10's own daily change -- confirms the
+    DV01 hedge actually cancelled level risk in calibration data, not just on paper.
+    Caller's responsibility to have already truncated BOTH arguments to the calibration
+    window (harness.CALIB_START/CALIB_END) before this ever runs -- same firewall
+    discipline as legs_pass_calibration_corr_cap(), and for the same reason this
+    reimplements the signal math directly rather than calling _sig_curve_carry(): that
+    closure fetches live data internally, which a calibration-only guard must never do."""
+    lookback = params["lookback"]
+    aligned = rates.align_to_trading_days(calib_curve, calib_prices.index)
+    slope = aligned["DGS10"] - aligned["DGS2"]
+    direction = np.sign(slope - slope.shift(lookback)).fillna(0.0)
+    k_tlt = IEF_DURATION / (TLT_DURATION + IEF_DURATION)
+    k_ief = TLT_DURATION / (TLT_DURATION + IEF_DURATION)
+    tlt_w = (-direction * k_tlt).shift(1)   # shift(1): no lookahead, same convention
+    ief_w = (direction * k_ief).shift(1)    # engine.py's w_exec already applies elsewhere
+    rets = calib_prices[["TLT", "IEF"]].pct_change()
+    position_rets = tlt_w * rets["TLT"] + ief_w * rets["IEF"]
+    rate_move = aligned["DGS10"].diff()
+    both = pd.concat([position_rets.rename("pos"), rate_move.rename("rate")],
+                     axis=1).dropna()
+    if len(both) < 30:
+        return False
+    corr = both["pos"].corr(both["rate"])
     return bool(np.isfinite(corr) and abs(corr) <= CALIB_CORR_CAP)
 
 
