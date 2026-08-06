@@ -789,6 +789,10 @@ BOOK_FAMILIES = {
     "M": "Learned forecaster",   # #150 -- missing here silently dropped carry_kronos_vol/
                                  # kronos_wick_agg from every Family-grouped render, since
                                  # group_books_by_family() only emits keys of this dict.
+    "O": "Research pipeline",   # #174 -- automated daily proposals (any PRIMITIVES shape),
+                                # grouped by ORIGIN like L/M/N already are, not by mechanism
+                                # -- pair_zscore and asset_class_trend_hedge share nothing
+                                # mechanically, but both come from the same routine.
 }
 BOOK_FAMILY = {
     "tsmom_12m": "A", "tsmom_ensemble": "A", "green_line_200d": "A", "xsec_momentum": "A",
@@ -832,6 +836,21 @@ def _load_generated_ledger():
             for _, row in df.iterrows()}
 
 
+@st.cache_data
+def _load_pipeline_ledger():
+    """Same role as _load_generated_ledger(), for the research pipeline's rp_-prefixed
+    names (#174) instead of the factory's _gen_/combo ones. pipeline_ideas.csv has no
+    per-row family column (unlike generated_templates.csv) because every pipeline
+    proposal -- whichever PRIMITIVES shape it used -- shares the same origin, family "O",
+    not a mechanism-specific one; see BOOK_FAMILIES's comment for why."""
+    path = os.path.join(BASE, "pipeline_ideas.csv")
+    if not os.path.exists(path):
+        return {}
+    df = pd.read_csv(path)
+    return {row["name"]: {"family": "O", "rationale": row["rationale"]}
+            for _, row in df.iterrows()}
+
+
 def book_family(name):
     """BOOK_FAMILY lookup with two pattern-based fallbacks: factory_run.py names every
     combo it builds `factory_combo_<leg_a>_<leg_b>` (the legs vary run to run, since
@@ -846,6 +865,9 @@ def book_family(name):
     gen = _load_generated_ledger().get(name)
     if gen:
         return gen["family"]
+    pipe = _load_pipeline_ledger().get(name)
+    if pipe:
+        return pipe["family"]
     return "?"
 
 # Per-family extra metrics beyond the generic 6-stat row, for strategies whose economics
@@ -1240,6 +1262,9 @@ def strategy_description(name):
     gen = _load_generated_ledger().get(name)
     if gen:
         return gen["rationale"]
+    pipe = _load_pipeline_ledger().get(name)
+    if pipe:
+        return pipe["rationale"]
     return "(no description yet — add one to STRATEGY_DESCRIPTIONS in app.py)"
 
 
