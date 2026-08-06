@@ -18,6 +18,7 @@ import pytest
 import harness
 import pipeline_daily as pd_
 import pipeline_register
+from tradefabe import rates as pkg_rates
 
 
 def test_both_steps_run_with_nothing_pending():
@@ -232,3 +233,71 @@ def test_screen_pending_backlog_with_real_defaults_actually_preregisters(scratch
     prelim = pd.read_csv(harness.PRELIM_LOG)
     assert list(prelim["strategy"]) == ["rp_single_asset_trend_SPY_90"]
     assert bool(prelim["passed"].iloc[0]) == results[0]["passed"]
+
+
+# ---------------------------------------------------------------- curve_carry guard (Phase 2)
+def _calib_curve(seed, n=2000):
+    rng = np.random.default_rng(seed)
+    idx = pd.bdate_range(harness.CALIB_START, periods=n)
+    dgs2 = 3.0 + rng.normal(0, 0.001, n).cumsum() * 0
+    dgs10 = dgs2 + np.linspace(0.5, 2.5, n)
+    return pd.DataFrame({"DGS2": dgs2, "DGS10": dgs10}, index=idx)
+
+
+def test_screen_pending_backlog_rejects_an_ineffective_curve_carry_hedge(scratch, monkeypatch):
+    idx = pd.bdate_range(harness.CALIB_START, periods=1000)
+    rng = np.random.default_rng(9)
+    dgs2 = np.full(1000, 3.0)
+    dgs10_moves = rng.normal(0.001, 0.02, 1000)
+    dgs10 = 3.5 + np.cumsum(dgs10_moves)
+    calib_curve = pd.DataFrame({"DGS2": dgs2, "DGS10": dgs10}, index=idx)
+    tlt = 100 * np.exp(np.cumsum(-dgs10_moves * 15 + rng.normal(0, 0.0002, 1000)))
+    ief = np.full(1000, 100.0)
+    calib_prices = pd.DataFrame({"TLT": tlt, "IEF": ief}, index=idx)
+    monkeypatch.setattr(harness, "load_prices", lambda: (calib_prices, "SYNTHETIC (test)"))
+    monkeypatch.setattr(pkg_rates, "load_yield_curve", lambda: (calib_curve, "test"))
+
+    _write_ledger_row("rp_curve_carry_60", primitive="curve_carry", params={"lookback": 60})
+
+    def fake_preregister(spec):
+        raise AssertionError("a guard-rejected candidate must never reach pre-registration")
+
+    def boom_screen(candidate):
+        raise AssertionError("prelim_screen must never run -- the guard should reject "
+                             "this before the expensive screen is reached")
+
+    results = pd_.screen_pending_backlog(screen_fn=boom_screen, preregister_fn=fake_preregister)
+    assert results == [{"name": "rp_curve_carry_60", "passed": False, "preregistered": False}]
+
+
+def test_a_curve_carry_guard_rejection_does_not_resurface_on_the_next_cycle(scratch, monkeypatch):
+    idx = pd.bdate_range(harness.CALIB_START, periods=1000)
+    rng = np.random.default_rng(9)
+    dgs2 = np.full(1000, 3.0)
+    dgs10_moves = rng.normal(0.001, 0.02, 1000)
+    dgs10 = 3.5 + np.cumsum(dgs10_moves)
+    calib_curve = pd.DataFrame({"DGS2": dgs2, "DGS10": dgs10}, index=idx)
+    tlt = 100 * np.exp(np.cumsum(-dgs10_moves * 15 + rng.normal(0, 0.0002, 1000)))
+    ief = np.full(1000, 100.0)
+    calib_prices = pd.DataFrame({"TLT": tlt, "IEF": ief}, index=idx)
+    monkeypatch.setattr(harness, "load_prices", lambda: (calib_prices, "SYNTHETIC (test)"))
+    monkeypatch.setattr(pkg_rates, "load_yield_curve", lambda: (calib_curve, "test"))
+
+    _write_ledger_row("rp_curve_carry_60", primitive="curve_carry", params={"lookback": 60})
+    pd_.screen_pending_backlog(
+        screen_fn=lambda c: (_ for _ in ()).throw(AssertionError("must not be called")),
+        preregister_fn=lambda spec: True)
+    assert pd_.pending_screens() == []
+
+
+def test_screen_pending_backlog_still_screens_a_valid_curve_carry_candidate(scratch, monkeypatch):
+    calib_prices = _calib_prices(3, ["TLT", "IEF"])
+    calib_curve = _calib_curve(3)
+    monkeypatch.setattr(harness, "load_prices", lambda: (calib_prices, "SYNTHETIC (test)"))
+    monkeypatch.setattr(pkg_rates, "load_yield_curve", lambda: (calib_curve, "test"))
+
+    _write_ledger_row("rp_curve_carry_60", primitive="curve_carry", params={"lookback": 60})
+
+    results = pd_.screen_pending_backlog(screen_fn=lambda c: True,
+                                         preregister_fn=lambda spec: True)
+    assert results == [{"name": "rp_curve_carry_60", "passed": True, "preregistered": True}]
