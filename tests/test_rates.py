@@ -88,3 +88,37 @@ def test_empty_fred_field_parses_as_nan(scratch_cache, monkeypatch):
                          lambda url, params=None, timeout=None: _FakeResponse(csv_text))
     result, _ = rates.load_yield_curve(series=("DGS10",), start="2024-01-01")
     assert pd.isna(result.loc[pd.Timestamp("2024-01-03"), "DGS10"])
+
+
+def test_load_yield_curve_falls_back_to_stale_cache_on_fetch_failure(scratch_cache, monkeypatch):
+    stale = pd.DataFrame({"DGS10": [3.90]}, index=pd.to_datetime(["2024-01-02"]))
+    stale.to_csv(scratch_cache)
+    old = time.time() - 3600 * 999
+    os.utime(scratch_cache, (old, old))
+
+    def _raise(*a, **k):
+        raise RuntimeError("simulated network failure")
+    monkeypatch.setattr(rates.requests, "get", _raise)
+
+    result, source = rates.load_yield_curve()
+    assert source == "cache (stale)"
+    assert result.loc[pd.Timestamp("2024-01-02"), "DGS10"] == 3.90
+
+
+def test_load_yield_curve_falls_back_to_synthetic_with_no_cache(scratch_cache, monkeypatch):
+    assert not os.path.exists(scratch_cache)
+
+    def _raise(*a, **k):
+        raise RuntimeError("simulated network failure")
+    monkeypatch.setattr(rates.requests, "get", _raise)
+
+    result, source = rates.load_yield_curve(start="2020-01-01")
+    assert "SYNTHETIC" in source
+    assert not result.empty
+    assert list(result.columns) == list(rates.RATES_SERIES)
+
+
+def test_synthetic_curve_is_deterministic():
+    a = rates._synthetic_curve(rates.RATES_SERIES, "2020-01-01")
+    b = rates._synthetic_curve(rates.RATES_SERIES, "2020-01-01")
+    pd.testing.assert_frame_equal(a, b)

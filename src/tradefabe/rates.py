@@ -66,4 +66,15 @@ def load_yield_curve(series=RATES_SERIES, start=START):
 
 
 def _synthetic_curve(series, start):
-    raise NotImplementedError("synthetic fallback added in Task 3")
+    """Deterministic synthetic yields so the machinery can be smoke-tested with no
+    network -- same role as engine._synthetic_prices(), same fixed seed for
+    reproducibility across calls."""
+    import numpy as np
+    rng = np.random.default_rng(7)
+    idx = pd.bdate_range(start, periods=252 * 5)
+    base = rng.uniform(2.0, 5.0, len(series))
+    data = {}
+    for level, name in zip(base, series):
+        walk = level + np.cumsum(rng.normal(0, 0.01, len(idx)))
+        data[name] = np.clip(walk, 0.01, 8.0)
+    return pd.DataFrame(data, index=idx)
