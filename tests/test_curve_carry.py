@@ -96,3 +96,51 @@ def test_sig_curve_carry_never_touches_curve_data_past_the_prices_window(monkeyp
     weights = sig_fn(prices)   # must not raise, must not silently use future curve rows
 
     assert list(weights.index) == list(prices.index)
+
+
+def test_hedge_is_effective_passes_when_position_decorrelates_from_rate_moves():
+    idx = pd.bdate_range("2007-01-02", periods=1000)
+    rng = np.random.default_rng(5)
+    # TLT and IEF move together (duration-driven), so a DV01-neutral position's return
+    # should genuinely decorrelate from raw rate-level moves -- the hedge working as
+    # designed.
+    common = rng.normal(0.0001, 0.006, 1000)
+    tlt = 100 * np.exp(np.cumsum(common * 2.0 + rng.normal(0, 0.002, 1000)))
+    ief = 100 * np.exp(np.cumsum(common * 1.0 + rng.normal(0, 0.001, 1000)))
+    calib_prices = pd.DataFrame({"TLT": tlt, "IEF": ief}, index=idx)
+    dgs2 = 3.0 + rng.normal(0, 0.01, 1000).cumsum() * 0.01
+    dgs10 = dgs2 + np.linspace(0.5, 2.5, 1000) + rng.normal(0, 0.02, 1000)
+    calib_curve = pd.DataFrame({"DGS2": dgs2, "DGS10": dgs10}, index=idx)
+
+    assert pipeline.curve_carry_hedge_is_effective(
+        {"lookback": 60}, calib_prices, calib_curve) is True
+
+
+def test_hedge_is_effective_fails_for_a_naked_unhedged_duration_bet():
+    """A regression guard: if the DV01 weighting were ever dropped (e.g. a future edit
+    sets IEF's weight to 0, leaving a naked long/short TLT bet), the position's return
+    should correlate STRONGLY with rate-level moves, and the guard must catch that."""
+    idx = pd.bdate_range("2007-01-02", periods=1000)
+    rng = np.random.default_rng(9)
+    # A genuine noisy random walk for the 10y leg, not a smooth deterministic ramp --
+    # rate_move needs real day-to-day variance for a correlation test to mean anything.
+    dgs2 = np.full(1000, 3.0)
+    dgs10_moves = rng.normal(0.001, 0.02, 1000)
+    dgs10 = 3.5 + np.cumsum(dgs10_moves)
+    calib_curve = pd.DataFrame({"DGS2": dgs2, "DGS10": dgs10}, index=idx)
+    # TLT return driven almost entirely by that same day's rate move; IEF held flat, so
+    # nothing hedges the level exposure -- this must fail the guard.
+    tlt = 100 * np.exp(np.cumsum(-dgs10_moves * 15 + rng.normal(0, 0.0002, 1000)))
+    ief = np.full(1000, 100.0)
+    calib_prices = pd.DataFrame({"TLT": tlt, "IEF": ief}, index=idx)
+
+    assert pipeline.curve_carry_hedge_is_effective(
+        {"lookback": 60}, calib_prices, calib_curve) is False
+
+
+def test_hedge_is_effective_returns_false_on_too_little_overlapping_data():
+    idx = pd.bdate_range("2007-01-02", periods=10)
+    calib_prices = pd.DataFrame({"TLT": [100.0] * 10, "IEF": [100.0] * 10}, index=idx)
+    calib_curve = pd.DataFrame({"DGS2": [3.0] * 10, "DGS10": [3.5] * 10}, index=idx)
+    assert pipeline.curve_carry_hedge_is_effective(
+        {"lookback": 60}, calib_prices, calib_curve) is False
