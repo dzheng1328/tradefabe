@@ -39,6 +39,16 @@ def test_summary_unknown_sort_is_a_400():
     assert resp.status_code == 400
 
 
+def test_summary_unknown_sort_is_a_400_even_with_no_paper_state(monkeypatch):
+    """The sort-validity check must run before the psum-is-None early return, or an
+    unknown sort silently succeeds (200 with an empty list) whenever no local paper
+    state exists -- inconsistent with the same request against a populated state."""
+    monkeypatch.setattr(dashboard, "load_paper_state", lambda: (None, None))
+    client = TestClient(app)
+    resp = client.get("/api/books/summary?sort=bogus")
+    assert resp.status_code == 400
+
+
 def test_summary_row_has_all_expected_keys():
     client = TestClient(app)
     body = client.get("/api/books/summary?sort=recent").json()

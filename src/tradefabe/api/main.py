@@ -66,6 +66,9 @@ def _row_json(r, *, colors, introduced, return_today, monitor_only, phist):
 
 @app.get("/api/books/summary")
 def books_summary(sort: str = "family", show_monitor_only: bool = True):
+    if sort not in ("family", "recent", "return_today", "total_return"):
+        raise HTTPException(status_code=400, detail=f"unknown sort: {sort}")
+
     psum, phist = dashboard.load_paper_state()
     if psum is None:
         return {"families": []} if sort == "family" else {"books": []}
@@ -88,9 +91,6 @@ def books_summary(sort: str = "family", show_monitor_only: bool = True):
              "books": [_row_json(r, **row_kwargs()) for r in rows]}
             for family, label, rows in groups
         ]}
-
-    if sort not in ("recent", "return_today", "total_return"):
-        raise HTTPException(status_code=400, detail=f"unknown sort: {sort}")
 
     rows = dashboard.sort_books_flat(psum, phist, gy_last, show_monitor_only, sort)
     return {"books": [_row_json(r, **row_kwargs()) for r in rows]}
