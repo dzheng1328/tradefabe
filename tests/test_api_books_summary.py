@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 from fastapi.testclient import TestClient
 
@@ -5,62 +7,78 @@ from tradefabe.api.main import app
 from tradefabe import dashboard
 
 
-def test_books_summary_matches_load_paper_state():
-    client = TestClient(app)
-    resp = client.get("/api/books/summary")
-    assert resp.status_code == 200
-
-    psum, _phist = dashboard.load_paper_state()
-    if psum is None:
-        assert resp.json() == []
-    else:
-        assert resp.json() == psum.astype(object).fillna(None).to_dict(orient="records")
-
-
-def test_books_summary_is_a_list_of_dicts_with_expected_keys():
-    client = TestClient(app)
-    body = client.get("/api/books/summary").json()
-    if not body:
-        return  # no paper state in this environment -- nothing more to assert
-    row = body[0]
-    for key in ("book", "equity", "return", "last_run"):
-        assert key in row
-
-
-def test_nan_retired_at_becomes_json_null():
-    """Directly verify that NaN in retired_at (non-retired books) becomes JSON null.
-
-    This test is independent of the endpoint's transform: it loads the raw data,
-    finds a book with NaN retired_at, makes the API call, and asserts that the
-    response actually contains retired_at: None (JSON null), not NaN. This would
-    fail if the astype(object).fillna(None) transform had a latent bug.
-    """
-    # Find a non-retired book (one with NaN retired_at) in the raw data
-    psum, _phist = dashboard.load_paper_state()
-    if psum is None:
-        return  # no paper state in this environment
-
-    non_retired = psum[pd.isna(psum["retired_at"])]
-    if non_retired.empty:
-        return  # all books are retired in this environment
-
-    # Pick the first non-retired book
-    book_name = non_retired.iloc[0]["book"]
-
-    # Make the API call
+def test_summary_default_sort_groups_by_family():
     client = TestClient(app)
     resp = client.get("/api/books/summary")
     assert resp.status_code == 200
     body = resp.json()
+    assert "families" in body
+    psum, _phist = dashboard.load_paper_state()
+    if psum is None:
+        assert body["families"] == []
+        return
+    total_books = sum(len(f["books"]) for f in body["families"])
+    assert total_books == len(psum)
+    for fam in body["families"]:
+        assert set(fam.keys()) == {"family", "label", "books"}
 
-    # Find that book in the response (not by re-deriving it, but by looking it up)
-    for row in body:
-        if row["book"] == book_name:
-            # Assert retired_at is None, not NaN or anything else
-            assert row["retired_at"] is None, (
-                f"Expected retired_at to be None for {book_name}, "
-                f"got {row['retired_at']}"
-            )
-            break
-    else:
-        raise AssertionError(f"Book {book_name} not found in API response")
+
+def test_summary_flat_sort_modes_return_a_flat_books_list():
+    client = TestClient(app)
+    for sort in ("recent", "return_today", "total_return"):
+        resp = client.get(f"/api/books/summary?sort={sort}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "books" in body
+        assert "families" not in body
+
+
+def test_summary_unknown_sort_is_a_400():
+    client = TestClient(app)
+    resp = client.get("/api/books/summary?sort=bogus")
+    assert resp.status_code == 400
+
+
+def test_summary_row_has_all_expected_keys():
+    client = TestClient(app)
+    body = client.get("/api/books/summary?sort=recent").json()
+    if not body["books"]:
+        return  # no paper state in this environment
+    row = body["books"][0]
+    for key in ("book", "equity", "return", "last_run", "retired_at", "family",
+                "color", "introduced", "return_today", "monitor_only", "sparkline"):
+        assert key in row
+
+
+def test_summary_row_color_matches_book_colors_helper():
+    client = TestClient(app)
+    body = client.get("/api/books/summary?sort=recent").json()
+    if not body["books"]:
+        return
+    psum, _phist = dashboard.load_paper_state()
+    expected = dashboard.book_colors(psum["book"].tolist())
+    for row in body["books"]:
+        assert row["color"] == expected[row["book"]]
+
+
+def test_summary_show_monitor_only_false_excludes_monitor_only_books():
+    client = TestClient(app)
+    all_body = client.get("/api/books/summary?sort=recent&show_monitor_only=true").json()
+    filtered_body = client.get("/api/books/summary?sort=recent&show_monitor_only=false").json()
+    filtered_names = {r["book"] for r in filtered_body["books"]}
+    for row in all_body["books"]:
+        if row["monitor_only"]:
+            assert row["book"] not in filtered_names
+
+
+def test_summary_nan_fields_become_json_null_not_nan_token():
+    """A book with < 2 distinct calendar days of history has NaN return_today --
+    the response body must be valid JSON (null), never the bare NaN token FastAPI's
+    default json.dumps(allow_nan=True) would otherwise emit."""
+    client = TestClient(app)
+    resp = client.get("/api/books/summary?sort=recent")
+    assert "NaN" not in resp.text
+    body = resp.json()
+    for row in body["books"]:
+        if row["return_today"] is not None:
+            assert math.isfinite(row["return_today"])
