@@ -24,7 +24,8 @@ dependencies = [
 
 [project.optional-dependencies]
 desktop = ["pywebview"]
-dev = ["pytest", "pytest-xdist", "pyyaml"]
+dev = ["pytest", "pytest-xdist", "pyyaml", "httpx"]
+api = ["fastapi", "uvicorn[standard]"]
 # Family M (#105). Kept OPTIONAL and lazily imported: torch is ~110MB plus ~400MB of
 # weights, and the paper engine must keep running without any of it. Mirrors upstream
 # Kronos's requirements.txt, with floors rather than their exact pins so this does not
@@ -42,6 +43,7 @@ pipeline = ["anthropic>=0.40"]
 [project.scripts]
 tradefabe = "tradefabe.cli:main"
 tradefabe-app = "tradefabe.desktop:main"
+tradefabe-api = "tradefabe.api.main:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]

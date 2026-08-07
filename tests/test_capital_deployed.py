@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 app = pytest.importorskip("app")
+dashboard = pytest.importorskip("tradefabe.dashboard")
 
 
 # ------------------------------------------------------------------ money()
@@ -49,7 +50,7 @@ def test_a_bare_date_row_sorts_to_the_END_of_its_day(tmp_path, monkeypatch):
         ("2026-07-27", "b", 99_955.13),            # the daily cycle's post-rebalance row
         ("2026-07-28T02:37", "b", 99_955.13),
     ])
-    monkeypatch.setattr(app, "BASE", str(tmp_path))
+    monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
     _, phist = app.load_paper_state()
     s = phist.set_index("date")["equity"].sort_index()
 
@@ -64,7 +65,7 @@ def test_minute_stamped_rows_are_left_exactly_alone(tmp_path, monkeypatch):
     """The repair must key on the ORIGINAL string having no time part. Shifting a real
     23:03 mark to 23:59 would invent data."""
     write_history(tmp_path, [("2026-07-27T23:03", "b", 1.0)])
-    monkeypatch.setattr(app, "BASE", str(tmp_path))
+    monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
     _, phist = app.load_paper_state()
     assert phist["date"].iloc[0] == pd.Timestamp("2026-07-27 23:03")
 
@@ -76,7 +77,7 @@ def test_the_repair_is_monotonic_across_a_day_boundary(tmp_path, monkeypatch):
         ("2026-07-26", "b", 1.0), ("2026-07-26T09:00", "b", 2.0),
         ("2026-07-27", "b", 3.0), ("2026-07-27T09:00", "b", 4.0),
     ])
-    monkeypatch.setattr(app, "BASE", str(tmp_path))
+    monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
     _, phist = app.load_paper_state()
     s = phist.set_index("date")["equity"].sort_index()
     assert s.index.is_monotonic_increasing

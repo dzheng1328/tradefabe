@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 import app
+import tradefabe.dashboard as dashboard
 
 
 def _phist(name, dates, equities):
@@ -122,7 +123,7 @@ def test_book_panel_data_uses_pipeline_bt_source_for_a_promoted_pipeline_candida
 def test_book_panel_data_skips_broken_deployment_math_for_an_accrual_only_book(monkeypatch):
     name = "carry_kronos_vol"
     fake_book = {"name": name, "cash": 100_000.0, "positions": {}, "equity": 100_009.43}
-    monkeypatch.setattr(app, "load_book_json", lambda n: fake_book)
+    monkeypatch.setattr(dashboard, "load_book_json", lambda n: fake_book)
 
     # family M's window is the model's pretraining cutoff (KRONOS_OOS_START), not
     # meta["oos_start"] -- dates before it slice to an empty bt_curve.
@@ -146,7 +147,7 @@ def test_book_panel_data_still_computes_deployment_for_a_normal_equity_book(monk
     name = "tsmom_12m"
     fake_book = {"name": name, "cash": 40_000.0,
                  "positions": {"SPY": 100.0}, "last_prices": {"SPY": 600.0}}
-    monkeypatch.setattr(app, "load_book_json", lambda n: fake_book)
+    monkeypatch.setattr(dashboard, "load_book_json", lambda n: fake_book)
 
     full = _returns_frame(name)
     dates = pd.bdate_range("2026-01-01", periods=3)

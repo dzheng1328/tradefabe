@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 import app
+import tradefabe.dashboard as dashboard
 
 
 def test_dead_strategy_returns_from_bare_strategy_columns():
@@ -53,21 +54,21 @@ def test_strategy_description_falls_back_to_the_placeholder_for_anything_else():
 
 
 def test_strategy_description_resolves_a_generated_name_via_the_ledger_fallback(monkeypatch):
-    monkeypatch.setattr(app, "_load_generated_ledger",
+    monkeypatch.setattr(dashboard, "_load_generated_ledger",
                         lambda: {"tsmom_gen_147d": {"family": "A",
                                                     "rationale": "Trend (generated): sign of the trailing 147-day return."}})
     assert app.strategy_description("tsmom_gen_147d") == "Trend (generated): sign of the trailing 147-day return."
 
 
 def test_book_family_resolves_a_pipeline_name_via_the_ledger_fallback(monkeypatch):
-    monkeypatch.setattr(app, "_load_pipeline_ledger",
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger",
                         lambda: {"rp_pair_zscore_GLD_SLV_60_2p0_4p0": {"family": "O",
                                                                        "rationale": "..."}})
     assert app.book_family("rp_pair_zscore_GLD_SLV_60_2p0_4p0") == "O"
 
 
 def test_strategy_description_resolves_a_pipeline_name_via_the_ledger_fallback(monkeypatch):
-    monkeypatch.setattr(app, "_load_pipeline_ledger",
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger",
                         lambda: {"rp_pair_zscore_GLD_SLV_60_2p0_4p0": {
                             "family": "O", "rationale": "Gold/silver ratio mean-reversion."}})
     assert app.strategy_description("rp_pair_zscore_GLD_SLV_60_2p0_4p0") == \
@@ -75,7 +76,7 @@ def test_strategy_description_resolves_a_pipeline_name_via_the_ledger_fallback(m
 
 
 def test_book_family_falls_back_to_other_for_an_unknown_pipeline_name(monkeypatch):
-    monkeypatch.setattr(app, "_load_pipeline_ledger", lambda: {})
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger", lambda: {})
     assert app.book_family("rp_never_proposed") == "?"
 
 
