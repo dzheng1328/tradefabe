@@ -70,6 +70,18 @@ doctrine — no lower bar because "this one feels different" or "a machine found
   nothing; call `kronos.is_available()`.
 - **`app.py`** — Streamlit, port 8501. Plotly only. **No emoji**: Material Symbols
   (`icon=":material/..."`) or the `.tf-badge` component.
+- **Dashboard rebuild in progress — sub-project 1 of 4 merged 2026-08-06 (#203/#204).**
+  Moving off Streamlit to React/FastAPI, one sub-project at a time. **`app.py` is still
+  the only live UI** — the desktop app and `streamlit run app.py` both point at it,
+  unchanged; nothing below is wired in yet, so don't expect visible changes there until a
+  later sub-project. `src/tradefabe/dashboard.py` is the new Streamlit-free data/chart
+  layer both `app.py` and the new API import from — same single-source-of-truth pattern
+  as `engine.py`, one layer up. `src/tradefabe/api/` is a thin FastAPI read layer over it
+  (`GET /api/books/summary` so far). `frontend/` is Vite/React/TS/Tailwind/Framer Motion
+  with the validated dark/lime/26px-radius theme — currently one placeholder screen
+  proving the pipe works, not a real page. Spec/plan:
+  `docs/superpowers/specs/2026-08-05-dashboard-foundation-design.md` /
+  `docs/superpowers/plans/2026-08-06-dashboard-foundation.md`.
 - **`tests/`** — pyproject's `pythonpath = [".", "research"]` is what makes `import harness` /
   `import factory_run` resolve under pytest.
 - **`graveyard.csv`** — the verdict ledger, every strategy ever evaluated. **Tracked in git**;
@@ -96,8 +108,13 @@ ops/setup_venv.sh                   # rebuild the venv (refuses to build inside 
 .venv/bin/pytest tests/ -n0         # serial — for readable tracebacks / --pdb / -x
 PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" \
   .venv/bin/python research/factory_run.py --n 20   # one factory cycle by hand
+
+# Dashboard rebuild (see Layout) -- optional, only needed for that work:
+.venv/bin/pip install -e ".[dev,desktop,api]"   # adds the api extra to the line above
+.venv/bin/tradefabe-api             # FastAPI dev server, localhost:8000
+cd frontend && npm run dev          # Vite dev server, localhost:5173 -- placeholder screen only
 ```
-`PYTHONPATH` is needed only for that last line (`factory_run.py` imports the repo-root
+`PYTHONPATH` is needed only for the factory-run line (`factory_run.py` imports the repo-root
 `harness` and `research/piggyback_backtest`, which only pytest resolves for you).
 
 Anything that appends to `graveyard.csv` writes a permanent multiple-testing record. **One

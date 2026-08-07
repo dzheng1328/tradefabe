@@ -27,10 +27,20 @@ src/tradefabe/     the installable engine. engine.py is the data/sizing/returns 
                    hourly.py (family L) and kronos.py + kronos_live.py (family M) each hold
                    both the signals AND the live monitor books, so a study and its book
                    share one function instead of two copies that drift.
-app.py             Streamlit dashboard. Two sidebar views: Paper Books (live books grouped
-                   by family, click-to-select cards, per-strategy panel with trade log) and
+app.py             Streamlit dashboard, still the only LIVE UI (desktop app + localhost:8501
+                   both point here). Two sidebar views: Paper Books (live books grouped by
+                   family, click-to-select cards, per-strategy panel with trade log) and
                    Research Lab (verdicts, luck floor, correlation, piggyback lab, and a
                    detail view for strategies that never reached a live book). Plotly.
+src/tradefabe/
+  dashboard.py     Streamlit-free data/chart layer app.py imports from -- single source of
+                   truth for the dashboard-rebuild work below, same pattern as engine.py.
+  api/             thin FastAPI read layer over dashboard.py (`GET /api/books/summary` so
+                   far). Not wired into the desktop app yet.
+frontend/          Vite/React/TS/Tailwind/Framer Motion -- the dashboard rebuild's new UI.
+                   Dark/lime/26px-radius theme landed; currently one placeholder screen,
+                   not a real page yet. Sub-project 1 of 4 (see CLAUDE.md's Layout section
+                   and docs/superpowers/specs|plans/*dashboard-foundation* for the rest).
 harness.py         research evaluator: doctrine gates (Deflated Sharpe Ratio + Combinatorial
                    Purged CV as of v1.4), noise floors, graveyard writer.
 research/          one-off studies (insider, congressional, carry, thematic, day-trading),

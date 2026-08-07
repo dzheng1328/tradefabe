@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# tradefabe dashboard — frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The new dashboard UI for [tradefabe](../README.md), replacing `../app.py`'s Streamlit
+dashboard one sub-project at a time (see `../CLAUDE.md`'s Layout section and
+`../docs/superpowers/specs/2026-08-05-dashboard-foundation-design.md` for the full
+rationale and the validated dark/lime theme direction).
 
-Currently, two official plugins are available:
+**Status: sub-project 1 of 4 (Foundation).** This is currently just a placeholder screen
+(`src/App.tsx`) proving the fetch → API → data pipe works — not the real dashboard, and
+not wired into the desktop app yet. `../app.py` is still the only live UI.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Stack
 
-## React Compiler
+Vite + React + TypeScript + Tailwind CSS + Framer Motion. Theme tokens live in
+`tailwind.config.js` (`bg`/`surface`/`accent`/`ink`/`ink-muted` colors, `card` border
+radius) — extend that file rather than hardcoding hex values in components.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Running locally
 
-## Expanding the Oxlint configuration
+Needs the API running first (from the repo root):
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+.venv/bin/pip install -e ".[dev,desktop,api]"   # once
+.venv/bin/tradefabe-api                          # localhost:8000
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Then, from this directory:
+
+```sh
+npm install   # once
+npm run dev   # localhost:5173
+```
+
+`npm run build` produces a static `dist/` (not yet consumed by anything — the desktop-app
+cutover that would serve it is sub-project 4).
