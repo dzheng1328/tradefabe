@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 import app
+from tradefabe.dashboard import RANGE_WINDOWS
 
 
 def _daily(n=4, start="2026-07-22", equity=100_000.0, step=25.0):
@@ -32,7 +33,7 @@ def _half_hourly(n=12, start="2026-07-25 00:00", equity=100_000.0, step=5.0):
 def test_5h_window_on_a_daily_marked_book_widens_instead_of_returning_one_point():
     # the exact carry_btc_eth bug: 4 daily marks, a 5H window contains only the last one
     hist = _daily()
-    naive = hist[hist.index >= hist.index[-1] - app.RANGE_WINDOWS["5H"]]
+    naive = hist[hist.index >= hist.index[-1] - RANGE_WINDOWS["5H"]]
     assert len(naive) == 1, "precondition: the naive slice is the single-dot case"
 
     win, widened = app.window_slice(hist, "5H")
@@ -49,7 +50,7 @@ def test_5h_window_is_honored_exactly_when_it_already_has_enough_points():
     assert widened is False
     assert len(win) == 11                         # 5h back inclusive of the endpoint
     assert win.index[-1] == hist.index[-1]
-    assert win.index[0] >= hist.index[-1] - app.RANGE_WINDOWS["5H"]
+    assert win.index[0] >= hist.index[-1] - RANGE_WINDOWS["5H"]
 
 
 def test_all_returns_the_untouched_series():
