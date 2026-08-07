@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from tradefabe import factory
+# Constant only -- kronos.py imports torch LAZILY (inside predictor()), so this costs the
+# dashboard nothing and does not require the [kronos] extra to be installed.
 from tradefabe.kronos import KRONOS_OOS_START
 from tradefabe.pricing import NON_PRICED as ACCRUAL_ONLY_BOOKS
 from tradefabe.paths import REPO_ROOT, ARTIFACTS
@@ -802,7 +804,7 @@ def strategy_description(name):
     pipe = _load_pipeline_ledger().get(name)
     if pipe:
         return pipe["rationale"]
-    return "(no description yet — add one to STRATEGY_DESCRIPTIONS in app.py)"
+    return "(no description yet — add one to STRATEGY_DESCRIPTIONS in tradefabe/dashboard.py)"
 
 
 def retirement_note(book_json):

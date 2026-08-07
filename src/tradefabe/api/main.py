@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +22,11 @@ def books_summary():
     psum, _phist = dashboard.load_paper_state()
     if psum is None:
         return []
-    return psum.astype(object).fillna(None).to_dict(orient="records")
+    # astype(object).fillna(None) raises ValueError on pandas 2.x ("Must specify a fill
+    # 'value' or 'method'") even though it works on pandas 3.x, and pandas has no version
+    # floor in pyproject.toml. to_json has serialized NaN as JSON null consistently across
+    # pandas versions for years, so round-tripping through it sidesteps that fragility.
+    return json.loads(psum.to_json(orient="records"))
 
 
 def run():

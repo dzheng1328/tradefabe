@@ -31,7 +31,7 @@ jobs:
           cache: "pip"
           cache-dependency-path: pyproject.toml
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,api]"
       - name: Run tests
         # not -v: 285 lines of PASSED is noise, and the failure output is unchanged.
         run: pytest
