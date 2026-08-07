@@ -96,6 +96,30 @@ def books_summary(sort: str = "family", show_monitor_only: bool = True):
     return {"books": [_row_json(r, **row_kwargs()) for r in rows]}
 
 
+@app.get("/api/books/up_for_review")
+def books_up_for_review():
+    psum, phist = dashboard.load_paper_state()
+    if psum is None:
+        return {"books": []}
+    gy_last = _load_gy_last()
+    rows = dashboard.books_up_for_review(psum, phist)
+    out = []
+    for r in rows:
+        name = r["book"]
+        verdict = "—"
+        if gy_last is not None and name in gy_last.index:
+            verdict = gy_last.loc[name, "verdict"]
+        out.append({
+            "book": name,
+            "days_live": r["days_live"],
+            "equity": _finite_or_none(r["equity"]),
+            "return": _finite_or_none(r["return"]),
+            "introduced": r["introduced"].isoformat(),
+            "verdict": verdict,
+        })
+    return {"books": out}
+
+
 def run():
     """Entry point for the `tradefabe-api` console script."""
     import uvicorn
