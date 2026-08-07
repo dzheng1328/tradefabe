@@ -152,6 +152,62 @@ once built — no new endpoint, no versioning scheme needed for that transition.
   existing test files) with no changes required there. The 2a API endpoint is the only
   caller that passes `False`.
 
+## Visual & motion language (amendment 2026-08-06)
+
+Added after two TikTok clips Dave shared as references (a musician's dark-studio
+session intercut with an abstract particle-transition motif; abstract generative
+dither/halftone art) — see the design-council exchange in this session's transcript for
+the full reasoning. Neither clip shows app UI to copy layout from; what carries over is
+a **feel** — granular, tactile, raw, "alive and breathing" — layered onto the already-
+approved Wise-derived structure, not a re-layout.
+
+**This explicitly reverses one line of the Foundation spec** (2026-08-05): "No WebGL,
+no audio/haptic feedback... explicitly reference-only, not requirements, per Dave."
+Dave has now asked for sound. True haptic (vibration) isn't meaningful on this target —
+the dashboard rebuild's own roadmap (sub-project 4) repoints the desktop app's
+`pywebview` shell at this frontend, and desktop Chrome/`pywebview` has no vibration
+motor — so "haptic" becomes **sound + spring-physics motion**, the combination that
+actually reads as tactile weight on a desktop app.
+
+- **Color, type family, layout: unchanged** from the already-approved Foundation spec
+  and this spec's earlier sections — Dave's own validated pick, not up for
+  re-litigation by two unrelated reference clips.
+- **Data typography goes monospace.** Numeric displays (equity $, deltas, the 6 stat
+  values) render in **IBM Plex Mono** — already the font family
+  `dashboard.themed_layout()` sets for the Plotly charts (`font=dict(family="IBM Plex
+  Mono, monospace", ...)`), so this ties the frontend's own numbers to a typeface
+  already live in this codebase rather than introducing an unrelated third face.
+  Headings/nav/copy stay Space Grotesk.
+- **"Wise skeleton, brutalist surface."** The bold 26px card radius, pill controls, and
+  big-number hierarchy stay (that's the usable, friendly skeleton). Structure becomes
+  more visible/exposed: 1px hairline dividers (`border-white/5`, already used in the
+  nav stub) between row-list rows and between detail-panel sections, replacing
+  whitespace-only separation.
+- **Ambient texture, not chart texture.** A static (non-animated, so it doesn't fight
+  `prefers-reduced-motion` or cost performance), very low-opacity (~4-5%) ordered-dither
+  overlay — an inline SVG `feTurbulence` filter, `mix-blend-mode: overlay`,
+  `pointer-events: none` — covers the full canvas as one page-level element. This is
+  structured dithering (matching what the reference clips actually show), not
+  photographic film grain. **Deliberately not applied inside the Plotly charts'** fill
+  areas — manipulating Plotly.js's own SVG output per-trace is real engineering risk,
+  and dithered noise under real dollar figures is a legibility risk not worth taking on
+  a first pass. Logged as a stretch item for a later slice, not silently dropped.
+- **Motion becomes spring-physics, not eased fades.** A shared spring transition
+  (`type: "spring"`, tuned for a touch of overshoot — real weight, not a smooth
+  ease-out) replaces the plain `duration: 0.2` fades sub-project 1 used for the
+  placeholder tile, applied to row selection and the detail-panel mount transition.
+  This is the "alive and breathing" quality without a literal decorative widget (an
+  earlier idea to build a literal morphing-particle "loading orb" widget was raised and
+  explicitly retracted by Dave in this session — not part of this spec).
+- **Sound: short synthesized UI sounds, not audio files.** Web Audio API oscillator
+  blips (triangle wave, <100ms, quick attack/decay envelope) on three real interaction
+  moments only — row selection, range-control click, first-data-landed per view — never
+  on every re-render or hover. No external audio assets to source/license/commit.
+  **A persisted mute toggle** (`localStorage`, a small control in the nav) is required,
+  not optional — a tool left open all day with an unmutable sound layer would get
+  tiresome fast; this was flagged as a real risk when the idea was proposed and the
+  toggle is the direct mitigation, not an afterthought.
+
 ## Frontend — `frontend/src/`
 
 - **Routing:** `react-router-dom` added. `/books` redirects to `/books/:name` for the
@@ -185,8 +241,11 @@ once built — no new endpoint, no versioning scheme needed for that transition.
   `@types/react-plotly.js`, `@types/plotly.js` as dev deps), `vitest` + `@testing-library/react`
   + `@testing-library/jest-dom` (+ `jsdom` as the test environment) as dev deps.
 - Framer Motion (already installed) drives the selected-row highlight transition and the
-  detail-panel's mount transition, matching the Foundation spec's plan for this
-  sub-project's interactive elements.
+  detail-panel's mount transition, using a shared spring config per the visual-language
+  amendment above (no new dependency — Framer Motion's `type: "spring"` is built in).
+- Sound uses the browser's native Web Audio API — no new dependency. IBM Plex Mono is
+  added via the same Google Fonts `@import` mechanism `index.css` already uses for Space
+  Grotesk, and registered in `tailwind.config.js`'s `fontFamily.mono`.
 
 ## Testing
 

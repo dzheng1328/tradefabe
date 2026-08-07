@@ -1007,16 +1007,23 @@ EOF
 ### Task 5: Frontend deps, routing shell, Vitest/RTL, `plotlyDarkTheme` + `PlotlyChart`
 
 **Files:**
-- Modify: `frontend/package.json`, `frontend/src/main.tsx`, `frontend/src/App.tsx`
+- Modify: `frontend/package.json`, `frontend/src/main.tsx`, `frontend/src/App.tsx`,
+  `frontend/tailwind.config.js`, `frontend/src/index.css`
 - Create: `frontend/vitest.config.ts`, `frontend/src/lib/plotlyDarkTheme.ts`,
-  `frontend/src/lib/plotlyDarkTheme.test.ts`, `frontend/src/components/PlotlyChart.tsx`,
+  `frontend/src/lib/plotlyDarkTheme.test.ts`, `frontend/src/lib/motion.ts`,
+  `frontend/src/lib/sound.ts`, `frontend/src/lib/sound.test.ts`,
+  `frontend/src/components/PlotlyChart.tsx`, `frontend/src/components/Nav.tsx`,
   `frontend/src/test/setup.ts`
 
 **Interfaces:**
 - Produces: `applyDarkTheme(layout: Record<string, unknown>) -> Record<string,
   unknown>` (pure merge function), `<PlotlyChart figure={{data, layout}} />` component,
   a router with `/books` → redirect to the first book, `/books/:name` route (rendered by
-  Task 6/7's components, stubbed here).
+  Task 6/7's components, stubbed here). Also, per the spec's visual-language amendment:
+  `SPRING` (shared Framer Motion spring config), `isSoundEnabled()`/`setSoundEnabled()`/
+  `playSelect()`/`playRangeChange()`/`playDataLanded()` (Web Audio UI sounds), `<Nav />`
+  (title/links/mute-toggle, used by both `/books` and `/books/:name`), the `.grain-overlay`
+  CSS class, and Tailwind's `font-mono` now resolving to IBM Plex Mono.
 
 - [ ] **Step 1: Add the new dependencies**
 
@@ -1160,7 +1167,191 @@ export default function PlotlyChart({ figure }: { figure: PlotlyFigure }) {
 }
 ```
 
-- [ ] **Step 8: Wire up routing in `main.tsx` and replace the placeholder `App.tsx`**
+- [ ] **Step 8: Add IBM Plex Mono for data typography**
+
+Per the spec's visual-language amendment: numeric displays go monospace, tied to the
+same face `dashboard.themed_layout()` already sets for the Plotly charts.
+
+In `frontend/tailwind.config.js`, extend `theme.extend.fontFamily` (find the existing
+`display` entry and add `mono` alongside it):
+
+```js
+      fontFamily: {
+        display: ["'Space Grotesk'", "sans-serif"],
+        mono: ["'IBM Plex Mono'", "monospace"],
+      },
+```
+
+In `frontend/src/index.css`, extend the existing Google Fonts `@import` to also pull
+IBM Plex Mono (find the current `@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk...')` line and replace it):
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+```
+
+- [ ] **Step 9: Add the ambient dither-texture overlay**
+
+Append to `frontend/src/index.css` (a static, non-animated overlay — see the spec for
+why this stays out of the Plotly chart fills):
+
+```css
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+```
+
+- [ ] **Step 10: Implement the shared spring-motion config**
+
+Create `frontend/src/lib/motion.ts`:
+
+```ts
+// Shared spring transition for Framer Motion -- real weight/slight overshoot instead
+// of a smooth eased fade, per the spec's "alive and breathing" visual-language
+// amendment. One shared config so every tactile moment (row selection, detail-panel
+// mount) feels consistent rather than each call site picking its own numbers.
+export const SPRING = { type: "spring" as const, stiffness: 500, damping: 28 };
+```
+
+- [ ] **Step 11: Write the failing test for the sound mute toggle**
+
+Create `frontend/src/lib/sound.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it } from "vitest";
+import { isSoundEnabled, setSoundEnabled } from "./sound";
+
+describe("sound mute toggle", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("defaults to enabled", () => {
+    expect(isSoundEnabled()).toBe(true);
+  });
+
+  it("persists a mute choice across calls", () => {
+    setSoundEnabled(false);
+    expect(isSoundEnabled()).toBe(false);
+    setSoundEnabled(true);
+    expect(isSoundEnabled()).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 12: Run the test to verify it fails**
+
+Run: `cd frontend && npm test`
+Expected: FAIL — `Cannot find module './sound'`.
+
+- [ ] **Step 13: Implement `sound.ts`**
+
+Create `frontend/src/lib/sound.ts`:
+
+```ts
+// Short synthesized UI sounds (Web Audio oscillator blips), not audio files -- nothing
+// to source/license/commit. Three real interaction moments only (row select, range
+// click, first-data-landed), never hover or re-render, per the spec. A persisted mute
+// toggle is required, not optional: a tool left open all day with unmutable sound
+// would get tiresome fast.
+const STORAGE_KEY = "tradefabe.sound.enabled";
+let ctx: AudioContext | null = null;
+
+export function isSoundEnabled(): boolean {
+  return localStorage.getItem(STORAGE_KEY) !== "off";
+}
+
+export function setSoundEnabled(on: boolean) {
+  localStorage.setItem(STORAGE_KEY, on ? "on" : "off");
+}
+
+function getContext(): AudioContext | null {
+  if (typeof window === "undefined" || typeof window.AudioContext === "undefined") {
+    return null; // no Web Audio support -- e.g. the Vitest/jsdom test environment
+  }
+  if (!ctx) ctx = new AudioContext();
+  return ctx;
+}
+
+function blip(freq: number, durationSec: number, gain: number) {
+  if (!isSoundEnabled()) return;
+  const audioCtx = getContext();
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0, audioCtx.currentTime);
+    g.gain.linearRampToValueAtTime(gain, audioCtx.currentTime + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + durationSec);
+    osc.connect(g);
+    g.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + durationSec);
+  } catch {
+    // A UI sound effect must never break the interaction it's attached to -- e.g. a
+    // browser that hasn't unlocked audio playback yet without a user gesture.
+  }
+}
+
+export function playSelect() {
+  blip(420, 0.06, 0.05);
+}
+
+export function playRangeChange() {
+  blip(560, 0.04, 0.04);
+}
+
+export function playDataLanded() {
+  blip(300, 0.08, 0.03);
+}
+```
+
+- [ ] **Step 14: Run the test to verify it passes**
+
+Run: `cd frontend && npm test`
+Expected: both `sound` mute-toggle tests pass.
+
+- [ ] **Step 15: Implement the shared `Nav` (title, links, mute toggle)**
+
+Extracted once here rather than duplicated per-layout, since Step 16 needs it in two
+places (`/books` with no selection, `/books/:name` with one).
+
+Create `frontend/src/components/Nav.tsx`:
+
+```tsx
+import { useState } from "react";
+import { isSoundEnabled, setSoundEnabled } from "../lib/sound";
+
+export default function Nav() {
+  const [soundOn, setSoundOn] = useState(isSoundEnabled());
+  return (
+    <nav className="w-56 border-r border-white/5 p-6 text-sm text-ink-muted flex flex-col">
+      <div className="text-ink font-bold mb-6">tradefabe</div>
+      <div className="mb-2 text-ink">Paper Books</div>
+      <div>Research Lab</div>
+      <button
+        className="mt-auto text-xs text-ink-muted text-left"
+        onClick={() => {
+          const next = !soundOn;
+          setSoundEnabled(next);
+          setSoundOn(next);
+        }}
+      >
+        Sound: {soundOn ? "on" : "off"}
+      </button>
+    </nav>
+  );
+}
+```
+
+- [ ] **Step 16: Wire up routing in `main.tsx`, replace the placeholder `App.tsx`, mount the grain overlay**
 
 Replace `frontend/src/main.tsx`:
 
@@ -1181,10 +1372,12 @@ createRoot(document.getElementById("root")!).render(
 ```
 
 Replace `frontend/src/App.tsx` (Task 6/7 fill in `RowList`/`DetailPanel`; this step
-only wires the shell and a redirect so the route tree is real from here on):
+only wires the shell, the grain overlay, and a redirect so the route tree is real from
+here on):
 
 ```tsx
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import Nav from "./components/Nav";
 import RowList from "./components/RowList";
 import DetailPanel from "./components/DetailPanel";
 
@@ -1192,11 +1385,7 @@ function BooksLayout() {
   const { name } = useParams();
   return (
     <div className="min-h-screen flex">
-      <nav className="w-56 border-r border-white/5 p-6 text-sm text-ink-muted">
-        <div className="text-ink font-bold mb-6">tradefabe</div>
-        <div className="mb-2 text-ink">Paper Books</div>
-        <div>Research Lab</div>
-      </nav>
+      <Nav />
       <div className="flex-1 flex overflow-hidden">
         <div className="w-96 border-r border-white/5 overflow-y-auto">
           <RowList selectedName={name ?? null} />
@@ -1209,16 +1398,6 @@ function BooksLayout() {
   );
 }
 
-export default function App() {
-  return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/books" replace />} />
-      <Route path="/books" element={<BooksIndexRedirect />} />
-      <Route path="/books/:name" element={<BooksLayout />} />
-    </Routes>
-  );
-}
-
 // /books alone has no book selected yet -- RowList knows the default-sorted order
 // (fetches it itself), so the redirect target is resolved inside RowList's own data
 // rather than duplicating sort logic here. Rendering RowList with no selection lets it
@@ -1226,15 +1405,24 @@ export default function App() {
 function BooksIndexRedirect() {
   return (
     <div className="min-h-screen flex">
-      <nav className="w-56 border-r border-white/5 p-6 text-sm text-ink-muted">
-        <div className="text-ink font-bold mb-6">tradefabe</div>
-        <div className="mb-2 text-ink">Paper Books</div>
-        <div>Research Lab</div>
-      </nav>
+      <Nav />
       <div className="w-96 border-r border-white/5 overflow-y-auto">
         <RowList selectedName={null} />
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <>
+      <div className="grain-overlay" aria-hidden="true" />
+      <Routes>
+        <Route path="/" element={<Navigate to="/books" replace />} />
+        <Route path="/books" element={<BooksIndexRedirect />} />
+        <Route path="/books/:name" element={<BooksLayout />} />
+      </Routes>
+    </>
   );
 }
 ```
@@ -1244,14 +1432,16 @@ redirect-to-first-book behavior noted above), Task 7 creates `DetailPanel`. This
 ends with the app failing to compile until then, which is expected and fixed within
 this same plan (not left broken across a PR boundary, since Tasks 5-7 land in one PR).
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 17: Commit**
 
 ```bash
 git add frontend/package.json frontend/package-lock.json frontend/vitest.config.ts \
-        frontend/src/main.tsx frontend/src/App.tsx frontend/src/lib/ \
-        frontend/src/components/PlotlyChart.tsx frontend/src/test/
+        frontend/tailwind.config.js frontend/src/index.css frontend/src/main.tsx \
+        frontend/src/App.tsx frontend/src/lib/ frontend/src/components/PlotlyChart.tsx \
+        frontend/src/components/Nav.tsx frontend/src/test/
 git commit -m "$(cat <<'EOF'
-frontend: routing shell, Vitest+RTL, PlotlyChart with dark-theme override
+frontend: routing shell, Vitest+RTL, PlotlyChart, and the visual-
+language amendment (mono data type, grain overlay, spring motion, sound)
 
 react-router-dom added: /books redirects to the first book (RowList
 resolves the default sort order itself), /books/:name is list + detail.
@@ -1261,6 +1451,13 @@ by a pre-plan spike -- rather than touching dashboard.py's
 still-live-in-app.py themed_layout(). First frontend test framework
 for this repo (Vitest + RTL); CI wiring lands in a later task once
 RowList/DetailPanel give it something real to gate on.
+
+Also lands the spec's 2026-08-06 visual-language amendment's shared
+infrastructure: IBM Plex Mono for data typography (ties frontend
+numbers to the same face the Plotly charts already use), a static
+ambient dither-texture overlay, a shared Framer Motion spring config,
+and synthesized (no audio files) Web Audio UI sounds with a persisted
+mute toggle in the new Nav component.
 EOF
 )"
 ```
@@ -1274,7 +1471,7 @@ EOF
 
 **Interfaces:**
 - Consumes: `GET /api/books/summary?sort=...&show_monitor_only=...` (Task 2),
-  `GET /api/books/up_for_review` (Task 3).
+  `GET /api/books/up_for_review` (Task 3), `SPRING` and `playSelect()` (Task 5).
 - Produces: `<RowList selectedName={string | null} />`. Navigates via
   `react-router-dom`'s `useNavigate` when a row is clicked, and redirects `/books` to
   the first book in default (family) order once its fetch resolves.
@@ -1330,6 +1527,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+vi.mock("../lib/sound", () => ({ playSelect: vi.fn() }));
+
 describe("RowList", () => {
   it("renders family-grouped rows by default", async () => {
     render(
@@ -1371,6 +1570,18 @@ describe("RowList", () => {
       expect(calls.some((u) => String(u).includes("show_monitor_only=false"))).toBe(true);
     });
   });
+
+  it("plays the select sound when a row is clicked", async () => {
+    const { playSelect } = await import("../lib/sound");
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("tsmom_12m"));
+    expect(playSelect).toHaveBeenCalled();
+  });
 });
 ```
 
@@ -1387,6 +1598,8 @@ Create `frontend/src/components/RowList.tsx`:
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { SPRING } from "../lib/motion";
+import { playSelect } from "../lib/sound";
 
 type BookRow = {
   book: string;
@@ -1434,20 +1647,25 @@ function Sparkline({ points }: { points: (number | null)[] }) {
 function Row({ r, selected }: { r: BookRow; selected: boolean }) {
   const delta = r.return_today ?? r.return;
   return (
-    <Link to={`/books/${r.book}`} className="block no-underline">
+    <Link to={`/books/${r.book}`} className="block no-underline" onClick={playSelect}>
       <motion.div
         whileHover={{ backgroundColor: "rgba(159,232,112,0.06)" }}
         animate={{
           backgroundColor: selected ? "rgba(159,232,112,0.12)" : "rgba(0,0,0,0)",
         }}
-        className="flex items-center justify-between px-4 py-2 h-14 text-sm"
+        transition={SPRING}
+        className="flex items-center justify-between px-4 py-2 h-14 text-sm border-b border-white/5"
       >
         <span className="text-ink truncate">{r.book}</span>
         <Sparkline points={r.sparkline} />
-        <span className="text-ink-muted tabular-nums">
+        <span className="text-ink-muted font-mono tabular-nums">
           ${r.equity?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "—"}
         </span>
-        <span className={delta != null && delta >= 0 ? "text-accent" : "text-red-400"}>
+        <span
+          className={`font-mono tabular-nums ${
+            delta != null && delta >= 0 ? "text-accent" : "text-red-400"
+          }`}
+        >
           {delta != null ? `${(delta * 100).toFixed(1)}%` : "—"}
         </span>
       </motion.div>
@@ -1556,7 +1774,9 @@ review expander, per-book inline SVG sparkline (no charting lib for a
 40px shape). Redirects /books (no selection) to the first book in
 default order once the summary fetch resolves. Sort/filter state
 drives query params on GET /api/books/summary -- no client-side
-re-sorting of server-provided data.
+re-sorting of server-provided data. $ and % figures render in the
+shared mono face; row selection uses the shared spring transition and
+plays the select sound, per the visual-language amendment.
 EOF
 )"
 ```
@@ -1571,7 +1791,8 @@ EOF
   `frontend/src/components/RangeControl.tsx`
 
 **Interfaces:**
-- Consumes: `GET /api/books/{name}/detail?window=...` (Task 4), `<PlotlyChart>` (Task 5).
+- Consumes: `GET /api/books/{name}/detail?window=...` (Task 4), `<PlotlyChart>`,
+  `SPRING`, `playDataLanded()`, `playRangeChange()` (Task 5).
 - Produces: `<DetailPanel name={string} />`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1613,6 +1834,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+vi.mock("../lib/sound", () => ({ playDataLanded: vi.fn(), playRangeChange: vi.fn() }));
+
 describe("DetailPanel", () => {
   it("renders the blurb and stats once loaded", async () => {
     render(<DetailPanel name="tsmom_12m" />);
@@ -1641,6 +1864,26 @@ describe("DetailPanel", () => {
       expect(calls.some((u) => String(u).includes("/books/carry_btc_eth/detail"))).toBe(true);
     });
   });
+
+  it("plays the data-landed sound once on initial load, not again on a window refetch", async () => {
+    const { playDataLanded } = await import("../lib/sound");
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(playDataLanded).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByText("1W"));
+    await waitFor(() => {
+      const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+      expect(calls.some((u) => String(u).includes("window=1W"))).toBe(true);
+    });
+    expect(playDataLanded).toHaveBeenCalledTimes(1);
+  });
+
+  it("plays the range-change sound when a range option is clicked", async () => {
+    const { playRangeChange } = await import("../lib/sound");
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("1W")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("1W"));
+    expect(playRangeChange).toHaveBeenCalled();
+  });
 });
 ```
 
@@ -1654,6 +1897,10 @@ Expected: FAIL — `Cannot find module './DetailPanel'`.
 Create `frontend/src/components/RangeControl.tsx`:
 
 ```tsx
+import { motion } from "framer-motion";
+import { SPRING } from "../lib/motion";
+import { playRangeChange } from "../lib/sound";
+
 export default function RangeControl({
   options, value, onChange,
 }: {
@@ -1662,17 +1909,24 @@ export default function RangeControl({
   onChange: (window: string) => void;
 }) {
   return (
-    <div className="flex gap-1 text-xs">
+    <div className="flex gap-1 text-xs font-mono">
       {options.map((w) => (
-        <button
+        <motion.button
           key={w}
-          onClick={() => onChange(w)}
-          className={`px-2 py-1 rounded ${
-            w === value ? "bg-accent text-bg" : "text-ink-muted"
-          }`}
+          onClick={() => {
+            playRangeChange();
+            onChange(w);
+          }}
+          whileTap={{ scale: 0.92 }}
+          animate={{
+            backgroundColor: w === value ? "#9fe870" : "rgba(0,0,0,0)",
+            color: w === value ? "#0d0f0c" : "#7d8877",
+          }}
+          transition={SPRING}
+          className="px-2 py-1 rounded"
         >
           {w}
-        </button>
+        </motion.button>
       ))}
     </div>
   );
@@ -1684,10 +1938,12 @@ export default function RangeControl({
 Create `frontend/src/components/DetailPanel.tsx`:
 
 ```tsx
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import PlotlyChart from "./PlotlyChart";
 import RangeControl from "./RangeControl";
+import { SPRING } from "../lib/motion";
+import { playDataLanded } from "../lib/sound";
 
 type DetailResponse = {
   name: string;
@@ -1717,16 +1973,28 @@ function fmt(v: number | null | undefined, kind: "ratio" | "pct" = "ratio") {
 export default function DetailPanel({ name }: { name: string }) {
   const [data, setData] = useState<DetailResponse | null>(null);
   const [window, setWindow] = useState("ALL");
+  // True from a name change until that book's first response lands -- distinguishes
+  // "just opened this book" (plays the landed sound) from "changed the range window on
+  // a book already open" (RangeControl's own click sound already covers that feedback;
+  // playing both would double up).
+  const isInitialLoad = useRef(true);
 
   useEffect(() => {
     setData(null);
     setWindow("ALL");
+    isInitialLoad.current = true;
   }, [name]);
 
   useEffect(() => {
     fetch(`http://localhost:8000/api/books/${name}/detail?window=${window}`)
       .then((res) => res.json())
-      .then(setData);
+      .then((body: DetailResponse) => {
+        setData(body);
+        if (isInitialLoad.current) {
+          playDataLanded();
+          isInitialLoad.current = false;
+        }
+      });
   }, [name, window]);
 
   if (!data) return <p className="text-ink-muted">Loading…</p>;
@@ -1738,12 +2006,7 @@ export default function DetailPanel({ name }: { name: string }) {
   ];
 
   return (
-    <motion.div
-      key={name}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-    >
+    <motion.div key={name} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={SPRING}>
       <h2 className="text-2xl font-bold text-ink">{name}</h2>
       <p className="text-ink-muted mt-1">{data.blurb}</p>
 
@@ -1753,11 +2016,11 @@ export default function DetailPanel({ name }: { name: string }) {
         </div>
       )}
 
-      <div className="grid grid-cols-6 gap-4 mt-6">
+      <div className="grid grid-cols-6 gap-4 mt-6 pb-6 border-b border-white/5">
         {statEntries.map(([label, kind]) => (
           <div key={label}>
             <div className="text-xs text-ink-muted uppercase">{label}</div>
-            <div className="text-xl text-ink">
+            <div className="text-xl text-ink font-mono tabular-nums">
               {fmt(kind, label === "Max Drawdown" || label === "CAGR" || label === "Vol (ann.)" ? "pct" : "ratio")}
             </div>
           </div>
@@ -1765,18 +2028,18 @@ export default function DetailPanel({ name }: { name: string }) {
       </div>
 
       {data.kind === "equity" ? (
-        <p className="text-xs text-ink-muted mt-2">
+        <p className="text-xs text-ink-muted mt-2 font-mono">
           Verdict: {data.verdict} · corr to 60/40: {fmt(data.corr_bench)} · noise floor:{" "}
           {fmt(data.null_p95)} · rebalance {data.freq}
         </p>
       ) : (
-        <p className="text-xs text-ink-muted mt-2">
+        <p className="text-xs text-ink-muted mt-2 font-mono">
           Net yield: {fmt(data.carry_meta?.net_yield, "pct")} · % days positive:{" "}
           {fmt(data.carry_meta?.pct_days_positive, "pct")}
         </p>
       )}
 
-      <div className="mt-6">
+      <div className="mt-6 pt-6 border-t border-white/5">
         <div className="flex items-center justify-between">
           <span className="text-sm text-ink">Live paper equity</span>
           <RangeControl options={data.available_windows} value={window} onChange={setWindow} />
@@ -1784,7 +2047,7 @@ export default function DetailPanel({ name }: { name: string }) {
         <PlotlyChart figure={data.live_equity_chart} />
       </div>
 
-      <details className="mt-6">
+      <details className="mt-6 pt-6 border-t border-white/5">
         <summary className="text-sm text-ink cursor-pointer">
           Backtest history & live tracking check
         </summary>
@@ -1824,7 +2087,10 @@ confirmed "charts are API responses" model), backtest-history +
 divergence-status expander. Forks display (not fetch shape) on
 data.kind for the equity/carry caption difference. Positions/trade-log/
 carry-risk panel are 2b, not here -- the API response already excludes
-them.
+them. Stats render in the shared mono face with hairline section
+dividers, the mount transition uses the shared spring config, and
+range-control clicks / a book's first-landed data play the shared UI
+sounds, per the visual-language amendment.
 EOF
 )"
 ```
@@ -1909,6 +2175,12 @@ Open `http://localhost:5173`. Confirm:
   holds for the real integrated app, not just the spike's throwaway harness.
 - The backtest-history expander opens and shows a divergence status badge/caption.
 - "Up for review" expander appears only if there are eligible books, and lists them.
+- Visual-language amendment: the ambient dither texture is visible (subtle, not
+  distracting) across the whole canvas; $ figures and stat values render in the mono
+  face; row selection and range-control clicks feel snappy/springy rather than a smooth
+  fade; clicking a row and clicking a range option each produce a short, quiet sound;
+  the "Sound: on/off" toggle in the nav actually mutes them and the choice survives a
+  page reload (persisted via `localStorage`).
 
 - [ ] **Step 3: Stop both servers**
 
@@ -1934,6 +2206,11 @@ gh pr create --title "Dashboard rebuild, sub-project 2a: Paper Books row list + 
   `RangeControl` (blurb/stats/verdict/live-equity+backtest charts/divergence), a
   `PlotlyChart` wrapper applying a dark-theme layout override validated by a pre-plan
   spike. First Vitest+RTL tests for this repo's frontend, now gated in CI.
+- Visual-language amendment (2026-08-06, reverses the Foundation spec's "no audio/
+  haptic feedback" line — see spec): mono data typography (IBM Plex Mono, already used
+  by the Plotly chart theme), an ambient static dither-texture overlay, a shared
+  Framer Motion spring config for tactile motion, and synthesized (no audio files) Web
+  Audio UI sounds with a persisted mute toggle.
 - Positions/trade-log/carry-risk-panel are explicitly out of scope — slice 2b.
 
 Spec: `docs/superpowers/specs/2026-08-06-dashboard-paper-books-2a-design.md`
