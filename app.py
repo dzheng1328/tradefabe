@@ -17,7 +17,7 @@ import streamlit as st
 from tradefabe import risk_register, factory
 from tradefabe.pricing import NON_PRICED as ACCRUAL_ONLY_BOOKS
 from tradefabe.dashboard import (
-    ART, BASE, BENCH_C, CRIT, GOOD, INK2, MIN_CHART_POINTS, RANGE_WINDOWS,
+    ART, BASE, BENCH_C, CRIT, GOOD, INK2, MIN_CHART_POINTS,
     REVIEW_AGE_DAYS, SLOTS, SPY_C, Y_PAD,
     load_carry_backtest, load_paper_state, load_book_json, ann_stats, fmt,
     signals_cost_bps, money, _rgba, themed_layout, book_panel_data, trades_frame,
