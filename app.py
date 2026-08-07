@@ -26,6 +26,9 @@ from tradefabe.dashboard import (
     fmt_full_dollars, book_family, factory_owned_names, books_up_for_review,
     _is_monitor_only, group_books_by_family, book_introduced_dates, book_return_today,
     sort_books_flat, strategy_description, retirement_note, _dead_strategy_returns,
+    load_backtest, load_piggyback_backtest, load_factory_backtest,
+    load_pipeline_backtest, load_hourly_backtest, load_kronos_backtest,
+    load_price_snapshot, book_colors, latest_verdicts, available_windows,
 )
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -156,68 +159,6 @@ def _bind_refresh_shortcut():
 
 
 # ==================================================================== data loading
-@st.cache_data
-def load_backtest():
-    full = pd.read_csv(os.path.join(ART, "full_returns.csv"), index_col=0, parse_dates=True)
-    with open(os.path.join(ART, "meta.json")) as fh:
-        meta = json.load(fh)
-    nulls = {k: v for k, v in np.load(os.path.join(ART, "nulls.npz")).items()}
-    gy = pd.read_csv(os.path.join(BASE, "graveyard.csv"))
-    return full, meta, nulls, gy
-
-
-@st.cache_data
-def load_piggyback_backtest():
-    """Backtest OOS returns for the 4 piggyback constructions (research/piggyback_backtest.py),
-    same shape as full_returns.csv's columns but kept separate since it's a different study
-    (constructions, not bare strategies) that can be rerun independently. None if not yet run."""
-    path = os.path.join(ART, "piggyback_returns.csv")
-    if not os.path.exists(path):
-        return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
-
-
-@st.cache_data
-def load_factory_backtest():
-    """Backtest OOS returns for PROMOTED strategy-factory candidates (#28b) --
-    research/factory_run.py persists one column here only for whichever candidate wins a
-    cycle (not all 20/day tested -- a DEAD, never-promoted candidate doesn't need a
-    curve on disk; #31's DEAD-strategy detail view already falls back to summary-stats-
-    only for those). A live book with no entry in full_returns.csv OR piggyback_returns.csv
-    needs this to have a backtest curve at all -- see book_panel_data(). None if no
-    factory candidate has ever been promoted yet."""
-    path = os.path.join(ART, "factory_returns.csv")
-    if not os.path.exists(path):
-        return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
-
-
-@st.cache_data
-def load_pipeline_backtest():
-    """Backtest OOS returns for PROMOTED research-pipeline candidates (#180) -- same shape
-    and same reasoning as load_factory_backtest(): research/pipeline_verdict.py persists
-    one column here only for a candidate that actually gets promoted (OOS-ALIVE and under
-    the pipeline's own cap), not every pre-registered candidate it ever OOS-tests. A live
-    pipeline book with no entry here has no backtest curve at all -- see
-    book_panel_data(). None if no pipeline candidate has ever been promoted yet."""
-    path = os.path.join(ART, "pipeline_returns.csv")
-    if not os.path.exists(path):
-        return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
-
-
-@st.cache_data
-def load_hourly_backtest():
-    """Backtest OOS returns for family L, the hourly strategies (research/hourly_backtest.py,
-    #86). A fourth curve source beside full/piggyback/factory: these are daily-AGGREGATED
-    series (the study generates hourly returns then compounds them per day, so ANN=252 and
-    the 60/40 benchmark stay comparable), and they live in their own artifact because the
-    study fetches its own snapshotted hourly bars rather than harness.py's daily cache.
-    None if the study hasn't been run."""
-    path = os.path.join(ART, "hourly_returns.csv")
-    if not os.path.exists(path):
-        return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
 
 
 @st.cache_data
@@ -233,23 +174,6 @@ def load_pairs_backtest():
     return pd.read_csv(path, index_col=0, parse_dates=True)
 
 
-@st.cache_data
-def load_kronos_backtest():
-    """Backtest OOS returns for family M, the Kronos candidates (research/kronos_backtest.py,
-    #105). A FIFTH curve source beside full/piggyback/factory/hourly.
-
-    Its own artifact for a reason that matters when reading the chart: these series start at
-    2025-06-05, the model's pretraining cutoff, not at 2018. Everything before that is
-    contaminated -- the model's weights already saw those bars -- so a family M curve cannot
-    be stored in a 2018-based file without putting contaminated bars on a chart labelled
-    "backtest", which is the one place they could quietly become evidence. The stored curve is
-    sliced at the cutoff by the study itself. None if the study hasn't been run."""
-    path = os.path.join(ART, "kronos_returns.csv")
-    if not os.path.exists(path):
-        return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
-
-
 def load_carry_risk():
     """Deliberately uncached, same reasoning as load_paper_state — this is the report
     check_carry_risk() writes once per `tradefabe run` cycle, never fetched live from the
@@ -259,17 +183,6 @@ def load_carry_risk():
         return None
     with open(path) as fh:
         return json.load(fh)
-
-
-@st.cache_data
-def load_price_snapshot():
-    """Last cached close per ticker, for pricing open paper positions in the UI. Not a
-    live quote — the caption on the positions table says so."""
-    path = os.path.join(BASE, "data", "prices.csv")
-    if not os.path.exists(path):
-        return None, None
-    px = pd.read_csv(path, index_col=0, parse_dates=True)
-    return px.iloc[-1], px.index[-1]
 
 
 # Delta-neutral carry/gated-carry books (#143). These update equity via a direct
@@ -487,7 +400,7 @@ def render_paper_books(psum, phist, full, meta, gy_last):
 
     st.divider()
     names = psum["book"].tolist()
-    color_of = {n: SLOTS[i % len(SLOTS)] for i, n in enumerate(names)}
+    color_of = book_colors(names)
     pick = st.session_state.selected_book
 
     price_now, price_date = load_price_snapshot()
@@ -541,9 +454,7 @@ def render_strategy_panel(name, data, color):
     st.divider()
     st.markdown("**Live paper equity**")
     live_hist = data["live_hist"]
-    span = live_hist.index[-1] - live_hist.index[0]
-    options = [w for w in ("5H", "1D", "1W", "1M", "3M", "1Y", "ALL")
-               if w == "ALL" or span >= RANGE_WINDOWS[w]]
+    options = available_windows(live_hist)
     choice = st.segmented_control("Range", options, default="ALL", required=True,
                                   key=f"range_{name}", label_visibility="collapsed")
     st.plotly_chart(live_equity_chart(live_hist, color, choice), width="stretch")
@@ -785,7 +696,7 @@ def render_research_lab(full, meta, nulls, gy):
     strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
     color_of = {s: SLOTS[i % len(SLOTS)] for i, s in enumerate(strats)}
     oos = full[full.index >= OOS]
-    gy_last = gy.drop_duplicates("strategy", keep="last").set_index("strategy")
+    gy_last = latest_verdicts(gy)
 
     st.markdown(
         f"""<div class="lab-eyebrow">tradefabe · strategy evaluation lab · paper only</div>
@@ -911,7 +822,7 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
 psum, phist = load_paper_state()
 try:
     full, meta, nulls, gy = load_backtest()
-    gy_last = gy.drop_duplicates("strategy", keep="last").set_index("strategy")
+    gy_last = latest_verdicts(gy)
     backtest_ok = True
 except FileNotFoundError:
     full = meta = nulls = gy = gy_last = None

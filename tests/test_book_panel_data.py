@@ -160,6 +160,35 @@ def test_book_panel_data_still_computes_deployment_for_a_normal_equity_book(monk
     assert data["positions_df"] is not None and len(data["positions_df"]) == 1
 
 
+def test_book_panel_data_skips_positions_when_compute_positions_is_false():
+    name = "some_book"
+    full = pd.DataFrame({name: [0.001] * 40}, index=pd.bdate_range("2018-01-02", periods=40))
+    dates = pd.bdate_range("2026-01-01", periods=3)
+    data = app.book_panel_data(
+        name, _phist(name, dates, [100_000, 100_100, 100_050]),
+        full, _meta(), _gy_last_row(name, verdict="ALIVE"), None, None,
+        compute_positions=False,
+    )
+    assert data["positions_df"] is None
+    assert data["deployment"] is None
+    # everything else 2a actually needs is still populated
+    assert data["stats"] is not None
+    assert data["live_hist"] is not None
+
+
+def test_book_panel_data_still_computes_positions_by_default():
+    name = "some_book"
+    full = pd.DataFrame({name: [0.001] * 40}, index=pd.bdate_range("2018-01-02", periods=40))
+    dates = pd.bdate_range("2026-01-01", periods=3)
+    data = app.book_panel_data(
+        name, _phist(name, dates, [100_000, 100_100, 100_050]),
+        full, _meta(), _gy_last_row(name, verdict="ALIVE"), None, None,
+    )
+    # book_json has no positions in this fixture, but the deployment dict itself
+    # must still be built (not None) -- that's the default-True contract.
+    assert data["deployment"] is not None
+
+
 @pytest.mark.parametrize("name", ["crypto_reversal_1h", "equity_tsmom_1h", "funding_timing_1h"])
 def test_every_live_book_on_disk_resolves_a_curve(name):
     """End-to-end guard: every book that actually exists in state/paper must resolve a
@@ -169,9 +198,11 @@ def test_every_live_book_on_disk_resolves_a_curve(name):
     from tradefabe.paths import STATE_DIR
     if not (STATE_DIR / f"{name}.json").exists():
         pytest.skip(f"{name} not opened in this checkout")
-    hourly = app.load_hourly_backtest.__wrapped__()
-    piggy = app.load_piggyback_backtest.__wrapped__()
-    factory_bt = app.load_factory_backtest.__wrapped__()
+    # These loaders moved to dashboard.py undecorated (2a Task 1, same precedent as
+    # load_carry_backtest in sub-project 1) -- no more @st.cache_data wrapper to unwrap.
+    hourly = app.load_hourly_backtest()
+    piggy = app.load_piggyback_backtest()
+    factory_bt = app.load_factory_backtest()
     full = pd.read_csv(os.path.join(app.ART, "full_returns.csv"), index_col=0, parse_dates=True)
     sources = [d for d in (piggy, factory_bt, hourly) if d is not None]
     assert any(name in d.columns for d in sources) or name in full.columns, \
@@ -185,10 +216,15 @@ def test_the_call_site_supplies_every_source_book_panel_data_accepts():
 
     So assert the structural invariant directly: render_paper_books' call to
     book_panel_data must supply EVERY parameter the function declares. Adding a fifth
-    curve source then fails here until the call site is updated too."""
+    curve source then fails here until the call site is updated too.
+
+    compute_positions (2a Task 1) is exempt: it's a behavior flag, not a curve source,
+    and its whole contract is a default that preserves every existing caller's behavior
+    with zero changes -- the opposite of what this invariant guards against."""
     import ast, inspect
 
-    n_params = len(inspect.signature(app.book_panel_data).parameters)
+    params = inspect.signature(app.book_panel_data).parameters
+    n_params = len([p for p in params if p != "compute_positions"])
     tree = ast.parse(inspect.getsource(app.render_paper_books).lstrip())
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call)
