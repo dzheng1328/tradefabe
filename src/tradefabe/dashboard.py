@@ -3,6 +3,7 @@ the lab dashboard. app.py's render_* functions and the FastAPI layer (src/tradef
 both import from here; this module has no Streamlit calls, mirroring how harness.py
 imports engine.py rather than keeping a private copy of doctrine math.
 """
+import functools
 import json
 import os
 import numpy as np
@@ -510,6 +511,7 @@ BOOK_FAMILY = {
 }
 
 
+@functools.cache
 def _load_generated_ledger():
     """Cached lookup of every LIVE-GENERATED candidate ever tested (#28b) -- name ->
     {"family", "rationale"} -- so book_family()/strategy_description() can resolve a
@@ -517,7 +519,14 @@ def _load_generated_ledger():
     entry, which is impossible here: the parameter is drawn fresh each cycle, not fixed
     at review time like TEMPLATES. generated_templates.csv is factory.py's own
     git-tracked audit ledger (every draw logged at generation time, before its verdict
-    is known), so this is reading the SAME record the doctrine itself relies on."""
+    is known), so this is reading the SAME record the doctrine itself relies on.
+
+    `@functools.cache` (not `@st.cache_data`, which required Streamlit and lived here
+    before this module was extracted from app.py) -- book_family()/strategy_description()
+    call this per name, so an uncached version turns one loop over graveyard.csv's ~140
+    strategies into ~140 redundant CSV re-reads. Caught by CI (#204): a regression test
+    that resolves every graveyard name blew a 5s per-test budget on a shared runner,
+    passing locally only because local disk was fast enough to hide it."""
     path = os.path.join(BASE, "generated_templates.csv")
     if not os.path.exists(path):
         return {}
@@ -526,12 +535,14 @@ def _load_generated_ledger():
             for _, row in df.iterrows()}
 
 
+@functools.cache
 def _load_pipeline_ledger():
     """Same role as _load_generated_ledger(), for the research pipeline's rp_-prefixed
     names (#174) instead of the factory's _gen_/combo ones. pipeline_ideas.csv has no
     per-row family column (unlike generated_templates.csv) because every pipeline
     proposal -- whichever PRIMITIVES shape it used -- shares the same origin, family "O",
-    not a mechanism-specific one; see BOOK_FAMILIES's comment for why."""
+    not a mechanism-specific one; see BOOK_FAMILIES's comment for why. Cached for the
+    same reason _load_generated_ledger() is -- see its docstring."""
     path = os.path.join(BASE, "pipeline_ideas.csv")
     if not os.path.exists(path):
         return {}
