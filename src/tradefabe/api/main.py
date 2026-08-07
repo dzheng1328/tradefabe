@@ -120,6 +120,66 @@ def books_up_for_review():
     return {"books": out}
 
 
+def _stats_json(stats):
+    return {k: _finite_or_none(v) for k, v in stats.items()}
+
+
+@app.get("/api/books/{name}/detail")
+def book_detail(name: str, window: str = "ALL"):
+    psum, phist = dashboard.load_paper_state()
+    if psum is None or name not in psum["book"].values:
+        raise HTTPException(status_code=404, detail=f"unknown book: {name}")
+
+    try:
+        full, meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+    gy_last = dashboard.latest_verdicts(gy)
+
+    price_now, price_date = dashboard.load_price_snapshot()
+    piggy = dashboard.load_piggyback_backtest()
+    factory_bt = dashboard.load_factory_backtest()
+    hourly_bt = dashboard.load_hourly_backtest()
+    kronos_bt = dashboard.load_kronos_backtest()
+    pipeline_bt = dashboard.load_pipeline_backtest()
+
+    data = dashboard.book_panel_data(
+        name, phist, full, meta, gy_last, price_now, price_date, piggy,
+        factory_bt, hourly_bt, kronos_bt, pipeline_bt, compute_positions=False,
+    )
+
+    live_hist = data["live_hist"]
+    color = dashboard.book_colors(psum["book"].tolist())[name]
+    windows = dashboard.available_windows(live_hist)
+    win_choice = window if window in windows else "ALL"
+    live_chart = dashboard.live_equity_chart(live_hist, color, win_choice)
+    bt_chart = dashboard.backtest_chart(data["bt_curve"], dashboard.INK2)
+    div_state, div_detail = dashboard.divergence_status(data)
+
+    body = {
+        "name": name,
+        "kind": data["kind"],
+        "blurb": dashboard.strategy_description(name),
+        "retirement_note": dashboard.retirement_note(data.get("book_json")),
+        "stats": _stats_json(data["stats"]),
+        "live_start": data["live_start"].isoformat(),
+        "bt_start": data["bt_start"].isoformat() if data.get("bt_start") is not None else None,
+        "available_windows": windows,
+        "live_equity_chart": json.loads(live_chart.to_json()),
+        "backtest_chart": json.loads(bt_chart.to_json()),
+        "divergence_state": div_state,
+        "divergence_detail": div_detail,
+    }
+    if data["kind"] == "equity":
+        body["verdict"] = data["verdict"]
+        body["corr_bench"] = _finite_or_none(data["corr_bench"])
+        body["null_p95"] = _finite_or_none(data["null_p95"])
+        body["freq"] = data["freq"]
+    else:
+        body["carry_meta"] = {k: _finite_or_none(v) for k, v in data["carry_meta"].items()}
+    return body
+
+
 def run():
     """Entry point for the `tradefabe-api` console script."""
     import uvicorn
