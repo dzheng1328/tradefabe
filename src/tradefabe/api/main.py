@@ -124,6 +124,17 @@ def _stats_json(stats):
     return {k: _finite_or_none(v) for k, v in stats.items()}
 
 
+def _carry_meta_json(carry_meta):
+    """carry_hl_meta.json mixes numeric fields (net_yield, net_maxdd, ...) with
+    non-numeric ones (window: a [start, end] date-string pair; generated_at: an ISO
+    string) -- _finite_or_none's float(v) raises on both, and the broad except in that
+    helper was silently coercing them to None, dropping the backtest window range and
+    generation timestamp from every carry_btc_eth response. Route only genuine
+    int/float values through NaN-safety; pass everything else through unchanged."""
+    return {k: (_finite_or_none(v) if isinstance(v, (int, float)) else v)
+            for k, v in carry_meta.items()}
+
+
 @app.get("/api/books/{name}/detail")
 def book_detail(name: str, window: str = "ALL"):
     psum, phist = dashboard.load_paper_state()
@@ -176,7 +187,7 @@ def book_detail(name: str, window: str = "ALL"):
         body["null_p95"] = _finite_or_none(data["null_p95"])
         body["freq"] = data["freq"]
     else:
-        body["carry_meta"] = {k: _finite_or_none(v) for k, v in data["carry_meta"].items()}
+        body["carry_meta"] = _carry_meta_json(data["carry_meta"])
     return body
 
 
