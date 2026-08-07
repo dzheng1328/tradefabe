@@ -70,6 +70,14 @@ doctrine — no lower bar because "this one feels different" or "a machine found
   nothing; call `kronos.is_available()`.
 - **`app.py`** — Streamlit, port 8501. Plotly only. **No emoji**: Material Symbols
   (`icon=":material/..."`) or the `.tf-badge` component.
+- **Dashboard rebuild in progress, one sub-project at a time — #1 merged 2026-08-06
+  (#203/#204).** Moving off Streamlit to React/FastAPI. **`app.py` is still the only live
+  UI** (desktop app + localhost:8501 both point at it, unchanged) — nothing below is
+  wired in yet. `src/tradefabe/dashboard.py` is the Streamlit-free data/chart layer
+  `app.py` and the new API both import from. `src/tradefabe/api/` is a thin FastAPI read
+  layer over it. `frontend/` (Vite/React/TS/Tailwind/Framer Motion) is one placeholder
+  screen so far, not a real page. Spec/plan in
+  `docs/superpowers/{specs,plans}/*dashboard-foundation*`.
 - **`tests/`** — pyproject's `pythonpath = [".", "research"]` is what makes `import harness` /
   `import factory_run` resolve under pytest.
 - **`graveyard.csv`** — the verdict ledger, every strategy ever evaluated. **Tracked in git**;
@@ -96,8 +104,13 @@ ops/setup_venv.sh                   # rebuild the venv (refuses to build inside 
 .venv/bin/pytest tests/ -n0         # serial — for readable tracebacks / --pdb / -x
 PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" \
   .venv/bin/python research/factory_run.py --n 20   # one factory cycle by hand
+
+# Dashboard rebuild (see Layout) -- optional, only needed for that work:
+.venv/bin/pip install -e ".[dev,desktop,api]"   # adds the api extra to the line above
+.venv/bin/tradefabe-api             # FastAPI dev server, localhost:8000
+cd frontend && npm run dev          # Vite dev server, localhost:5173 -- placeholder screen only
 ```
-`PYTHONPATH` is needed only for that last line (`factory_run.py` imports the repo-root
+`PYTHONPATH` is needed only for the factory-run line (`factory_run.py` imports the repo-root
 `harness` and `research/piggyback_backtest`, which only pytest resolves for you).
 
 Anything that appends to `graveyard.csv` writes a permanent multiple-testing record. **One
