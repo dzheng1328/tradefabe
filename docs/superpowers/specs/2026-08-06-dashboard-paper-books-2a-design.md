@@ -119,6 +119,25 @@ once built — no new endpoint, no versioning scheme needed for that transition.
 
 ### `dashboard.py` changes
 
+- **The seven remaining `@st.cache_data` loaders `app.py` still holds** —
+  `load_backtest`, `load_piggyback_backtest`, `load_factory_backtest`,
+  `load_pipeline_backtest`, `load_hourly_backtest`, `load_kronos_backtest`,
+  `load_price_snapshot` — **move to `dashboard.py`, undecorated**, discovered necessary
+  during planning: `book_panel_data()` needs `full`/`meta`/`gy_last`/`piggy`/
+  `factory_bt`/`hourly_bt`/`kronos_bt`/`pipeline_bt`/`price_now`/`price_date` for ANY
+  book regardless of origin, and none of those were reachable from `src/tradefabe/api/`
+  before this — sub-project 1's Task 1 deliberately left them in `app.py` since its one
+  placeholder endpoint only needed `load_paper_state()`. Same precedent already applied
+  to `load_carry_backtest`: decorator dropped on move, same small-file cost class.
+- **New `latest_verdicts(gy: pd.DataFrame) -> pd.DataFrame`**, extracting
+  `gy.drop_duplicates("strategy", keep="last").set_index("strategy")` — currently
+  duplicated verbatim at two call sites in `app.py` (`render_research_lab` and the
+  module-level entry point) and needed a third time by the API. Same
+  reuse-not-reimplement reasoning as `book_colors()` below.
+- **New `available_windows(live_hist: pd.Series) -> list[str]`**, extracting the
+  range-option-filtering list comprehension currently inlined in
+  `render_strategy_panel` — the `/detail` endpoint needs the same "which windows are
+  meaningful for this book's live-history span" logic the row-list range control uses.
 - **New `book_colors(names: list[str]) -> dict[str, str]`**, extracting the
   `{name: SLOTS[i % len(SLOTS)] for i, name in enumerate(names)}` line currently
   inlined in `app.py`'s `render_paper_books`. Both the row list and the detail-panel
