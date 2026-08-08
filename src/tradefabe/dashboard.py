@@ -51,6 +51,91 @@ def load_carry_backtest():
     return curve.iloc[:, 0].rename("carry_net"), meta
 
 
+def load_backtest():
+    full = pd.read_csv(os.path.join(ART, "full_returns.csv"), index_col=0, parse_dates=True)
+    with open(os.path.join(ART, "meta.json")) as fh:
+        meta = json.load(fh)
+    nulls = {k: v for k, v in np.load(os.path.join(ART, "nulls.npz")).items()}
+    gy = pd.read_csv(os.path.join(BASE, "graveyard.csv"))
+    return full, meta, nulls, gy
+
+
+def load_piggyback_backtest():
+    """Backtest OOS returns for the 4 piggyback constructions (research/piggyback_backtest.py),
+    same shape as full_returns.csv's columns but kept separate since it's a different study
+    (constructions, not bare strategies) that can be rerun independently. None if not yet run."""
+    path = os.path.join(ART, "piggyback_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+def load_factory_backtest():
+    """Backtest OOS returns for PROMOTED strategy-factory candidates (#28b) --
+    research/factory_run.py persists one column here only for whichever candidate wins a
+    cycle (not all 20/day tested -- a DEAD, never-promoted candidate doesn't need a
+    curve on disk; #31's DEAD-strategy detail view already falls back to summary-stats-
+    only for those). A live book with no entry in full_returns.csv OR piggyback_returns.csv
+    needs this to have a backtest curve at all -- see book_panel_data(). None if no
+    factory candidate has ever been promoted yet."""
+    path = os.path.join(ART, "factory_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+def load_pipeline_backtest():
+    """Backtest OOS returns for PROMOTED research-pipeline candidates (#180) -- same shape
+    and same reasoning as load_factory_backtest(): research/pipeline_verdict.py persists
+    one column here only for a candidate that actually gets promoted (OOS-ALIVE and under
+    the pipeline's own cap), not every pre-registered candidate it ever OOS-tests. A live
+    pipeline book with no entry here has no backtest curve at all -- see
+    book_panel_data(). None if no pipeline candidate has ever been promoted yet."""
+    path = os.path.join(ART, "pipeline_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+def load_hourly_backtest():
+    """Backtest OOS returns for family L, the hourly strategies (research/hourly_backtest.py,
+    #86). A fourth curve source beside full/piggyback/factory: these are daily-AGGREGATED
+    series (the study generates hourly returns then compounds them per day, so ANN=252 and
+    the 60/40 benchmark stay comparable), and they live in their own artifact because the
+    study fetches its own snapshotted hourly bars rather than harness.py's daily cache.
+    None if the study hasn't been run."""
+    path = os.path.join(ART, "hourly_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+def load_kronos_backtest():
+    """Backtest OOS returns for family M, the Kronos candidates (research/kronos_backtest.py,
+    #105). A FIFTH curve source beside full/piggyback/factory/hourly.
+
+    Its own artifact for a reason that matters when reading the chart: these series start at
+    2025-06-05, the model's pretraining cutoff, not at 2018. Everything before that is
+    contaminated -- the model's weights already saw those bars -- so a family M curve cannot
+    be stored in a 2018-based file without putting contaminated bars on a chart labelled
+    "backtest", which is the one place they could quietly become evidence. The stored curve is
+    sliced at the cutoff by the study itself. None if the study hasn't been run."""
+    path = os.path.join(ART, "kronos_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+def load_price_snapshot():
+    """Last cached close per ticker, for pricing open paper positions in the UI. Not a
+    live quote — the caption on the positions table says so."""
+    path = os.path.join(BASE, "data", "prices.csv")
+    if not os.path.exists(path):
+        return None, None
+    px = pd.read_csv(path, index_col=0, parse_dates=True)
+    return px.iloc[-1], px.index[-1]
+
+
 def load_paper_state():
     """Deliberately uncached (small files, changes daily) so a page refresh always shows
     the latest `tradefabe run` cycle."""
@@ -154,7 +239,8 @@ def themed_layout(**overrides):
 
 # ==================================================================== per-book normalization
 def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, piggy=None,
-                    factory_bt=None, hourly_bt=None, kronos_bt=None, pipeline_bt=None):
+                    factory_bt=None, hourly_bt=None, kronos_bt=None, pipeline_bt=None,
+                    compute_positions=True):
     """Normalize a live paper book into one shape the panel can render, regardless of
     whether it's an equity-signal book (backtest in full_returns.csv, real ticker
     positions), a piggyback construction (backtest in piggyback_returns.csv, same
@@ -222,7 +308,7 @@ def book_panel_data(name, phist, full, meta, gy_last, price_now, price_date, pig
     # compute the untouched STARTING cash forever, not the real accrued equity (#149).
     # They still keep `kind == "equity"` for everything else (verdict badge, backtest
     # curve sourcing) -- only this specific figure needs the carve-out.
-    if kind == "equity" and name not in ACCRUAL_ONLY_BOOKS:
+    if compute_positions and kind == "equity" and name not in ACCRUAL_ONLY_BOOKS:
         book = load_book_json(name)
         cash = float((book or {}).get("cash", 0.0))
         # The LEDGER's own prices first (#109). data/prices.csv is gitignored, so it is
@@ -569,6 +655,32 @@ def book_family(name):
     if pipe:
         return pipe["family"]
     return "?"
+
+
+def book_colors(names: list[str]) -> dict[str, str]:
+    """One stable color per book, cycling through SLOTS by position in `names`. Shared
+    by the row list and the detail-panel chart so the same book always gets the same
+    color wherever it's drawn -- extracted from what was an inline dict comprehension
+    duplicated across render call sites in app.py before this."""
+    return {n: SLOTS[i % len(SLOTS)] for i, n in enumerate(names)}
+
+
+def latest_verdicts(gy: pd.DataFrame) -> pd.DataFrame:
+    """graveyard.csv can log more than one row per strategy over time (re-runs under
+    doctrine v1.5's segregated n_tested); this keeps only the most recent verdict per
+    strategy, indexed by name for O(1) `.loc[name]` lookups -- the shape book_panel_data,
+    group_books_by_family, and sort_books_flat all expect as `gy_last`."""
+    return gy.drop_duplicates("strategy", keep="last").set_index("strategy")
+
+
+def available_windows(live_hist: pd.Series) -> list[str]:
+    """Which range-control options are meaningful for this book's live history --
+    narrower than its actual span reads as a real choice, wider is a no-op that would
+    just show 'ALL' again under a misleading label. 'ALL' is always available."""
+    if live_hist.empty:
+        return ["ALL"]
+    span = live_hist.index[-1] - live_hist.index[0]
+    return [w for w in RANGE_WINDOWS if span >= RANGE_WINDOWS[w]] + ["ALL"]
 
 
 REVIEW_AGE_DAYS = 60   # #147 -- how long a factory-promoted book monitors before it

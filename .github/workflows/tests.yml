@@ -35,3 +35,26 @@ jobs:
       - name: Run tests
         # not -v: 285 lines of PASSED is noise, and the failure output is unchanged.
         run: pytest
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # NOT 20: jsdom 30 (and its undici dependency) require Node
+          # ^22.22.2 || ^24.15.0 || >=26.0.0 -- 20 fails to even import jsdom. 22 is
+          # also the floor for the `test` script's --no-experimental-webstorage flag
+          # (Node's own experimental global localStorage shadows jsdom's real one
+          # without it; the flag itself doesn't exist before Node 22, confirmed
+          # against a real Node 20 and Node 22 binary before picking this version).
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Run tests
+        run: npm test

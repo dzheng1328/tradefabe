@@ -35,7 +35,8 @@ app.py             Streamlit dashboard, still the only LIVE UI (desktop app + lo
 src/tradefabe/
   dashboard.py     Streamlit-free data/chart layer app.py imports from -- single source of
                    truth for the dashboard-rebuild work below, same pattern as engine.py.
-  api/             thin FastAPI read layer over dashboard.py (`GET /api/books/summary` so
+  api/             thin FastAPI read layer over dashboard.py (`GET /api/books/summary`,
+                   `GET /api/books/up_for_review`, `GET /api/books/{name}/detail` so
                    far). Not wired into the desktop app yet.
 frontend/          Vite/React/TS/Tailwind/Framer Motion -- the dashboard rebuild's new UI.
                    Dark/lime/26px-radius theme landed; currently one placeholder screen,

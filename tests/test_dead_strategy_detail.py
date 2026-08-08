@@ -102,7 +102,9 @@ def test_family_l_hourly_strategies_resolve_a_backtest_curve():
     chart at all in the detail view. Same class of gap as the live-book one CLAUDE.md
     documents: a new source that can produce a graveyard row needs its own curve story."""
     import os
-    hourly = app.load_hourly_backtest.__wrapped__()
+    # load_hourly_backtest moved to dashboard.py undecorated (2a Task 1, same precedent
+    # as load_carry_backtest in sub-project 1) -- no more @st.cache_data wrapper to unwrap.
+    hourly = app.load_hourly_backtest()
     if hourly is None:
         pytest.skip("hourly study not run here")
     empty = pd.DataFrame()
