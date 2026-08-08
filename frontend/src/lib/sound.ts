@@ -120,3 +120,11 @@ export function playDataLanded() {
   if (!isSoundEnabled()) return;
   thunk(160, 0.14, 0.045);
 }
+
+// Quiet sting on the intro sequence's settle (idea #5) -- softer and slower than any
+// interaction sound, since it plays once per session unprompted rather than in
+// response to a click.
+export function playIntroSettle() {
+  if (!isSoundEnabled()) return;
+  blip(660, 0.4, 0.025);
+}

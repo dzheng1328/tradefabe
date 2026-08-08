@@ -17,3 +17,4 @@ Built ops/ui_plan.py -- AXI-standard CLI over ops/ui_plan_data.json (TOON output
 Phase 1.1: started -- ParticleField component + tests
 Phase 1.1: complete -- ParticleField component + tests
 Phase 1.2: complete -- Deeper sound design
+Phase 1.3: complete -- Intro/reveal sequence

@@ -3,6 +3,7 @@ import Nav from "./components/Nav";
 import RowList from "./components/RowList";
 import DetailPanel from "./components/DetailPanel";
 import ParticleField from "./components/ParticleField";
+import Intro from "./components/Intro";
 
 function BooksLayout() {
   const { name } = useParams();
@@ -40,6 +41,7 @@ export default function App() {
   return (
     <>
       <ParticleField />
+      <Intro />
       <Routes>
         <Route path="/" element={<Navigate to="/books" replace />} />
         <Route path="/books" element={<BooksIndexRedirect />} />

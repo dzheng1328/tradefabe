@@ -146,4 +146,21 @@ describe("layered sound design", () => {
     expect(mockCtx.createOscillator).not.toHaveBeenCalled();
     expect(mockCtx.createBufferSource).not.toHaveBeenCalled();
   });
+
+  it("playIntroSettle plays a single quiet tone, quieter than the row-select blip", async () => {
+    const { playIntroSettle } = await import("./sound");
+    playIntroSettle();
+    expect(mockCtx.createOscillator).toHaveBeenCalledTimes(1);
+    const gain = mockCtx.createGain.mock.results[0]!.value as MockGainNode;
+    expect(gain.gain.linearRampToValueAtTime).toHaveBeenCalled();
+    const [peakGain] = gain.gain.linearRampToValueAtTime.mock.calls[0]!;
+    expect(peakGain).toBeLessThan(0.05); // quieter than playSelect's 0.05 peak
+  });
+
+  it("playIntroSettle stays silent when sound is muted", async () => {
+    setSoundEnabled(false);
+    const { playIntroSettle } = await import("./sound");
+    playIntroSettle();
+    expect(mockCtx.createOscillator).not.toHaveBeenCalled();
+  });
 });
