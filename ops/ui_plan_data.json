@@ -1,0 +1,429 @@
+{
+  "gameplan": ".lavish/ui-implementation-gameplan.html",
+  "backlog": ".lavish/visual-language-idea-backlog.html",
+  "phases": [
+    {
+      "id": "0",
+      "title": "Spike: particle system + intro feel",
+      "kind": "spike",
+      "depends_on": [],
+      "idea_refs": [
+        1,
+        6,
+        20,
+        50
+      ],
+      "files": [
+        "scratch only -- .lavish/, never committed"
+      ],
+      "summary": "Throwaway prototype validating the particle field, particle-ring loader, and one intro-assembly animation before committing to a real spec. Same precedent as 2a's pre-implementation Plotly spike.",
+      "steps": [
+        {
+          "id": "0.1",
+          "title": "Ambient particle-field prototype",
+          "status": "done",
+          "detail": "Build a scratch canvas particle-field prototype: sparse accent-green (#9fe870) dots on #0d0f0c, slow drift, no layout-affecting properties (transform/opacity only). Validates ideas #6-9 (ambient generative background). Not a React component yet -- vanilla canvas/JS is fine, this is throwaway."
+        },
+        {
+          "id": "0.2",
+          "title": "Particle-ring loader prototype",
+          "status": "done",
+          "detail": "Build a particle-ring loader: dots assemble into a ring/torus shape and loop, matching the shape observed in inspo2's dot-ring frame. Validates idea #20 (replaces the plain 'Loading...' text). Reuses 0.1's particle primitives."
+        },
+        {
+          "id": "0.3",
+          "title": "Intro-sequence prototype",
+          "status": "done",
+          "detail": "Build one intro sequence: the tradefabe wordmark assembles from scattered drifting particles, a single bold headline reveals word-by-word, then settles/fades into a mock row-list backdrop. Validates ideas #1-2 and #4 (session-gated, overlaps the first fetch)."
+        },
+        {
+          "id": "0.4",
+          "title": "Live review with Dave",
+          "status": "done",
+          "detail": "Open the three prototypes as a lavish artifact for a live reaction: does this feel good or distracting? Capture verdict and any parameter adjustments (particle count, speed, colors, timing, duration) before Phase 1's real spec is written."
+        },
+        {
+          "id": "0.5",
+          "title": "Discard the spike",
+          "status": "done",
+          "detail": "Never commit the spike code. Carry forward only the specific parameters that worked (from 0.4) into Phase 1's real implementation. Delete or leave untracked under .lavish/ (already gitignored)."
+        }
+      ],
+      "validated_params": {
+        "note": "Dave's approved slider values from the live review, 2026-08-08. These are the numbers Phase 1's real ParticleField / ring loader / Intro components should start from.",
+        "ambient_field": {
+          "particle_count": 211,
+          "drift_speed": 0.046,
+          "dot_size": 1.2,
+          "twinkle_amount": 0.15
+        },
+        "ring_loader": {
+          "dot_count": 64,
+          "ring_radius_px": 76,
+          "loop_duration_ms": 2700,
+          "wave_depth_px": 9
+        },
+        "intro_sequence": {
+          "assembly_duration_ms": 1200,
+          "headline_reveal_delay_ms": 1000,
+          "hold_before_settle_ms": 1100,
+          "settle_fade_ms": 600
+        },
+        "techniques_to_carry_forward": [
+          "ambient field: per-particle wander force + drag (not constant-velocity linear drift), depth-based parallax, spatial-grid constellation network (connectDots), additive glow via globalCompositeOperation='lighter' + radial-gradient dots",
+          "ring loader: damped spring toward rotating ring target (semi-implicit Euler) instead of snapping to trig position, neighboring dots connected into a glowing outline",
+          "intro: easeOutBack (slight overshoot-and-settle) instead of easeOutCubic; constellation lines between in-flight particles while assembleT < 1; must sample getImageData using the canvas's actual INTEGER pixel dims, not float CSS w/h (real bug hit during the spike)"
+        ],
+        "skill_used": "iart-ai/webgl-animation-skills@particle-system, installed project-scoped at .agents/skills/particle-system"
+      }
+    },
+    {
+      "id": "1",
+      "title": "Shell & foundation",
+      "kind": "foundation",
+      "depends_on": [
+        "0"
+      ],
+      "idea_refs": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        37,
+        38,
+        41,
+        43
+      ],
+      "files": [
+        "frontend/src/index.css",
+        "frontend/src/lib/motion.ts",
+        "frontend/src/lib/sound.ts",
+        "frontend/src/components/Nav.tsx",
+        "frontend/src/App.tsx",
+        "frontend/tailwind.config.js"
+      ],
+      "summary": "App-shell-level visual language: real particle background replacing the flat grain overlay, deeper haptic sound design, the intro sequence, brand glyph, leaned-in accent color. Everything downstream (Phase 2/3/4) inherits this for free once it ships.",
+      "steps": [
+        {
+          "id": "1.1",
+          "title": "ParticleField component + tests",
+          "status": "pending",
+          "detail": "Write failing Vitest tests for the particle math (generation, drift step function) as pure functions, then implement a ParticleField component using the parameters validated in Phase 0. Mount it in App.tsx replacing .grain-overlay. Must freeze to a static frame under prefers-reduced-motion (not just slow down) and stay compositor-only (transform/opacity)."
+        },
+        {
+          "id": "1.2",
+          "title": "Deeper sound design",
+          "status": "pending",
+          "detail": "Extend sound.ts: layer a noise-shaped texture under playSelect/playRangeChange (idea #11), give playDataLanded a lower 'thunk' character (idea #12). Write tests mirroring sound.test.ts's existing AudioContext-mocking style. Idea #13 (per-family pitch nudge) and #14 (opt-in ambient drone, likely skip) are optional stretch within this step."
+        },
+        {
+          "id": "1.3",
+          "title": "Intro/reveal sequence",
+          "status": "pending",
+          "detail": "Build Intro.tsx using Phase 0's validated parameters, mounted once per session (sessionStorage-gated) in App.tsx. Must overlap the first GET /api/books/summary fetch, not add latency on top of it (idea #4). Ends with a quiet sound sting on settle (idea #5)."
+        },
+        {
+          "id": "1.4",
+          "title": "Brand glyph + sound-toggle pulse",
+          "status": "pending",
+          "detail": "Add the crossed-circle glyph motif (idea #41) to Nav.tsx and reuse it as the particle-ring loader's shape (ties to Phase 3's loading state). Add a subtle pulse on the Sound toggle when enabled and about to play (idea #43)."
+        },
+        {
+          "id": "1.5",
+          "title": "Accent color + surface texture",
+          "status": "pending",
+          "detail": "Lean into the existing accent green (#9fe870) with a secondary tint token in tailwind.config.js (idea #37). Add a subtle organic texture to bg-surface via a cheap repeating SVG pattern (idea #38), not a flat fill."
+        },
+        {
+          "id": "1.6",
+          "title": "Accessibility + performance audit",
+          "status": "pending",
+          "detail": "Run fixing-motion-performance and fixing-accessibility skills against everything in this phase before merge. Confirm reduced-motion and audio-off states are equivalent experiences, not degraded ones (gates from ideas #46-48)."
+        },
+        {
+          "id": "1.7",
+          "title": "Suites + PR",
+          "status": "pending",
+          "detail": "npm test, npm run build, pytest tests/ -n0 all green. Branch + PR per CLAUDE.md's git workflow, never push to main."
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Row list polish",
+      "kind": "independent",
+      "depends_on": [
+        "1"
+      ],
+      "idea_refs": [
+        21,
+        22,
+        28,
+        29,
+        30,
+        31,
+        32,
+        42,
+        44
+      ],
+      "files": [
+        "frontend/src/components/RowList.tsx",
+        "frontend/src/components/RowList.test.tsx"
+      ],
+      "summary": "Pure RowList.tsx work, zero shared code with DetailPanel or 2b. Sequenced after Phase 1 to inherit the new sound/spring feel, not because of a hard dependency -- could run in parallel with Phase 3 if ever resourced separately.",
+      "steps": [
+        {
+          "id": "2.1",
+          "title": "Failing tests for the new interactions",
+          "status": "pending",
+          "detail": "Extend RowList.test.tsx with failing tests for: FLIP reorder on sort change, hover-lift, family-underline draw-in, up-for-review badge pulse, skeleton loading rows, sparkline end-dot, born-book burst."
+        },
+        {
+          "id": "2.2",
+          "title": "Family-header underline + hover lift",
+          "status": "pending",
+          "detail": "Idea #28: thin per-family accent underline draws in on first render. Idea #32: row hover gains translateY(-1px) + soft shadow instead of only a background tint."
+        },
+        {
+          "id": "2.3",
+          "title": "Up-for-review badge pulse",
+          "status": "pending",
+          "detail": "Idea #29: badge count pulses once when it changes between visits. Needs a previous-count comparison (e.g. localStorage) so it only pulses on an actual change, not every render."
+        },
+        {
+          "id": "2.4",
+          "title": "FLIP reorder on sort switch",
+          "status": "pending",
+          "detail": "Idea #30: sort-mode switch animates row reordering (FLIP-style position transition via Framer Motion layout animations) instead of an instant re-render."
+        },
+        {
+          "id": "2.5",
+          "title": "carry_btc_eth featured treatment",
+          "status": "pending",
+          "detail": "Idea #31: the one strategy that's cleared doctrine gets a subtly distinct row treatment, echoing Wise's differently-styled chip inside a repeating row. Keep it subtle -- not a second visual language, one accent difference."
+        },
+        {
+          "id": "2.6",
+          "title": "Skeleton rows + empty-state polish",
+          "status": "pending",
+          "detail": "Idea #21: ghost-row skeleton placeholders while loading, using bg-surface, instead of a blank 'Loading...' flash. Idea #22: lighter-weight treatment for a partially-populated 'Up for review' state (today's fully-empty state is already correctly hidden -- leave that as is)."
+        },
+        {
+          "id": "2.7",
+          "title": "Sparkline end-dot + born-book burst",
+          "status": "pending",
+          "detail": "Idea #42: small colored dot as the literal end-marker on each sparkline. Idea #44: brief monochrome-accent burst the first time a brand-new paper book appears in the row list, tied to a real event (a book not seen before, tracked via localStorage), not decoration for its own sake."
+        },
+        {
+          "id": "2.8",
+          "title": "Suites + PR",
+          "status": "pending",
+          "detail": "npm test, npm run build green. Branch + PR."
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Detail panel visual-language upgrade",
+      "kind": "crux",
+      "depends_on": [
+        "1"
+      ],
+      "idea_refs": [
+        16,
+        17,
+        18,
+        19,
+        20,
+        23,
+        25,
+        26,
+        27,
+        33,
+        35,
+        36,
+        45
+      ],
+      "files": [
+        "frontend/src/components/DetailPanel.tsx",
+        "frontend/src/components/RangeControl.tsx",
+        "frontend/src/lib/plotlyDarkTheme.ts",
+        "frontend/src/components/DetailPanel.test.tsx"
+      ],
+      "summary": "The actual merge point Dave asked for: every idea that upgrades content 2a already shipped in DetailPanel.tsx, done BEFORE sub-project 2b adds a second section to that same component. 2b then ships once, natively in this finished style.",
+      "steps": [
+        {
+          "id": "3.1",
+          "title": "Failing tests for the new treatments",
+          "status": "pending",
+          "detail": "Extend DetailPanel.test.tsx with failing tests for: stat-tile rendering with the new style, verdict-stamp animation trigger (once per session per book), retired-frozen treatment, freshness ticker, divergence-status pulse, blurb word-reveal."
+        },
+        {
+          "id": "3.2",
+          "title": "Stat-tile depth treatment",
+          "status": "pending",
+          "detail": "Idea #33: the 6 existing stat tiles (Sharpe/Sortino/Calmar/MaxDD/CAGR/Vol) get individual subtle depth/border-glow instead of flat text in a row. THIS is what 2b's new 'Capital deployed' stat row (Phase 4) will reuse verbatim -- get the component/class reusable, not DetailPanel-specific inline styles."
+        },
+        {
+          "id": "3.3",
+          "title": "Oversized-number + typography motion",
+          "status": "pending",
+          "detail": "Idea #17: one number per view (today's equity) gets Wise-style oversized treatment vs. the other 5 stats. Idea #16: blurb reveals word-by-word on selection using the shared SPRING config. Idea #18: section headers get a subtle letter-spacing/opacity entrance."
+        },
+        {
+          "id": "3.4",
+          "title": "Verdict stamp + retired-frozen treatment",
+          "status": "pending",
+          "detail": "Idea #35: verdict badge (DEAD/ALIVE) gets a one-time 'stamp' animation on first render per session -- quick scale-in + slight rotation. Idea #36: retired-book panels get a 'frozen' desaturation/texture treatment, reinforcing that a retired ledger's record is deliberately frozen."
+        },
+        {
+          "id": "3.5",
+          "title": "Range-control feel + freshness/divergence indicators",
+          "status": "pending",
+          "detail": "Idea #25: RangeControl buttons get a tactile press (slight depress + spring release). Idea #26: a live 'as of Xs ago' mono-digit freshness indicator near the equity number. Idea #27: divergence-status badge pulses with a subtle glow when 'diverging'."
+        },
+        {
+          "id": "3.6",
+          "title": "Loading state + route transition",
+          "status": "pending",
+          "detail": "Idea #20: replace 'Loading...' with Phase 1's particle-ring loader. Idea #23: crossfade detail-panel content on /books/:name selection change instead of a hard swap."
+        },
+        {
+          "id": "3.7",
+          "title": "Chart tooltip restyle",
+          "status": "pending",
+          "detail": "Idea #45: restyle the Plotly tooltip/hover crosshair with the mono font + accent color in plotlyDarkTheme.ts, which already exists as the place to add it."
+        },
+        {
+          "id": "3.8",
+          "title": "Suites + PR",
+          "status": "pending",
+          "detail": "npm test, npm run build, pytest tests/ -n0 (no backend changes expected, run for safety) all green. Branch + PR."
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Sub-project 2b: positions / trade log / risk panel",
+      "kind": "content",
+      "depends_on": [
+        "3"
+      ],
+      "idea_refs": [
+        34
+      ],
+      "files": [
+        "frontend/src/components/DetailPanel.tsx (extends)",
+        "frontend/src/components/PositionsTable.tsx (new, if DetailPanel grows too large)",
+        "frontend/src/components/TradeLog.tsx (new, if split out)",
+        "frontend/src/components/RiskPanel.tsx (new, if split out)",
+        "src/tradefabe/api/main.py (verify only -- data already exposed via compute_positions)"
+      ],
+      "summary": "Full parity with today's Streamlit render_strategy_panel, Option A layout (continuous scroll below the backtest-history expander -- Dave's explicit pick). Built on Phase 3's finished visual language so nothing here gets restyled later.",
+      "steps": [
+        {
+          "id": "4.1",
+          "title": "Verify backend coverage",
+          "status": "pending",
+          "detail": "Confirm GET /api/books/{name}/detail already returns positions_df/deployment/trades_df/carry_risk data via the existing compute_positions flag (dashboard.py book_panel_data()). Add any missing API test coverage in tests/test_api_book_detail.py. Expect NO new backend endpoints -- 2a's spec deliberately designed the response shape to be additive here."
+        },
+        {
+          "id": "4.2",
+          "title": "Failing frontend tests",
+          "status": "pending",
+          "detail": "Write failing tests for the new positions table, trade log, and risk-monitor/risk-register rendering, covering both equity-book and carry-book kinds."
+        },
+        {
+          "id": "4.3",
+          "title": "Capital deployed stat row",
+          "status": "pending",
+          "detail": "Cash / gross / net / total-equity stat row for equity books, using Phase 3.2's stat-tile component directly -- not a new styled block."
+        },
+        {
+          "id": "4.4",
+          "title": "Positions table with weight-bar",
+          "status": "pending",
+          "detail": "Idea #34: current-positions table (ticker/units/last/value/weight) with a thin colored left-edge bar sized to |weight| built in from the start -- this is the same piece of work as building the table, not a follow-up."
+        },
+        {
+          "id": "4.5",
+          "title": "Trade log table",
+          "status": "pending",
+          "detail": "Fill log (when/ticker/side/delta-units/fill/notional/position-after), matching app.py's render_trade_log semantics (ACCRUAL_ONLY_BOOKS caption, 500-row cap, position-view side naming)."
+        },
+        {
+          "id": "4.6",
+          "title": "Risk-monitor panel (carry book)",
+          "status": "pending",
+          "detail": "Funding-flip alerts per coin, 7d funding, leverage/liq-distance table pivoted by posture (10/25/50/100%), high-risk alert banner -- matching app.py's render_carry_risk_panel."
+        },
+        {
+          "id": "4.7",
+          "title": "Risk-register panel (carry book)",
+          "status": "pending",
+          "detail": "Expandable entries (severity badge, measured/cited tag, likelihood, impact, detail, source) -- matching app.py's render_risk_register."
+        },
+        {
+          "id": "4.8",
+          "title": "Wire Option A layout",
+          "status": "pending",
+          "detail": "Append all of the above below the existing backtest-history expander in DetailPanel, continuous scroll -- Dave's confirmed layout choice over the expander-based alternative."
+        },
+        {
+          "id": "4.9",
+          "title": "Manual full-stack smoke test + PR",
+          "status": "pending",
+          "detail": "Same rigor as sub-project 2a's Task 9: both dev servers, walk positions/trades/risk-panel for at least one equity book and the carry book, confirm dark-theme charts, confirm no regression in 2a's existing golden path. pytest + npm test green. Branch + PR, file the 2b issue if not already filed."
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Cross-cutting polish",
+      "kind": "polish",
+      "depends_on": [
+        "2",
+        "4"
+      ],
+      "idea_refs": [
+        24
+      ],
+      "files": [
+        "frontend/src/components/RowList.tsx",
+        "frontend/src/components/DetailPanel.tsx"
+      ],
+      "summary": "The one idea that touches both RowList (Phase 2) and DetailPanel (Phase 3/4) -- needs both stable first. Delight-tier, not load-bearing.",
+      "steps": [
+        {
+          "id": "5.1",
+          "title": "Sparkline-to-chart morph",
+          "status": "pending",
+          "detail": "Idea #24: clicking a row's tiny sparkline visually grows into the big Plotly chart (shared-element transition) rather than an unrelated redraw. Highest integration risk of any idea in the backlog -- prototype as a spike first if it fights Framer Motion's layout animation model."
+        },
+        {
+          "id": "5.2",
+          "title": "Suites + PR",
+          "status": "pending",
+          "detail": "npm test, npm run build green. Branch + PR."
+        }
+      ]
+    }
+  ],
+  "not_scheduled": [
+    {
+      "idea_ref": 14,
+      "reason": "Opt-in ambient drone/pad -- flagged in the original backlog as 'likely a no'. Revisit only if Dave asks for it explicitly."
+    }
+  ]
+}
