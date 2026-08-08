@@ -73,7 +73,13 @@ jobs:
   pipeline_daily:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 (full history) -- the default shallow (depth 1) clone left
+      # `git merge-base main claude/*` with nothing to compare against once a routine
+      # branch diverged more than one commit back, crashing the merge step (and every
+      # step after it, including screening) on 2026-08-06 and 2026-08-07.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
