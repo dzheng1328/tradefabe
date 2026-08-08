@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import type { SyntheticEvent } from "react";
 import { motion } from "framer-motion";
 import type { Data } from "plotly.js";
 import RangeControl from "./RangeControl";
-import { SPRING } from "../lib/motion";
-import { playDataLanded } from "../lib/sound";
+import { prefersReducedMotion, SPRING } from "../lib/motion";
+import { playDataLanded, playRangeChange } from "../lib/sound";
 
 // plotly.js alone is ~1.5MB gzipped -- lazy-loading keeps it out of the initial
 // bundle (RowList/Nav/routing shell) and fetches it only once a book is actually
@@ -43,12 +44,38 @@ export default function DetailPanel({ name }: { name: string }) {
   // a book already open" (RangeControl's own click sound already covers that feedback;
   // playing both would double up).
   const isInitialLoad = useRef(true);
+  const backtestDetailsRef = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
     setData(null);
     setWindow("ALL");
     isInitialLoad.current = true;
   }, [name]);
+
+  // Native <details> fires onToggle for both open AND close -- only the reveal gets
+  // a sound (idea #43's "about to play" spirit: closing isn't a new thing appearing).
+  // The chart it reveals sits right at/below the fold, so without the scroll it's easy
+  // to miss that anything happened at all.
+  //
+  // The backtest PlotlyChart is already mounted (React renders <Suspense> content
+  // regardless of <details>'s native open/closed display), just hidden -- so opening
+  // reveals a real container size for the first time, and react-plotly.js's own
+  // ResizeObserver relayouts it right then. Starting a smooth-scroll animation in that
+  // same tick let the scroll and Plotly's resize/redraw fight over layout on every
+  // frame and pegged the main thread hard enough to freeze the tab (reproduced twice
+  // live). Deferring two animation frames lets that resize settle before scrolling.
+  function handleBacktestToggle(e: SyntheticEvent<HTMLDetailsElement>) {
+    if (!e.currentTarget.open) return;
+    playRangeChange();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        backtestDetailsRef.current?.scrollIntoView({
+          behavior: prefersReducedMotion() ? "auto" : "smooth",
+          block: "start",
+        });
+      });
+    });
+  }
 
   useEffect(() => {
     fetch(`http://localhost:8000/api/books/${name}/detail?window=${window}`)
@@ -114,7 +141,11 @@ export default function DetailPanel({ name }: { name: string }) {
         </Suspense>
       </div>
 
-      <details className="mt-6 pt-6 border-t border-white/5">
+      <details
+        ref={backtestDetailsRef}
+        className="mt-6 pt-6 border-t border-white/5"
+        onToggle={handleBacktestToggle}
+      >
         <summary className="text-sm text-ink cursor-pointer">
           Backtest history & live tracking check
         </summary>

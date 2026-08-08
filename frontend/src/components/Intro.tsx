@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { playIntroSettle } from "../lib/sound";
+import { prefersReducedMotion } from "../lib/motion";
 import { assembleParticlePosition, sampleTextTargets, type TargetPoint } from "../lib/introTargets";
 
 const STORAGE_KEY = "tradefabe.intro.shown";
@@ -9,10 +10,6 @@ const TIMING = { assemblyMs: 1200, headlineDelayMs: 1000, holdMs: 1100, settleFa
 const ACCENT_RGB = "159, 232, 112"; // tailwind.config.js `accent` (#9fe870)
 
 type Phase = "assembling" | "headline" | "settling" | "done";
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-}
 
 // Renders the wordmark to an offscreen canvas and reads back its alpha channel to
 // find target points -- sampled using the canvas's actual INTEGER pixel dims (see

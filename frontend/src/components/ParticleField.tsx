@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { connectDots, createParticles, stepParticle, twinkleAlpha, type Particle } from "../lib/particles";
+import { prefersReducedMotion } from "../lib/motion";
 
 // Phase 0's validated_params (ops/ui_plan_data.json) read as too static and too bright
 // once seen live behind real row-list content -- links spanned huge sparse triangles
@@ -10,10 +11,6 @@ import { connectDots, createParticles, stepParticle, twinkleAlpha, type Particle
 const PARAMS = { count: 390, driftSpeed: 0.48, dotSize: 0.85, twinkleAmount: 0.1 };
 const LINK_DISTANCE = 85;
 const ACCENT_RGB = "159, 232, 112"; // tailwind.config.js `accent` (#9fe870) as an rgb triplet
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-}
 
 function renderFrame(
   ctx: CanvasRenderingContext2D,
