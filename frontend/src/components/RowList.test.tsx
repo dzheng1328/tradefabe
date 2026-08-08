@@ -4,6 +4,12 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RowList from "./RowList";
 
+const navigateMock = vi.fn();
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
+  return { ...actual, useNavigate: () => navigateMock };
+});
+
 const FAMILY_RESPONSE = {
   families: [
     {
@@ -38,6 +44,7 @@ function mockFetchSequence() {
 
 beforeEach(() => {
   globalThis.fetch = mockFetchSequence();
+  navigateMock.mockClear();
 });
 
 afterEach(() => {
@@ -86,6 +93,40 @@ describe("RowList", () => {
       const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
       expect(calls.some((u) => String(u).includes("show_monitor_only=false"))).toBe(true);
     });
+  });
+
+  it("redirects to a still-visible book when the selected one is filtered out", async () => {
+    globalThis.fetch = vi.fn((url: string) => {
+      if (url.includes("up_for_review")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(UP_FOR_REVIEW_RESPONSE) });
+      }
+      // tsmom_12m (the currently-selected book) is absent -- as if it was just
+      // filtered out by unchecking "Show monitor-only".
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            families: [
+              {
+                family: "D", label: "Carry",
+                books: [
+                  { book: "carry_btc_eth", equity: 112003, return: 0.12, last_run: "2026-08-06",
+                    retired_at: null, family: "D", color: "#1baf7a", introduced: "2025-05-01",
+                    return_today: 0.001, monitor_only: false, sparkline: [110000, 111500, 112003] },
+                ],
+              },
+            ],
+          }),
+      });
+    }) as unknown as typeof fetch;
+
+    render(
+      <MemoryRouter>
+        <RowList selectedName="tsmom_12m" />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("carry_btc_eth")).toBeInTheDocument());
+    expect(navigateMock).toHaveBeenCalledWith("/books/carry_btc_eth", { replace: true });
   });
 
   it("plays the select sound when a row is clicked", async () => {

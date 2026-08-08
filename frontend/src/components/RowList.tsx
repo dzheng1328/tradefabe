@@ -89,8 +89,10 @@ export default function RowList({ selectedName }: { selectedName: string | null 
       .then((res) => res.json())
       .then((body: SummaryResponse) => {
         setData(body);
-        if (selectedName === null) {
-          const first = "families" in body ? body.families[0]?.books[0] : body.books[0];
+        const allBooks = "families" in body ? body.families.flatMap((f) => f.books) : body.books;
+        const stillVisible = selectedName !== null && allBooks.some((b) => b.book === selectedName);
+        if (!stillVisible) {
+          const first = allBooks[0];
           if (first) navigate(`/books/${first.book}`, { replace: true });
         }
       });
