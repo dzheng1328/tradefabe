@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import Nav from "./components/Nav";
 import RowList from "./components/RowList";
 import DetailPanel from "./components/DetailPanel";
+import ParticleField from "./components/ParticleField";
 
 function BooksLayout() {
   const { name } = useParams();
@@ -38,7 +39,7 @@ function BooksIndexRedirect() {
 export default function App() {
   return (
     <>
-      <div className="grain-overlay" aria-hidden="true" />
+      <ParticleField />
       <Routes>
         <Route path="/" element={<Navigate to="/books" replace />} />
         <Route path="/books" element={<BooksIndexRedirect />} />

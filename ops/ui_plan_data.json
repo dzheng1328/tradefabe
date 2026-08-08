@@ -118,7 +118,7 @@
         {
           "id": "1.1",
           "title": "ParticleField component + tests",
-          "status": "pending",
+          "status": "done",
           "detail": "Write failing Vitest tests for the particle math (generation, drift step function) as pure functions, then implement a ParticleField component using the parameters validated in Phase 0. Mount it in App.tsx replacing .grain-overlay. Must freeze to a static frame under prefers-reduced-motion (not just slow down) and stay compositor-only (transform/opacity)."
         },
         {

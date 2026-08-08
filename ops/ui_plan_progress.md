@@ -14,3 +14,5 @@ Phase 0.4: complete. Session ended via lavish-axi.
 Phase 0.5: complete -- spike file lives at .lavish/phase0-particle-spike.html, already covered by the repo's .gitignore (.lavish/ entry), never committed, never staged. Nothing further to discard; validated_params above is what carries forward.
 Phase 0: ALL STEPS COMPLETE. Per Dave's explicit instruction ("build only the first step"), stopping here -- Phase 1 (shell & foundation) not started.
 Built ops/ui_plan.py -- AXI-standard CLI over ops/ui_plan_data.json (TOON output, --json escape hatch, content-first no-args view, list/show/next/step show/step start/step done, idempotent mutations, structured stdout errors, --help per command, --version fast path). Verified against real data: home/list/show/next/step-show all render correctly, unknown-flag/unknown-command/bad-id errors exit with the right codes, step start/done are idempotent and auto-append to this ledger on real state changes. Test run of `step start 1.1` / `step done 0.1` reverted afterward -- no real work started yet.
+Phase 1.1: started -- ParticleField component + tests
+Phase 1.1: complete -- ParticleField component + tests
