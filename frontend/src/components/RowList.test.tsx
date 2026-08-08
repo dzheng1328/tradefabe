@@ -129,6 +129,17 @@ describe("RowList", () => {
     expect(navigateMock).toHaveBeenCalledWith("/books/carry_btc_eth", { replace: true });
   });
 
+  it("shows each book's introduced date, formatted m.d.yy to match the Streamlit dashboard", async () => {
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    expect(screen.getByText("1.1.26")).toBeInTheDocument();
+    expect(screen.getByText("5.1.25")).toBeInTheDocument();
+  });
+
   it("plays the select sound when a row is clicked", async () => {
     const { playSelect } = await import("../lib/sound");
     render(

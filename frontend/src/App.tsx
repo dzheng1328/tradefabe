@@ -11,7 +11,7 @@ function BooksLayout() {
     <div className="h-screen flex overflow-hidden">
       <Nav />
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-96 border-r border-white/5 overflow-y-auto">
+        <div className="w-[30rem] border-r border-white/5 overflow-y-auto">
           <RowList selectedName={name ?? null} />
         </div>
         <main className="flex-1 p-10 overflow-y-auto">
@@ -30,7 +30,7 @@ function BooksIndexRedirect() {
   return (
     <div className="h-screen flex overflow-hidden">
       <Nav />
-      <div className="w-96 border-r border-white/5 overflow-y-auto">
+      <div className="w-[30rem] border-r border-white/5 overflow-y-auto">
         <RowList selectedName={null} />
       </div>
     </div>

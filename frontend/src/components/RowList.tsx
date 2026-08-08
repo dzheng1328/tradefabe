@@ -47,6 +47,17 @@ function Sparkline({ points }: { points: (number | null)[] }) {
   );
 }
 
+// Matches app.py's `intro.strftime("%-m.%-d.%y")` (tf-book-date) so the two UIs agree
+// on the same book's introduced date. Parsed from the ISO string's date digits
+// directly rather than through `Date`, which parses a bare "YYYY-MM-DD" as UTC but a
+// "YYYY-MM-DDTHH:MM:SS" (no zone) as local time -- inconsistent and timezone-sensitive.
+function formatIntroduced(iso: string | null): string {
+  const match = iso ? /^(\d{4})-(\d{2})-(\d{2})/.exec(iso) : null;
+  if (!match) return "—";
+  const [, year, month, day] = match;
+  return `${Number(month)}.${Number(day)}.${year.slice(-2)}`;
+}
+
 function Row({ r, selected }: { r: BookRow; selected: boolean }) {
   const delta = r.return_today ?? r.return;
   return (
@@ -60,6 +71,9 @@ function Row({ r, selected }: { r: BookRow; selected: boolean }) {
         className="flex items-center gap-3 px-4 py-2 h-14 text-sm border-b border-white/5"
       >
         <span className="text-ink truncate min-w-0 flex-1">{r.book}</span>
+        <span className="text-ink-muted font-mono text-xs shrink-0">
+          {formatIntroduced(r.introduced)}
+        </span>
         <span className="shrink-0"><Sparkline points={r.sparkline} /></span>
         <span className="text-ink-muted font-mono tabular-nums shrink-0">
           ${r.equity?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "—"}

@@ -1,9 +1,14 @@
 import { useEffect, useRef } from "react";
 import { connectDots, createParticles, stepParticle, twinkleAlpha, type Particle } from "../lib/particles";
 
-// Phase 0 validated_params (ops/ui_plan_data.json), locked in by Dave's live review.
-const PARAMS = { count: 211, driftSpeed: 0.046, dotSize: 1.2, twinkleAmount: 0.15 };
-const LINK_DISTANCE = 140;
+// Phase 0's validated_params (ops/ui_plan_data.json) read as too static and too bright
+// once seen live behind real row-list content -- links spanned huge sparse triangles
+// that fought the white/grey dollar figures for contrast, and the drift was almost
+// imperceptible. Retuned after a live review: faster drift, smaller dots, a shorter
+// link distance (finer, denser network instead of a few giant triangles), and lower
+// alpha throughout so it reads as ambient texture, not a competing foreground layer.
+const PARAMS = { count: 390, driftSpeed: 0.48, dotSize: 0.85, twinkleAmount: 0.1 };
+const LINK_DISTANCE = 85;
 const ACCENT_RGB = "159, 232, 112"; // tailwind.config.js `accent` (#9fe870) as an rgb triplet
 
 function prefersReducedMotion(): boolean {
@@ -27,7 +32,7 @@ function renderFrame(
   for (const link of connectDots(particles, LINK_DISTANCE)) {
     const a = particles[link.ai];
     const b = particles[link.bi];
-    ctx.globalAlpha = link.strength * 0.25;
+    ctx.globalAlpha = link.strength * 0.1;
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
@@ -36,8 +41,8 @@ function renderFrame(
 
   ctx.globalAlpha = 1;
   for (const p of particles) {
-    const alpha = twinkleAlpha(0.5, p.twinklePhase, PARAMS.twinkleAmount);
-    const glowRadius = p.size * 4;
+    const alpha = twinkleAlpha(0.28, p.twinklePhase, PARAMS.twinkleAmount);
+    const glowRadius = p.size * 2.2;
     const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowRadius);
     gradient.addColorStop(0, `rgba(${ACCENT_RGB}, ${alpha})`);
     gradient.addColorStop(1, `rgba(${ACCENT_RGB}, 0)`);
