@@ -15,6 +15,7 @@ export default {
       },
       fontFamily: {
         display: ["'Space Grotesk'", "sans-serif"],
+        mono: ["'IBM Plex Mono'", "monospace"],
       },
       boxShadow: {
         none: "none",

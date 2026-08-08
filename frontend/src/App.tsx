@@ -1,60 +1,49 @@
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import Nav from "./components/Nav";
+import RowList from "./components/RowList";
+import DetailPanel from "./components/DetailPanel";
 
-type Book = {
-  book: string;
-  equity: number;
-  return: number;
-  last_run: string;
-  retired_at: string | null;
-};
+function BooksLayout() {
+  const { name } = useParams();
+  return (
+    <div className="h-screen flex overflow-hidden">
+      <Nav />
+      <div className="flex-1 flex overflow-hidden">
+        <div className="w-96 border-r border-white/5 overflow-y-auto">
+          <RowList selectedName={name ?? null} />
+        </div>
+        <main className="flex-1 p-10 overflow-y-auto">
+          {name ? <DetailPanel name={name} /> : null}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// /books alone has no book selected yet -- RowList knows the default-sorted order
+// (fetches it itself), so the redirect target is resolved inside RowList's own data
+// rather than duplicating sort logic here. Rendering RowList with no selection lets it
+// redirect once its fetch resolves.
+function BooksIndexRedirect() {
+  return (
+    <div className="h-screen flex overflow-hidden">
+      <Nav />
+      <div className="w-96 border-r border-white/5 overflow-y-auto">
+        <RowList selectedName={null} />
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
-  const [books, setBooks] = useState<Book[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("http://localhost:8000/api/books/summary")
-      .then((res) => {
-        if (!res.ok) throw new Error(`API returned ${res.status}`);
-        return res.json();
-      })
-      .then(setBooks)
-      .catch((err) => setError(String(err)));
-  }, []);
-
-  const totalEquity = books?.reduce((sum, b) => sum + b.equity, 0) ?? 0;
-
   return (
-    <div className="min-h-screen flex">
-      <nav className="w-56 border-r border-white/5 p-6 text-sm text-ink-muted">
-        <div className="text-ink font-bold mb-6">tradefabe</div>
-        <div className="mb-2">Paper Books</div>
-        <div>Research Lab</div>
-      </nav>
-      <main className="flex-1 p-10">
-        {error && <p className="text-red-400">Failed to load: {error}</p>}
-        {!books && !error && <p className="text-ink-muted">Loading…</p>}
-        {books && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            className="bg-surface rounded-card p-8 max-w-sm"
-          >
-            <div className="text-ink-muted text-xs uppercase tracking-wide mb-2">
-              Books live
-            </div>
-            <div className="text-3xl font-black mb-4">{books.length}</div>
-            <div className="text-ink-muted text-xs uppercase tracking-wide mb-2">
-              Total equity
-            </div>
-            <div className="text-3xl font-black">
-              ${totalEquity.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </div>
-          </motion.div>
-        )}
-      </main>
-    </div>
+    <>
+      <div className="grain-overlay" aria-hidden="true" />
+      <Routes>
+        <Route path="/" element={<Navigate to="/books" replace />} />
+        <Route path="/books" element={<BooksIndexRedirect />} />
+        <Route path="/books/:name" element={<BooksLayout />} />
+      </Routes>
+    </>
   );
 }
