@@ -83,3 +83,40 @@ body {
     animation: none;
   }
 }
+
+/* Sound toggle pulse (idea #43) -- fires once per sound played, see Nav.tsx. */
+.sound-toggle-pulse {
+  animation: sound-toggle-pulse 500ms ease;
+}
+
+@keyframes sound-toggle-pulse {
+  0% {
+    transform: scale(1);
+    color: #7d8877;
+  }
+  30% {
+    transform: scale(1.15);
+    color: #9fe870;
+  }
+  100% {
+    transform: scale(1);
+    color: #7d8877;
+  }
+}
+
+/* Same signal, no transform -- an equivalent experience, not a degraded one. */
+@media (prefers-reduced-motion: reduce) {
+  .sound-toggle-pulse {
+    animation: sound-toggle-pulse-static 500ms ease;
+  }
+}
+
+@keyframes sound-toggle-pulse-static {
+  0%,
+  100% {
+    color: #7d8877;
+  }
+  30% {
+    color: #9fe870;
+  }
+}

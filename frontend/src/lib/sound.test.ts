@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { generateNoiseSamples, isSoundEnabled, setSoundEnabled } from "./sound";
+import { generateNoiseSamples, isSoundEnabled, onSoundPlayed, playSelect, setSoundEnabled } from "./sound";
 
 describe("sound mute toggle", () => {
   beforeEach(() => {
@@ -15,6 +15,38 @@ describe("sound mute toggle", () => {
     expect(isSoundEnabled()).toBe(false);
     setSoundEnabled(true);
     expect(isSoundEnabled()).toBe(true);
+  });
+});
+
+describe("onSoundPlayed notifications", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("notifies listeners when a sound actually plays", () => {
+    setSoundEnabled(true);
+    const listener = vi.fn();
+    const unsubscribe = onSoundPlayed(listener);
+    playSelect();
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("does not notify when sound is muted -- nothing is about to play", () => {
+    setSoundEnabled(false);
+    const listener = vi.fn();
+    onSoundPlayed(listener);
+    playSelect();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("stops notifying once unsubscribed", () => {
+    setSoundEnabled(true);
+    const listener = vi.fn();
+    const unsubscribe = onSoundPlayed(listener);
+    unsubscribe();
+    playSelect();
+    expect(listener).not.toHaveBeenCalled();
   });
 });
 

@@ -6,6 +6,20 @@
 const STORAGE_KEY = "tradefabe.sound.enabled";
 let ctx: AudioContext | null = null;
 
+// Lets UI (the Nav sound toggle's pulse, idea #43) react to a sound actually being
+// about to play, without polling or coupling to every call site.
+type SoundListener = () => void;
+const soundListeners = new Set<SoundListener>();
+
+export function onSoundPlayed(listener: SoundListener): () => void {
+  soundListeners.add(listener);
+  return () => soundListeners.delete(listener);
+}
+
+function notifySoundPlayed() {
+  for (const listener of soundListeners) listener();
+}
+
 export function isSoundEnabled(): boolean {
   return localStorage.getItem(STORAGE_KEY) !== "off";
 }
@@ -106,18 +120,21 @@ function thunk(freq: number, durationSec: number, gain: number) {
 
 export function playSelect() {
   if (!isSoundEnabled()) return;
+  notifySoundPlayed();
   blip(420, 0.06, 0.05);
   noiseBurst(0.03, 0.02, 1800);
 }
 
 export function playRangeChange() {
   if (!isSoundEnabled()) return;
+  notifySoundPlayed();
   blip(560, 0.04, 0.04);
   noiseBurst(0.02, 0.015, 2400);
 }
 
 export function playDataLanded() {
   if (!isSoundEnabled()) return;
+  notifySoundPlayed();
   thunk(160, 0.14, 0.045);
 }
 
@@ -126,5 +143,6 @@ export function playDataLanded() {
 // response to a click.
 export function playIntroSettle() {
   if (!isSoundEnabled()) return;
+  notifySoundPlayed();
   blip(660, 0.4, 0.025);
 }

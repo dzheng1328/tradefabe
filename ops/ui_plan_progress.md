@@ -18,3 +18,4 @@ Phase 1.1: started -- ParticleField component + tests
 Phase 1.1: complete -- ParticleField component + tests
 Phase 1.2: complete -- Deeper sound design
 Phase 1.3: complete -- Intro/reveal sequence
+Phase 1.4: complete -- Brand glyph + sound-toggle pulse
