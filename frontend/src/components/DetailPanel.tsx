@@ -103,7 +103,7 @@ export default function DetailPanel({ name }: { name: string }) {
       <p className="text-ink-muted mt-1">{data.blurb}</p>
 
       {data.retirement_note && (
-        <div className="bg-surface rounded-card p-4 mt-4 text-sm">
+        <div className="bg-surface bg-topo bg-repeat rounded-card p-4 mt-4 text-sm">
           Retired {data.retirement_note.at} — {data.retirement_note.reason}
         </div>
       )}

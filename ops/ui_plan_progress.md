@@ -19,3 +19,5 @@ Phase 1.1: complete -- ParticleField component + tests
 Phase 1.2: complete -- Deeper sound design
 Phase 1.3: complete -- Intro/reveal sequence
 Phase 1.4: complete -- Brand glyph + sound-toggle pulse
+Phase 1.5: started -- Accent color + surface texture
+Phase 1.5: complete -- Accent color + surface texture
