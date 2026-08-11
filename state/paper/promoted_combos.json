@@ -204,5 +204,25 @@
     }
    }
   ]
+ },
+ {
+  "name": "factory_combo_donchian_gen_45d_tsmom_gen_164d",
+  "freq": "D",
+  "legs": [
+   {
+    "name": "donchian_gen_45d",
+    "family": "I",
+    "params": {
+     "window": 45
+    }
+   },
+   {
+    "name": "tsmom_gen_164d",
+    "family": "A",
+    "params": {
+     "lookback_days": 164
+    }
+   }
+  ]
  }
 ]
