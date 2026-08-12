@@ -17,6 +17,11 @@ export const RIPPLE_LIFETIME_MS = 1400;
 // u_ripples uniform array in the fragment shader.
 export const MAX_RIPPLES = 16;
 
+// Default Gaussian falloff radius (px) used by rippleAmplitudeAt() below and
+// mirrored into the fragment shader's sigma constant in LiquidMetalField.tsx,
+// so the two implementations can't silently desync.
+export const RIPPLE_SIGMA_PX = 120;
+
 export function addRipple(
   ripples: RipplePoint[],
   point: RipplePoint,
@@ -36,7 +41,7 @@ export function rippleAmplitudeAt(
   point: { x: number; y: number },
   ripple: RipplePoint,
   now: number,
-  sigmaPx = 120,
+  sigmaPx = RIPPLE_SIGMA_PX,
 ): number {
   const age = now - ripple.t;
   if (age < 0 || age > RIPPLE_LIFETIME_MS) return 0;

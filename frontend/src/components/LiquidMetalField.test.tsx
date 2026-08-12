@@ -13,19 +13,21 @@ function mockMatchMedia(matches: boolean) {
 
 // A minimal WebGL2 context stub -- enough for LiquidMetalField's setup/draw path
 // to run without throwing, so the component takes the "WebGL2 available" branch.
-function mockWebGL2Context() {
+// `compileOk`/`linkOk` let a test simulate a context that exists but rejects the
+// shader (compile/link failure), which must fall back rather than throw.
+function mockWebGL2Context({ compileOk = true, linkOk = true } = {}) {
   return {
     createShader: vi.fn(() => ({})),
     shaderSource: vi.fn(),
     compileShader: vi.fn(),
-    getShaderParameter: vi.fn(() => true),
-    getShaderInfoLog: vi.fn(() => ""),
+    getShaderParameter: vi.fn(() => compileOk),
+    getShaderInfoLog: vi.fn(() => "mock shader compile error"),
     deleteShader: vi.fn(),
     createProgram: vi.fn(() => ({})),
     attachShader: vi.fn(),
     linkProgram: vi.fn(),
-    getProgramParameter: vi.fn(() => true),
-    getProgramInfoLog: vi.fn(() => ""),
+    getProgramParameter: vi.fn(() => linkOk),
+    getProgramInfoLog: vi.fn(() => "mock program link error"),
     deleteProgram: vi.fn(),
     useProgram: vi.fn(),
     getUniformLocation: vi.fn(() => ({})),
@@ -93,5 +95,71 @@ describe("LiquidMetalField", () => {
     // buffer; the reduced-motion path must redraw so the frame persists
     // instead of going blank.
     expect(drawArrays.mock.calls.length).toBeGreaterThan(callsAtMount);
+  });
+
+  it("falls back instead of crashing when WebGL2 shader compile/link fails", () => {
+    mockMatchMedia(false);
+    // Context exists (getContext returns non-null), but getShaderParameter /
+    // getProgramParameter report failure -- compileShader/createProgram throw
+    // in this case, and the effect must catch that and fall back rather than
+    // white-screen the app.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      mockWebGL2Context({ compileOk: false, linkOk: true }),
+    );
+
+    let container: HTMLElement;
+    expect(() => {
+      ({ container } = render(<LiquidMetalField />));
+    }).not.toThrow();
+
+    expect(container!.querySelector(".liquid-metal-fallback")).not.toBeNull();
+    expect(container!.querySelector("canvas")).toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("throttles pointermove to at most one ripple sample per animation frame", () => {
+    mockMatchMedia(false);
+    const gl = mockWebGL2Context();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(gl);
+
+    // Capture the loop callback instead of letting rAF auto-invoke, so the
+    // test can control exactly when "one frame" elapses relative to however
+    // many pointermove events fire in between.
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      rafCallback = cb;
+      return 1;
+    });
+
+    render(<LiquidMetalField />);
+    expect(rafCallback).not.toBeNull();
+
+    // Consume the initial frame queued at mount so the buffer below reflects
+    // only the pointermove events fired after this point.
+    rafCallback!(performance.now());
+
+    const uniform1i = gl.uniform1i as unknown as ReturnType<typeof vi.fn>;
+    uniform1i.mockClear();
+
+    // Fire many raw pointermove events -- far more than one -- before the
+    // next animation frame is allowed to run.
+    for (let i = 0; i < 20; i++) {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 100 + i, clientY: 50 }));
+    }
+
+    // Still zero frames consumed since the events: no ripple should have
+    // reached the GPU-bound uniform yet.
+    expect(uniform1i).not.toHaveBeenCalled();
+
+    // Now let exactly one animation frame run.
+    rafCallback!(performance.now());
+
+    // u_rippleCount (set via uniform1i) must reflect exactly one new ripple
+    // added for this frame, not 20 -- proving the 20 raw events collapsed to
+    // a single sample consumed once per frame, matching the ripple buffer's
+    // starting-empty state (0 -> 1), not (0 -> 20 then clamped).
+    expect(uniform1i).toHaveBeenCalledTimes(1);
+    expect(uniform1i).toHaveBeenCalledWith(expect.anything(), 1);
   });
 });

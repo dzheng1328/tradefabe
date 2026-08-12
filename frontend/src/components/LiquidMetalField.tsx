@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   addRipple,
   pruneExpiredRipples,
+  MAX_RIPPLES,
   RIPPLE_LIFETIME_MS,
+  RIPPLE_SIGMA_PX,
   type RipplePoint,
 } from "../lib/liquidMetalRipples";
 import { prefersReducedMotion } from "../lib/motion";
@@ -34,7 +36,7 @@ uniform vec3 u_colorBg;
 uniform vec3 u_colorSurface;
 uniform vec3 u_colorAccent;
 uniform int u_rippleCount;
-uniform vec3 u_ripples[16];
+uniform vec3 u_ripples[${MAX_RIPPLES}];
 out vec4 fragColor;
 
 float hash(vec2 p) {
@@ -64,7 +66,7 @@ float fbm(vec2 p) {
 }
 vec2 rippleWarp(vec2 fragPx) {
   vec2 warp = vec2(0.0);
-  for (int i = 0; i < 16; i++) {
+  for (int i = 0; i < ${MAX_RIPPLES}; i++) {
     if (i >= u_rippleCount) break;
     vec3 r = u_ripples[i];
     float age = r.z;
@@ -72,7 +74,7 @@ vec2 rippleWarp(vec2 fragPx) {
     float ageFade = 1.0 - age / ${RIPPLE_LIFETIME_SEC};
     vec2 delta = fragPx - r.xy;
     float dist2 = dot(delta, delta);
-    float spatial = exp(-dist2 / (2.0 * 120.0 * 120.0));
+    float spatial = exp(-dist2 / (2.0 * ${RIPPLE_SIGMA_PX.toFixed(1)} * ${RIPPLE_SIGMA_PX.toFixed(1)}));
     float amp = ageFade * spatial;
     vec2 dir = dist2 > 0.0001 ? normalize(delta) : vec2(0.0);
     warp += dir * amp * 40.0;
@@ -145,26 +147,43 @@ export default function LiquidMetalField() {
       return;
     }
 
-    const program = createProgram(gl);
-    gl.useProgram(program);
+    let program: WebGLProgram;
+    let uResolution: WebGLUniformLocation | null;
+    let uTime: WebGLUniformLocation | null;
+    let uColorBg: WebGLUniformLocation | null;
+    let uColorSurface: WebGLUniformLocation | null;
+    let uColorAccent: WebGLUniformLocation | null;
+    let uRippleCount: WebGLUniformLocation | null;
+    let uRipples: WebGLUniformLocation | null;
+    try {
+      program = createProgram(gl);
+      gl.useProgram(program);
 
-    const uResolution = gl.getUniformLocation(program, "u_resolution");
-    const uTime = gl.getUniformLocation(program, "u_time");
-    const uColorBg = gl.getUniformLocation(program, "u_colorBg");
-    const uColorSurface = gl.getUniformLocation(program, "u_colorSurface");
-    const uColorAccent = gl.getUniformLocation(program, "u_colorAccent");
-    const uRippleCount = gl.getUniformLocation(program, "u_rippleCount");
-    const uRipples = gl.getUniformLocation(program, "u_ripples");
+      uResolution = gl.getUniformLocation(program, "u_resolution");
+      uTime = gl.getUniformLocation(program, "u_time");
+      uColorBg = gl.getUniformLocation(program, "u_colorBg");
+      uColorSurface = gl.getUniformLocation(program, "u_colorSurface");
+      uColorAccent = gl.getUniformLocation(program, "u_colorAccent");
+      uRippleCount = gl.getUniformLocation(program, "u_rippleCount");
+      uRipples = gl.getUniformLocation(program, "u_ripples");
 
-    gl.uniform3f(uColorBg, ...COLOR_BG);
-    gl.uniform3f(uColorSurface, ...COLOR_SURFACE);
-    gl.uniform3f(uColorAccent, ...COLOR_ACCENT);
+      gl.uniform3f(uColorBg, ...COLOR_BG);
+      gl.uniform3f(uColorSurface, ...COLOR_SURFACE);
+      gl.uniform3f(uColorAccent, ...COLOR_ACCENT);
+    } catch (err) {
+      // A WebGL2 context can exist but still fail to compile/link this
+      // shader (e.g. a driver that advertises WebGL2 but rejects it) --
+      // that must fall back exactly like "no WebGL2 support", never crash.
+      console.warn("liquid-metal: WebGL2 setup failed, falling back", err);
+      setUseFallback(true);
+      return;
+    }
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     let height = window.innerHeight;
     const reducedMotion = prefersReducedMotion();
 
-    const rippleUniformData = new Float32Array(16 * 3);
+    const rippleUniformData = new Float32Array(MAX_RIPPLES * 3);
 
     function drawFrame(timeSeconds: number, count: number) {
       gl!.uniform1f(uTime, timeSeconds);
@@ -209,20 +228,25 @@ export default function LiquidMetalField() {
       return () => window.removeEventListener("resize", resize);
     }
 
+    // Raw pointermove fires far faster than one sample per animation frame
+    // (a high-polling-rate mouse can fire dozens of times per 16ms) -- only
+    // record the latest position here; loop() below consumes it once per
+    // rendered frame so the ripple buffer isn't flooded and evicted early.
+    let pendingPoint: { x: number; y: number } | null = null;
     function handlePointerMove(e: PointerEvent) {
       // WebGL's fragCoord y-origin is bottom-left; DOM clientY is top-left --
       // flip so the ripple lands where the cursor visually is.
-      ripples = addRipple(ripples, {
-        x: e.clientX * dpr,
-        y: (height - e.clientY) * dpr,
-        t: performance.now(),
-      });
+      pendingPoint = { x: e.clientX * dpr, y: (height - e.clientY) * dpr };
     }
     window.addEventListener("pointermove", handlePointerMove);
 
     let frameId: number;
     const start = performance.now();
     function loop(now: number) {
+      if (pendingPoint) {
+        ripples = addRipple(ripples, { x: pendingPoint.x, y: pendingPoint.y, t: performance.now() });
+        pendingPoint = null;
+      }
       const count = buildRippleUniforms(now);
       drawFrame((now - start) / 1000, count);
       frameId = requestAnimationFrame(loop);

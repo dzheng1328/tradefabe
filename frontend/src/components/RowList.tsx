@@ -182,7 +182,7 @@ export default function RowList({ selectedName }: { selectedName: string | null 
             aria-label="Sort by"
             value={sortLabel}
             onChange={(e) => setSortLabel(e.target.value)}
-            className="bg-transparent text-ink-muted uppercase text-xs tracking-wide border-none focus:outline-none focus:text-ink"
+            className="bg-transparent text-ink-muted uppercase text-xs tracking-wide border-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:text-ink"
           >
             {Object.keys(SORT_OPTIONS).map((label) => (
               <option key={label} value={label} className="normal-case bg-surface text-ink">
