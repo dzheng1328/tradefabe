@@ -38,10 +38,36 @@ function fmt(v: number | null | undefined, kind: "ratio" | "pct" = "ratio") {
   return kind === "ratio" ? v.toFixed(2) : `${(v * 100).toFixed(1)}%`;
 }
 
+// Plotly's newer to_json() compresses numeric traces into a typed-array form
+// (`{dtype, bdata}`, base64) instead of a plain JS array -- the real API sends this
+// shape (react-plotly.js decodes it internally when rendering the chart, but our own
+// direct read of `y` for the hero number below needs to do the same).
+type PlotlyTypedArray = { dtype: string; bdata: string };
+
+const TYPED_ARRAY_CTORS: Record<string, { new (buffer: ArrayBuffer): { [i: number]: number; length: number } }> = {
+  f8: Float64Array, f4: Float32Array,
+  i1: Int8Array, u1: Uint8Array,
+  i2: Int16Array, u2: Uint16Array,
+  i4: Int32Array, u4: Uint32Array,
+};
+
+function decodePlotlyArray(y: unknown): (number | null)[] {
+  if (Array.isArray(y)) return y;
+  if (y && typeof y === "object" && "bdata" in y && "dtype" in y) {
+    const { dtype, bdata } = y as PlotlyTypedArray;
+    const binary = atob(bdata);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const Ctor = TYPED_ARRAY_CTORS[dtype] ?? Float64Array;
+    return Array.from(new Ctor(bytes.buffer));
+  }
+  return [];
+}
+
 // Idea #17's hero number reads straight off the same trace react-plotly.js draws --
 // no separate backend field to keep in sync with the chart it sits above.
 function latestEquity(chart: DetailResponse["live_equity_chart"]): number | null {
-  const ys = (chart.data[0] as { y?: (number | null)[] } | undefined)?.y ?? [];
+  const ys = decodePlotlyArray((chart.data[0] as { y?: unknown } | undefined)?.y);
   for (let i = ys.length - 1; i >= 0; i--) {
     const v = ys[i];
     if (v !== null && v !== undefined && Number.isFinite(v)) return v;

@@ -66,6 +66,26 @@ describe("DetailPanel", () => {
     expect(screen.getByText("$103,241").className).toMatch(/tf-equity-hero/);
   });
 
+  it("reads the equity hero number from Plotly's compressed typed-array format too (real API responses use this, not a plain array)", async () => {
+    // Float64 [100000, 107500] little-endian, base64-encoded -- what the real
+    // /api/books/:name/detail endpoint actually sends via plotly's to_json().
+    const bytes = new Uint8Array(new Float64Array([100000, 107500]).buffer);
+    const bdata = btoa(String.fromCharCode(...bytes));
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ...DETAIL_RESPONSE,
+            live_equity_chart: { data: [{ y: { dtype: "f8", bdata } }], layout: {} },
+          }),
+      })
+    ) as unknown as typeof fetch;
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("Sign", { exact: false })).toBeInTheDocument());
+    expect(screen.getByText("$107,500")).toBeInTheDocument();
+  });
+
   it("reveals the blurb word-by-word", async () => {
     render(<DetailPanel name="tsmom_12m" />);
     await waitFor(() => expect(screen.getByText("Sign", { exact: false })).toBeInTheDocument());
