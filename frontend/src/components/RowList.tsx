@@ -121,7 +121,6 @@ function Row({ r, selected, isNew }: { r: BookRow; selected: boolean; isNew: boo
 
 export default function RowList({ selectedName }: { selectedName: string | null }) {
   const [sortLabel, setSortLabel] = useState("Family");
-  const [showMonitorOnly, setShowMonitorOnly] = useState(true);
   const [data, setData] = useState<SummaryResponse | null>(null);
   const [review, setReview] = useState<ReviewRow[]>([]);
   const [reviewCountPulsed, setReviewCountPulsed] = useState(false);
@@ -130,7 +129,7 @@ export default function RowList({ selectedName }: { selectedName: string | null 
 
   useEffect(() => {
     const sort = SORT_OPTIONS[sortLabel];
-    fetch(`http://localhost:8000/api/books/summary?sort=${sort}&show_monitor_only=${showMonitorOnly}`)
+    fetch(`http://localhost:8000/api/books/summary?sort=${sort}`)
       .then((res) => res.json())
       .then((body: SummaryResponse) => {
         setData(body);
@@ -144,7 +143,7 @@ export default function RowList({ selectedName }: { selectedName: string | null 
           if (first) navigate(`/books/${first.book}`, { replace: true });
         }
       });
-  }, [sortLabel, showMonitorOnly, selectedName, navigate]);
+  }, [sortLabel, selectedName, navigate]);
 
   useEffect(() => {
     fetch("http://localhost:8000/api/books/up_for_review")
@@ -176,28 +175,21 @@ export default function RowList({ selectedName }: { selectedName: string | null 
 
   return (
     <div>
-      <div className="p-4 flex items-center justify-between text-xs">
-        <label className="flex items-center gap-2">
+      <div className="p-4 pb-2 flex items-center justify-end">
+        <label className="flex items-center gap-2 text-xs uppercase text-ink-muted">
           Sort by
           <select
             aria-label="Sort by"
             value={sortLabel}
             onChange={(e) => setSortLabel(e.target.value)}
-            className="bg-surface text-ink rounded px-1 py-0.5"
+            className="bg-transparent text-ink-muted uppercase text-xs tracking-wide border-none focus:outline-none focus:text-ink"
           >
             {Object.keys(SORT_OPTIONS).map((label) => (
-              <option key={label} value={label}>{label}</option>
+              <option key={label} value={label} className="normal-case bg-surface text-ink">
+                {label}
+              </option>
             ))}
           </select>
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            aria-label="Show monitor-only (backtest-DEAD) books"
-            type="checkbox"
-            checked={showMonitorOnly}
-            onChange={(e) => setShowMonitorOnly(e.target.checked)}
-          />
-          Show monitor-only
         </label>
       </div>
 
