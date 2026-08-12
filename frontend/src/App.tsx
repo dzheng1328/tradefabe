@@ -1,7 +1,10 @@
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { MotionConfig } from "framer-motion";
 import Nav from "./components/Nav";
 import RowList from "./components/RowList";
 import DetailPanel from "./components/DetailPanel";
+import ParticleField from "./components/ParticleField";
+import Intro from "./components/Intro";
 
 function BooksLayout() {
   const { name } = useParams();
@@ -9,7 +12,7 @@ function BooksLayout() {
     <div className="h-screen flex overflow-hidden">
       <Nav />
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-96 border-r border-white/5 overflow-y-auto">
+        <div className="w-[30rem] border-r border-white/5 overflow-y-auto">
           <RowList selectedName={name ?? null} />
         </div>
         <main className="flex-1 p-10 overflow-y-auto">
@@ -28,7 +31,7 @@ function BooksIndexRedirect() {
   return (
     <div className="h-screen flex overflow-hidden">
       <Nav />
-      <div className="w-96 border-r border-white/5 overflow-y-auto">
+      <div className="w-[30rem] border-r border-white/5 overflow-y-auto">
         <RowList selectedName={null} />
       </div>
     </div>
@@ -37,13 +40,18 @@ function BooksIndexRedirect() {
 
 export default function App() {
   return (
-    <>
-      <div className="grain-overlay" aria-hidden="true" />
+    // reducedMotion="user" makes every motion.* component (row-select spring,
+    // detail-panel entrance, range-control tap) honor prefers-reduced-motion
+    // automatically -- the canvas-driven ParticleField/Intro handle their own
+    // reduced-motion check separately (see lib/motion.ts's prefersReducedMotion()).
+    <MotionConfig reducedMotion="user">
+      <ParticleField />
+      <Intro />
       <Routes>
         <Route path="/" element={<Navigate to="/books" replace />} />
         <Route path="/books" element={<BooksIndexRedirect />} />
         <Route path="/books/:name" element={<BooksLayout />} />
       </Routes>
-    </>
+    </MotionConfig>
   );
 }

@@ -87,4 +87,32 @@ describe("DetailPanel", () => {
     await userEvent.click(screen.getByText("1W"));
     expect(playRangeChange).toHaveBeenCalled();
   });
+
+  it("plays a sound and scrolls the section into view when the backtest-history disclosure opens", async () => {
+    const { playRangeChange } = await import("../lib/sound");
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() =>
+      expect(screen.getByText("Backtest history & live tracking check")).toBeInTheDocument()
+    );
+    const scrollIntoViewSpy = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoViewSpy;
+
+    await userEvent.click(screen.getByText("Backtest history & live tracking check"));
+
+    expect(playRangeChange).toHaveBeenCalled();
+    // Deferred two animation frames past the click -- see handleBacktestToggle.
+    await waitFor(() => expect(scrollIntoViewSpy).toHaveBeenCalled());
+  });
+
+  it("does not replay the sound when the backtest-history disclosure is closed again", async () => {
+    const { playRangeChange } = await import("../lib/sound");
+    render(<DetailPanel name="tsmom_12m" />);
+    const summary = await screen.findByText("Backtest history & live tracking check");
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+
+    await userEvent.click(summary); // open
+    expect(playRangeChange).toHaveBeenCalledTimes(1);
+    await userEvent.click(summary); // close
+    expect(playRangeChange).toHaveBeenCalledTimes(1);
+  });
 });
