@@ -9,6 +9,8 @@
 const SURFACE = "#181c15";
 const INK_MUTED = "#7d8877";
 const GRID = "#2a2f24";
+const ACCENT = "#9fe870";
+const MONO_FONT = "IBM Plex Mono, monospace";
 
 export function applyDarkTheme(
   layout: Record<string, unknown>
@@ -23,5 +25,12 @@ export function applyDarkTheme(
     font: { ...font, color: INK_MUTED },
     xaxis: { ...xaxis, gridcolor: GRID, linecolor: GRID },
     yaxis: { ...yaxis, gridcolor: GRID, linecolor: GRID },
+    // Idea #45: the hover tooltip/crosshair gets the same mono font + accent
+    // color as the rest of the shell, instead of Plotly's default light tooltip.
+    hoverlabel: {
+      bgcolor: SURFACE,
+      bordercolor: ACCENT,
+      font: { family: MONO_FONT, color: ACCENT, size: 11 },
+    },
   };
 }

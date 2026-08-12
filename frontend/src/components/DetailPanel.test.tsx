@@ -12,7 +12,10 @@ const DETAIL_RESPONSE = {
   live_start: "2026-01-01T00:00:00",
   bt_start: "2018-01-02T00:00:00",
   available_windows: ["1D", "1W", "1M", "ALL"],
-  live_equity_chart: { data: [], layout: {} },
+  live_equity_chart: {
+    data: [{ y: [100000, 101200, null, 103241] }],
+    layout: {},
+  },
   backtest_chart: { data: [], layout: {} },
   divergence_state: "ok",
   divergence_detail: "Live is tracking backtest within the expected band.",
@@ -40,12 +43,119 @@ afterEach(() => {
 vi.mock("../lib/sound", () => ({ playDataLanded: vi.fn(), playRangeChange: vi.fn() }));
 
 describe("DetailPanel", () => {
+  it("shows the ring-loader while loading, not a plain Loading… flash", async () => {
+    const { container } = render(<DetailPanel name="tsmom_12m" />);
+    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    expect(container.querySelector("canvas.ring-loader")).not.toBeNull();
+    await waitFor(() => expect(screen.getByText("Sign", { exact: false })).toBeInTheDocument());
+    expect(container.querySelector("canvas.ring-loader")).toBeNull();
+  });
+
   it("renders the blurb and stats once loaded", async () => {
     render(<DetailPanel name="tsmom_12m" />);
     await waitFor(() =>
-      expect(screen.getByText(/trailing 12-month return/)).toBeInTheDocument()
+      expect(screen.getByText("Sign", { exact: false })).toBeInTheDocument()
     );
     expect(screen.getByText("0.80")).toBeInTheDocument(); // Sharpe
+  });
+
+  it("shows the latest equity as an oversized hero number, reading it from the chart's last finite point", async () => {
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("Sign", { exact: false })).toBeInTheDocument());
+    expect(screen.getByText("$103,241")).toBeInTheDocument();
+    expect(screen.getByText("$103,241").className).toMatch(/tf-equity-hero/);
+  });
+
+  it("reads the equity hero number from Plotly's compressed typed-array format too (real API responses use this, not a plain array)", async () => {
+    // Float64 [100000, 107500] little-endian, base64-encoded -- what the real
+    // /api/books/:name/detail endpoint actually sends via plotly's to_json().
+    const bytes = new Uint8Array(new Float64Array([100000, 107500]).buffer);
+    const bdata = btoa(String.fromCharCode(...bytes));
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ...DETAIL_RESPONSE,
+            live_equity_chart: { data: [{ y: { dtype: "f8", bdata } }], layout: {} },
+          }),
+      })
+    ) as unknown as typeof fetch;
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("Sign", { exact: false })).toBeInTheDocument());
+    expect(screen.getByText("$107,500")).toBeInTheDocument();
+  });
+
+  it("reveals the blurb word-by-word", async () => {
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("Sign", { exact: false })).toBeInTheDocument());
+    const words = screen.getAllByText(/^\S+$/, { selector: ".tf-word" });
+    expect(words.length).toBe(DETAIL_RESPONSE.blurb.split(" ").length);
+  });
+
+  it("stamps the verdict badge with a one-time animation on first render this session", async () => {
+    sessionStorage.clear();
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("ALIVE")).toBeInTheDocument());
+    expect(screen.getByText("ALIVE").className).toMatch(/tf-verdict-stamp/);
+  });
+
+  it("does not re-stamp a verdict badge already stamped this session", async () => {
+    sessionStorage.setItem("tradefabe.verdictStamped", JSON.stringify(["tsmom_12m"]));
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("ALIVE")).toBeInTheDocument());
+    expect(screen.getByText("ALIVE").className).not.toMatch(/tf-verdict-stamp/);
+  });
+
+  it("gives a retired book's panel a frozen treatment", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ...DETAIL_RESPONSE,
+            retirement_note: { at: "2026-07-01", reason: "superseded" },
+          }),
+      })
+    ) as unknown as typeof fetch;
+    const { container } = render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText(/Retired/)).toBeInTheDocument());
+    expect(container.querySelector(".tf-frozen")).not.toBeNull();
+  });
+
+  it("does not give a live book's panel the frozen treatment", async () => {
+    const { container } = render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("Sign", { exact: false })).toBeInTheDocument());
+    expect(container.querySelector(".tf-frozen")).toBeNull();
+  });
+
+  it("shows a live freshness ticker near the equity number that counts up as time passes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<DetailPanel name="tsmom_12m" />);
+    await vi.waitFor(() => expect(screen.getByText("$103,241")).toBeInTheDocument());
+    expect(screen.getByTestId("freshness")).toHaveTextContent("as of 0s ago");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(screen.getByTestId("freshness")).toHaveTextContent("as of 5s ago");
+    vi.useRealTimers();
+  });
+
+  it("pulses the divergence badge when the state is diverging", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({ ...DETAIL_RESPONSE, divergence_state: "diverging", divergence_detail: "live is off-band" }),
+      })
+    ) as unknown as typeof fetch;
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText(/diverging/)).toBeInTheDocument());
+    expect(screen.getByText(/diverging/).className).toMatch(/tf-divergence-pulse/);
+  });
+
+  it("does not pulse the divergence badge when the state is ok", async () => {
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText(/^ok/)).toBeInTheDocument());
+    expect(screen.getByText(/^ok/).className).not.toMatch(/tf-divergence-pulse/);
   });
 
   it("refetches the detail with the new window when a range option is clicked", async () => {
