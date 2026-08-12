@@ -175,7 +175,7 @@ export default function RowList({ selectedName }: { selectedName: string | null 
 
   return (
     <div>
-      <div className="p-4 pb-2 flex items-center justify-end">
+      <div className="p-4 flex items-center justify-end border-b border-white/5">
         <label className="flex items-center gap-2 text-xs uppercase text-ink-muted">
           Sort by
           <select

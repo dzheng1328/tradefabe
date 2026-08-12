@@ -22,21 +22,20 @@ void main() {
   gl_Position = vec4(POSITIONS[gl_VertexID], 0.0, 1.0);
 }`;
 
-// Domain-warped fbm (fbm sampled through two layers of its own offset field,
-// "flow") instead of a single flat fbm layer -- a flat layer just pans as a
-// static blob texture (reads as camo/marble, not liquid). Warping the sample
-// point through nested noise fields is what actually produces the swirling,
-// continuously-reshaping look real fluid simulations approximate. The
-// gradient of the final height field still drives a fake-specular highlight
-// (a light-reflection trick, not real raytracing), but now at a HIGHER
-// frequency than the base color layer so highlights read as thin metallic
-// streaks, not "each blob has a bright rim" (which is what made v1 look like
-// pinched blotches rather than chrome). Ripples are now an expanding wave
-// ring (sin of distance-minus-radius, localized by a Gaussian envelope
-// around the current radius) rather than a static one-shot radial bulge --
-// a real ripple propagates outward, it doesn't just dent the surface in
-// place. Revised 2026-08-12 per Dave's live-review feedback (v1 looked like
-// "pinching the areas the cursor hovers over," not flowing liquid metal).
+// Third rewrite, 2026-08-12: the two fbm-based attempts both read as a
+// textured/grainy surface ("green blotches"), not a sleek modern liquid --
+// noise-texture shading was the wrong tool regardless of tuning. This
+// version drops noise entirely and blends a handful of perfectly smooth
+// circular blobs with a polynomial smooth-min (the standard metaball
+// technique), the same family of effect behind Stripe-style mesh-gradient
+// backgrounds: a few soft, slowly-drifting shapes that melt into each other
+// at their edges rather than a textured field. Cursor reactivity reuses the
+// existing ripple buffer (lib/liquidMetalRipples.ts, unchanged) but instead
+// of physically displacing a noise field, each live ripple point is simply
+// ANOTHER small blob blended into the same field -- so moving the cursor
+// leaves a short trail of blobs merging into the ambient ones, which is a
+// simpler, cheaper, and (per live review) better-looking effect than the
+// wave-displacement math it replaces.
 const FRAGMENT_SRC = `#version 300 es
 precision highp float;
 uniform vec2 u_resolution;
@@ -48,93 +47,73 @@ uniform int u_rippleCount;
 uniform vec3 u_ripples[${MAX_RIPPLES}];
 out vec4 fragColor;
 
-float hash(vec2 p) {
-  p = fract(p * vec2(123.34, 456.21));
-  p += dot(p, p + 45.32);
-  return fract(p.x * p.y);
+// Polynomial smooth-min (Inigo Quilez): blends two signed distances so their
+// surfaces merge smoothly instead of meeting at a hard seam -- this IS the
+// "liquid" look, no noise texture involved.
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
 }
-float noise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  float a = hash(i);
-  float b = hash(i + vec2(1.0, 0.0));
-  float c = hash(i + vec2(0.0, 1.0));
-  float d = hash(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-float fbm(vec2 p) {
-  float value = 0.0;
-  float amplitude = 0.5;
-  for (int i = 0; i < 4; i++) {
-    value += amplitude * noise(p);
-    p *= 2.0;
-    amplitude *= 0.5;
+
+// A handful of large ambient blobs on independent slow Lissajous-style
+// drift paths -- deterministic per-index phase/speed/radius so no random
+// texture lookup is needed, just smooth periodic motion.
+#define AMBIENT_BLOBS 5
+float ambientField(vec2 uv, float t) {
+  float field = 1.0e5;
+  for (int i = 0; i < AMBIENT_BLOBS; i++) {
+    float seed = float(i) * 1.37 + 0.5;
+    float speed = 0.04 + fract(seed * 3.19) * 0.03;
+    float rx = 0.42 + fract(seed * 7.71) * 0.34;
+    float ry = 0.38 + fract(seed * 5.33) * 0.34;
+    float phase = seed * 6.2831;
+    vec2 center = vec2(0.15 + fract(seed * 2.11) * 0.7, 0.15 + fract(seed * 4.87) * 0.7)
+      + vec2(sin(t * speed + phase), cos(t * speed * 0.82 + phase * 1.6)) * vec2(rx, ry) * 0.12;
+    float radius = 0.075 + 0.012 * sin(t * 0.15 + phase);
+    float d = length(uv - center) - radius;
+    field = smin(field, d, 0.09);
   }
-  return value;
+  return field;
 }
-// Two layers of domain warp: each layer samples fbm at a point offset by the
-// previous layer's own fbm output, so the "flow" direction itself drifts
-// over time and space instead of the field just sliding sideways.
-float flow(vec2 p, float t) {
-  vec2 qa = vec2(fbm(p + vec2(0.0, 0.0) + t * 0.06), fbm(p + vec2(5.2, 1.3) - t * 0.05));
-  vec2 qb = vec2(
-    fbm(p + 3.1 * qa + vec2(1.7, 9.2) + t * 0.03),
-    fbm(p + 3.1 * qa + vec2(8.3, 2.8) - t * 0.04)
-  );
-  return fbm(p + 3.4 * qb);
-}
-// An expanding ring wave, not a static bulge: sin(dist - speed*age) creates
-// concentric crests that travel outward from the ripple origin, localized to
-// the current wavefront radius by a Gaussian envelope so old ripples don't
-// leave a permanent dent once their wave has passed.
-vec2 rippleDisplacement(vec2 fragPx) {
-  vec2 disp = vec2(0.0);
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  float aspect = u_resolution.x / u_resolution.y;
+  vec2 auv = vec2(uv.x * aspect, uv.y);
+
+  float field = ambientField(auv, u_time);
+
+  // Each live ripple point is a small blob that shrinks and fades with age,
+  // merged into the same distance field -- a moving cursor leaves a soft
+  // trail of blobs melting into the ambient ones instead of a static mark.
   for (int i = 0; i < ${MAX_RIPPLES}; i++) {
     if (i >= u_rippleCount) break;
     vec3 r = u_ripples[i];
     float age = r.z;
     if (age < 0.0 || age >= ${RIPPLE_LIFETIME_SEC}) continue;
     float ageFade = 1.0 - age / ${RIPPLE_LIFETIME_SEC};
-    vec2 delta = fragPx - r.xy;
-    float dist = length(delta);
-    vec2 dir = dist > 0.0001 ? delta / dist : vec2(0.0);
-    float waveSpeed = 340.0;
-    float radius = waveSpeed * age;
-    float wavefront = exp(-pow((dist - radius) / 70.0, 2.0));
-    float wave = sin(dist * 0.05 - waveSpeed * age * 0.05);
-    disp += dir * wave * wavefront * ageFade * 16.0;
+    vec2 center = (r.xy / u_resolution.xy) * vec2(aspect, 1.0);
+    float radius = 0.05 * ageFade;
+    float d = length(auv - center) - radius;
+    field = smin(field, d, 0.10);
   }
-  return disp;
-}
-void main() {
-  vec2 fragPx = gl_FragCoord.xy;
-  vec2 disp = rippleDisplacement(fragPx);
-  vec2 p = (fragPx + disp) / u_resolution.y * 1.6;
 
-  float h = flow(p, u_time);
+  // Soft-edged mask (no hard antialiased circle edge -- a wide smoothstep
+  // band is what makes the blobs read as blurred/glowing rather than flat
+  // filled shapes) plus a tighter inner core for a subtle brighter center.
+  float mask = smoothstep(0.05, -0.05, field);
+  float core = smoothstep(0.0, -0.10, field);
 
-  // Sample the SAME warped field at a finer offset for the normal, rather
-  // than differentiating the base layer directly -- this is what puts the
-  // specular detail at a different (higher) frequency than the color blobs,
-  // so highlights read as streaks across the surface, not blob outlines.
-  float eps = 0.006;
-  float hx = flow(p + vec2(eps, 0.0), u_time) - h;
-  float hy = flow(p + vec2(0.0, eps), u_time) - h;
-  vec3 normal = normalize(vec3(-hx, -hy, eps * 3.0));
-  vec3 lightDir = normalize(vec3(0.35, 0.55, 0.8));
-  float specular = pow(max(dot(normal, lightDir), 0.0), 70.0);
-  float rim = pow(1.0 - clamp(normal.z, 0.0, 1.0), 3.0);
+  vec3 color = mix(u_colorBg, u_colorSurface, mask * 0.75);
+  color = mix(color, u_colorAccent, core * 0.4);
 
-  // Narrow smoothstep + a dim multiplier keep this an ambient backdrop, not
-  // a foreground element competing with row-list/detail-panel text for
-  // attention -- most of the surface stays near-black, with the metallic
-  // sheen only showing through in a minority of the frame.
-  vec3 base = mix(u_colorBg, u_colorSurface, smoothstep(0.42, 0.82, h));
-  vec3 color = base;
-  color += u_colorAccent * specular * 0.6;
-  color += u_colorAccent * rim * 0.03;
-  fragColor = vec4(color * 0.8, 1.0);
+  // Gentle vignette so the corners stay darkest -- reinforces this as a
+  // backdrop, not a foreground shape competing with row-list/detail-panel
+  // content for attention.
+  float vignette = smoothstep(1.0, 0.15, length(uv - 0.5));
+  color *= mix(0.82, 1.0, vignette);
+
+  fragColor = vec4(color, 1.0);
 }`;
 
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
