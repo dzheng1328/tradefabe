@@ -3,7 +3,7 @@ import { MotionConfig } from "framer-motion";
 import Nav from "./components/Nav";
 import RowList from "./components/RowList";
 import DetailPanel from "./components/DetailPanel";
-import ParticleField from "./components/ParticleField";
+import LiquidMetalField from "./components/LiquidMetalField";
 import Intro from "./components/Intro";
 
 function BooksLayout() {
@@ -42,10 +42,10 @@ export default function App() {
   return (
     // reducedMotion="user" makes every motion.* component (row-select spring,
     // detail-panel entrance, range-control tap) honor prefers-reduced-motion
-    // automatically -- the canvas-driven ParticleField/Intro handle their own
+    // automatically -- the canvas-driven LiquidMetalField/Intro handle their own
     // reduced-motion check separately (see lib/motion.ts's prefersReducedMotion()).
     <MotionConfig reducedMotion="user">
-      <ParticleField />
+      <LiquidMetalField />
       <Intro />
       <Routes>
         <Route path="/" element={<Navigate to="/books" replace />} />

@@ -10,7 +10,7 @@ body {
   font-family: 'Space Grotesk', sans-serif;
 }
 
-.particle-field {
+.ambient-field {
   position: fixed;
   inset: 0;
   z-index: -1;
@@ -20,13 +20,12 @@ body {
   height: 100vh;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .particle-field {
-    /* Still shows the frozen frame drawn once on mount -- see ParticleField.tsx --
-       this rule only guarantees no CSS-driven motion sneaks in independently. */
-    animation: none;
-    transition: none;
-  }
+/* Static gradient shown when WebGL2 isn't available -- see LiquidMetalField.tsx's
+   useFallback path. Reduced-motion is handled entirely in JS (one static frame,
+   no listeners), so no CSS motion guard is needed here the way .particle-field
+   used to need one. */
+.liquid-metal-fallback {
+  background: radial-gradient(circle at 30% 20%, #181c15 0%, #0d0f0c 70%);
 }
 
 .intro-overlay {
