@@ -3,13 +3,13 @@ import { MotionConfig } from "framer-motion";
 import Nav from "./components/Nav";
 import RowList from "./components/RowList";
 import DetailPanel from "./components/DetailPanel";
-import ParticleField from "./components/ParticleField";
+import LiquidMetalField from "./components/LiquidMetalField";
 import Intro from "./components/Intro";
 
 function BooksLayout() {
   const { name } = useParams();
   return (
-    <div className="h-screen flex overflow-hidden">
+    <div className="h-screen flex flex-col overflow-hidden">
       <Nav />
       <div className="flex-1 flex overflow-hidden">
         <div className="w-[30rem] border-r border-white/5 overflow-y-auto">
@@ -29,7 +29,7 @@ function BooksLayout() {
 // redirect once its fetch resolves.
 function BooksIndexRedirect() {
   return (
-    <div className="h-screen flex overflow-hidden">
+    <div className="h-screen flex flex-col overflow-hidden">
       <Nav />
       <div className="w-[30rem] border-r border-white/5 overflow-y-auto">
         <RowList selectedName={null} />
@@ -42,10 +42,10 @@ export default function App() {
   return (
     // reducedMotion="user" makes every motion.* component (row-select spring,
     // detail-panel entrance, range-control tap) honor prefers-reduced-motion
-    // automatically -- the canvas-driven ParticleField/Intro handle their own
+    // automatically -- the canvas-driven LiquidMetalField/Intro handle their own
     // reduced-motion check separately (see lib/motion.ts's prefersReducedMotion()).
     <MotionConfig reducedMotion="user">
-      <ParticleField />
+      <LiquidMetalField />
       <Intro />
       <Routes>
         <Route path="/" element={<Navigate to="/books" replace />} />

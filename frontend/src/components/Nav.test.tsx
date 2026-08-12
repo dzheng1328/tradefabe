@@ -57,4 +57,9 @@ describe("Nav", () => {
     // Must not throw from a setState call on an unmounted component.
     expect(() => playSelect()).not.toThrow();
   });
+
+  it("shows an accent underline beneath the active Paper Books tab", () => {
+    const { container } = render(<Nav />);
+    expect(container.querySelector(".family-underline")).not.toBeNull();
+  });
 });

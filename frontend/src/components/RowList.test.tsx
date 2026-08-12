@@ -81,19 +81,15 @@ describe("RowList", () => {
     });
   });
 
-  it("refetches with show_monitor_only=false when the checkbox is unchecked", async () => {
+  it("never sends show_monitor_only -- the monitor-only filter was removed", async () => {
     render(
       <MemoryRouter>
         <RowList selectedName={null} />
       </MemoryRouter>
     );
     await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
-    const checkbox = screen.getByLabelText(/show monitor-only/i);
-    await userEvent.click(checkbox);
-    await waitFor(() => {
-      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
-      expect(calls.some((u) => String(u).includes("show_monitor_only=false"))).toBe(true);
-    });
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(calls.some((u) => String(u).includes("show_monitor_only"))).toBe(false);
   });
 
   it("redirects to a still-visible book when the selected one is filtered out", async () => {
@@ -101,8 +97,8 @@ describe("RowList", () => {
       if (url.includes("up_for_review")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(UP_FOR_REVIEW_RESPONSE) });
       }
-      // tsmom_12m (the currently-selected book) is absent -- as if it was just
-      // filtered out by unchecking "Show monitor-only".
+      // tsmom_12m (the currently-selected book) is absent -- as if a sort/data
+      // change server-side made it drop out of the list.
       return Promise.resolve({
         ok: true,
         json: () =>
