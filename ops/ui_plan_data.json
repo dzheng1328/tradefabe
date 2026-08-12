@@ -186,49 +186,49 @@
         {
           "id": "2.1",
           "title": "Failing tests for the new interactions",
-          "status": "pending",
+          "status": "done",
           "detail": "Extend RowList.test.tsx with failing tests for: FLIP reorder on sort change, hover-lift, family-underline draw-in, up-for-review badge pulse, skeleton loading rows, sparkline end-dot, born-book burst."
         },
         {
           "id": "2.2",
           "title": "Family-header underline + hover lift",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #28: thin per-family accent underline draws in on first render. Idea #32: row hover gains translateY(-1px) + soft shadow instead of only a background tint."
         },
         {
           "id": "2.3",
           "title": "Up-for-review badge pulse",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #29: badge count pulses once when it changes between visits. Needs a previous-count comparison (e.g. localStorage) so it only pulses on an actual change, not every render."
         },
         {
           "id": "2.4",
           "title": "FLIP reorder on sort switch",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #30: sort-mode switch animates row reordering (FLIP-style position transition via Framer Motion layout animations) instead of an instant re-render."
         },
         {
           "id": "2.5",
           "title": "carry_btc_eth featured treatment",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #31: the one strategy that's cleared doctrine gets a subtly distinct row treatment, echoing Wise's differently-styled chip inside a repeating row. Keep it subtle -- not a second visual language, one accent difference."
         },
         {
           "id": "2.6",
           "title": "Skeleton rows + empty-state polish",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #21: ghost-row skeleton placeholders while loading, using bg-surface, instead of a blank 'Loading...' flash. Idea #22: lighter-weight treatment for a partially-populated 'Up for review' state (today's fully-empty state is already correctly hidden -- leave that as is)."
         },
         {
           "id": "2.7",
           "title": "Sparkline end-dot + born-book burst",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #42: small colored dot as the literal end-marker on each sparkline. Idea #44: brief monochrome-accent burst the first time a brand-new paper book appears in the row list, tied to a real event (a book not seen before, tracked via localStorage), not decoration for its own sake."
         },
         {
           "id": "2.8",
           "title": "Suites + PR",
-          "status": "pending",
+          "status": "done",
           "detail": "npm test, npm run build green. Branch + PR."
         }
       ]
