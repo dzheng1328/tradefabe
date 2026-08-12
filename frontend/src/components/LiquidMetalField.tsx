@@ -162,6 +162,16 @@ export default function LiquidMetalField() {
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     let height = window.innerHeight;
+    const reducedMotion = prefersReducedMotion();
+
+    const rippleUniformData = new Float32Array(16 * 3);
+
+    function drawFrame(timeSeconds: number, count: number) {
+      gl!.uniform1f(uTime, timeSeconds);
+      gl!.uniform1i(uRippleCount, count);
+      gl!.uniform3fv(uRipples, rippleUniformData);
+      gl!.drawArrays(gl!.TRIANGLES, 0, 3);
+    }
 
     function resize() {
       const width = window.innerWidth;
@@ -170,12 +180,17 @@ export default function LiquidMetalField() {
       canvas!.height = height * dpr;
       gl!.viewport(0, 0, canvas!.width, canvas!.height);
       gl!.uniform2f(uResolution, canvas!.width, canvas!.height);
+      // Setting canvas.width/height above clears the drawing buffer (HTML
+      // spec), so under reduced motion -- where nothing else redraws -- a
+      // resize would otherwise leave the canvas blank until the next
+      // pointer/frame event, which never comes. Redraw the single static
+      // frame immediately so it persists across resizes.
+      if (reducedMotion) drawFrame(0, 0);
     }
     resize();
     window.addEventListener("resize", resize);
 
     let ripples: RipplePoint[] = [];
-    const rippleUniformData = new Float32Array(16 * 3);
 
     function buildRippleUniforms(now: number): number {
       ripples = pruneExpiredRipples(ripples, now);
@@ -187,16 +202,10 @@ export default function LiquidMetalField() {
       return ripples.length;
     }
 
-    function drawFrame(timeSeconds: number, count: number) {
-      gl!.uniform1f(uTime, timeSeconds);
-      gl!.uniform1i(uRippleCount, count);
-      gl!.uniform3fv(uRipples, rippleUniformData);
-      gl!.drawArrays(gl!.TRIANGLES, 0, 3);
-    }
-
-    if (prefersReducedMotion()) {
-      const count = buildRippleUniforms(performance.now());
-      drawFrame(0, count);
+    if (reducedMotion) {
+      // resize() (called synchronously above) already drew the single
+      // static frame with 0 ripples and will redraw on future resizes;
+      // nothing else runs in this mode.
       return () => window.removeEventListener("resize", resize);
     }
 

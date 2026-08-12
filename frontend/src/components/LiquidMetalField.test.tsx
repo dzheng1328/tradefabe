@@ -76,4 +76,22 @@ describe("LiquidMetalField", () => {
     expect(rafSpy).not.toHaveBeenCalled();
     expect(addEventSpy).not.toHaveBeenCalledWith("pointermove", expect.any(Function));
   });
+
+  it("redraws the static frame after a window resize under prefers-reduced-motion", () => {
+    mockMatchMedia(true);
+    const gl = mockWebGL2Context();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(gl);
+    render(<LiquidMetalField />);
+
+    const drawArrays = gl.drawArrays as unknown as ReturnType<typeof vi.fn>;
+    const callsAtMount = drawArrays.mock.calls.length;
+    expect(callsAtMount).toBeGreaterThan(0);
+
+    window.dispatchEvent(new Event("resize"));
+
+    // canvas.width/height assignment inside resize() clears the drawing
+    // buffer; the reduced-motion path must redraw so the frame persists
+    // instead of going blank.
+    expect(drawArrays.mock.calls.length).toBeGreaterThan(callsAtMount);
+  });
 });
