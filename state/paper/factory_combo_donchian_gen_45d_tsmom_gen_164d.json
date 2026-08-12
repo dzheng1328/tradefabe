@@ -1,7 +1,20 @@
 {
  "name": "factory_combo_donchian_gen_45d_tsmom_gen_164d",
- "cash": 100000.0,
- "positions": {},
+ "cash": 25669.89054697788,
+ "positions": {
+  "EEM": 4.520905679350734,
+  "GLD": 0.974116179175585,
+  "HYG": 25.154067994781958,
+  "IEF": 280.294093619343,
+  "IWM": 1.7958338141587493,
+  "QQQ": 0.5282222099041434,
+  "SLV": 3.591105419003772,
+  "SPY": 55.42046324625879,
+  "TLT": -12.88289036848764,
+  "USO": 1.4245045960340919,
+  "UUP": 70.65569683069818,
+  "VNQ": 6.519391459162911
+ },
  "history": [
   [
    "2026-06-30T13:30",
@@ -850,12 +863,139 @@
   [
    "2026-08-12T02:02",
    100000.0
+  ],
+  [
+   "2026-08-12T04:15",
+   99961.8
   ]
  ],
- "last_run": "2026-08-12T02:02:43",
- "last_rebalance": null,
+ "last_run": "2026-08-12T04:15:19",
+ "last_rebalance": "2026-08-11",
  "last_backfill_bar": "2026-08-11T19:30",
  "last_price_bar": "2026-08-11",
- "last_prices": {},
- "last_prices_at": "2026-08-12T02:02"
+ "last_prices": {
+  "EEM": 65.43,
+  "GLD": 400.959991,
+  "HYG": 79.510002,
+  "IEF": 92.870003,
+  "IWM": 300.98999,
+  "QQQ": 718.450012,
+  "SLV": 58.549999,
+  "SPY": 770.559998,
+  "TLT": 82.190002,
+  "USO": 127.610001,
+  "UUP": 28.139999,
+  "VNQ": 96.379997
+ },
+ "last_prices_at": "2026-08-12T04:15",
+ "trades": [
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "EEM",
+   "side": "BUY",
+   "shares": 4.520906,
+   "price": 65.43,
+   "notional": 295.8,
+   "position_after": 4.520906
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "GLD",
+   "side": "BUY",
+   "shares": 0.974116,
+   "price": 400.959991,
+   "notional": 390.58,
+   "position_after": 0.974116
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "HYG",
+   "side": "BUY",
+   "shares": 25.154068,
+   "price": 79.510002,
+   "notional": 2000.0,
+   "position_after": 25.154068
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "IEF",
+   "side": "BUY",
+   "shares": 280.294094,
+   "price": 92.870003,
+   "notional": 26030.91,
+   "position_after": 280.294094
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "IWM",
+   "side": "BUY",
+   "shares": 1.795834,
+   "price": 300.98999,
+   "notional": 540.53,
+   "position_after": 1.795834
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "QQQ",
+   "side": "BUY",
+   "shares": 0.528222,
+   "price": 718.450012,
+   "notional": 379.5,
+   "position_after": 0.528222
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "SLV",
+   "side": "BUY",
+   "shares": 3.591105,
+   "price": 58.549999,
+   "notional": 210.26,
+   "position_after": 3.591105
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "SPY",
+   "side": "BUY",
+   "shares": 55.420463,
+   "price": 770.559998,
+   "notional": 42704.79,
+   "position_after": 55.420463
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "TLT",
+   "side": "SHORT",
+   "shares": -12.88289,
+   "price": 82.190002,
+   "notional": 1058.84,
+   "position_after": -12.88289
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "USO",
+   "side": "BUY",
+   "shares": 1.424505,
+   "price": 127.610001,
+   "notional": 181.78,
+   "position_after": 1.424505
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "UUP",
+   "side": "BUY",
+   "shares": 70.655697,
+   "price": 28.139999,
+   "notional": 1988.25,
+   "position_after": 70.655697
+  },
+  {
+   "ts": "2026-08-12T04:15",
+   "ticker": "VNQ",
+   "side": "BUY",
+   "shares": 6.519391,
+   "price": 96.379997,
+   "notional": 628.34,
+   "position_after": 6.519391
+  }
+ ]
 }
