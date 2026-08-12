@@ -12,6 +12,32 @@ const PARAMS = { count: 390, driftSpeed: 0.48, dotSize: 0.85, twinkleAmount: 0.1
 const LINK_DISTANCE = 85;
 const ACCENT_RGB = "159, 232, 112"; // tailwind.config.js `accent` (#9fe870) as an rgb triplet
 
+// One glow sprite, rasterized once and reused via drawImage for every particle on
+// every frame -- calling ctx.createRadialGradient() per particle per frame (390
+// particles x 60fps) forced the browser to rebuild and rasterize a fresh gradient
+// continuously on a full-viewport canvas, a real perf smell (fixing-motion-performance
+// skill, rule 5: paint-heavy work must stay small/isolated, not run unbounded on a
+// large surface). Baked at full brightness/size; per-particle alpha and size are
+// applied at draw time via globalAlpha + dest width/height, so one sprite covers every
+// depth/twinkle combination.
+const SPRITE_SIZE = 64;
+let glowSprite: HTMLCanvasElement | null = null;
+function getGlowSprite(): HTMLCanvasElement {
+  if (glowSprite) return glowSprite;
+  const sprite = document.createElement("canvas");
+  sprite.width = SPRITE_SIZE;
+  sprite.height = SPRITE_SIZE;
+  const sctx = sprite.getContext("2d")!;
+  const r = SPRITE_SIZE / 2;
+  const gradient = sctx.createRadialGradient(r, r, 0, r, r, r);
+  gradient.addColorStop(0, `rgba(${ACCENT_RGB}, 1)`);
+  gradient.addColorStop(1, `rgba(${ACCENT_RGB}, 0)`);
+  sctx.fillStyle = gradient;
+  sctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+  glowSprite = sprite;
+  return sprite;
+}
+
 function renderFrame(
   ctx: CanvasRenderingContext2D,
   particles: Particle[],
@@ -36,18 +62,15 @@ function renderFrame(
     ctx.stroke();
   }
 
-  ctx.globalAlpha = 1;
+  const sprite = getGlowSprite();
   for (const p of particles) {
     const alpha = twinkleAlpha(0.28, p.twinklePhase, PARAMS.twinkleAmount);
     const glowRadius = p.size * 2.2;
-    const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowRadius);
-    gradient.addColorStop(0, `rgba(${ACCENT_RGB}, ${alpha})`);
-    gradient.addColorStop(1, `rgba(${ACCENT_RGB}, 0)`);
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, glowRadius, 0, Math.PI * 2);
-    ctx.fill();
+    const d = glowRadius * 2;
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(sprite, p.x - glowRadius, p.y - glowRadius, d, d);
   }
+  ctx.globalAlpha = 1;
 
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();

@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { MotionConfig } from "framer-motion";
 import Nav from "./components/Nav";
 import RowList from "./components/RowList";
 import DetailPanel from "./components/DetailPanel";
@@ -39,7 +40,11 @@ function BooksIndexRedirect() {
 
 export default function App() {
   return (
-    <>
+    // reducedMotion="user" makes every motion.* component (row-select spring,
+    // detail-panel entrance, range-control tap) honor prefers-reduced-motion
+    // automatically -- the canvas-driven ParticleField/Intro handle their own
+    // reduced-motion check separately (see lib/motion.ts's prefersReducedMotion()).
+    <MotionConfig reducedMotion="user">
       <ParticleField />
       <Intro />
       <Routes>
@@ -47,6 +52,6 @@ export default function App() {
         <Route path="/books" element={<BooksIndexRedirect />} />
         <Route path="/books/:name" element={<BooksLayout />} />
       </Routes>
-    </>
+    </MotionConfig>
   );
 }

@@ -148,13 +148,13 @@
         {
           "id": "1.6",
           "title": "Accessibility + performance audit",
-          "status": "pending",
+          "status": "done",
           "detail": "Run fixing-motion-performance and fixing-accessibility skills against everything in this phase before merge. Confirm reduced-motion and audio-off states are equivalent experiences, not degraded ones (gates from ideas #46-48)."
         },
         {
           "id": "1.7",
           "title": "Suites + PR",
-          "status": "pending",
+          "status": "in_progress",
           "detail": "npm test, npm run build, pytest tests/ -n0 all green. Branch + PR per CLAUDE.md's git workflow, never push to main."
         }
       ]
