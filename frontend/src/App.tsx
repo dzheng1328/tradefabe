@@ -9,7 +9,7 @@ import Intro from "./components/Intro";
 function BooksLayout() {
   const { name } = useParams();
   return (
-    <div className="h-screen flex overflow-hidden">
+    <div className="h-screen flex flex-col overflow-hidden">
       <Nav />
       <div className="flex-1 flex overflow-hidden">
         <div className="w-[30rem] border-r border-white/5 overflow-y-auto">
@@ -29,7 +29,7 @@ function BooksLayout() {
 // redirect once its fetch resolves.
 function BooksIndexRedirect() {
   return (
-    <div className="h-screen flex overflow-hidden">
+    <div className="h-screen flex flex-col overflow-hidden">
       <Nav />
       <div className="w-[30rem] border-r border-white/5 overflow-y-auto">
         <RowList selectedName={null} />
