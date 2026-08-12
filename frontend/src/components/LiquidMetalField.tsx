@@ -4,7 +4,6 @@ import {
   pruneExpiredRipples,
   MAX_RIPPLES,
   RIPPLE_LIFETIME_MS,
-  RIPPLE_SIGMA_PX,
   type RipplePoint,
 } from "../lib/liquidMetalRipples";
 import { prefersReducedMotion } from "../lib/motion";
@@ -23,11 +22,21 @@ void main() {
   gl_Position = vec4(POSITIONS[gl_VertexID], 0.0, 1.0);
 }`;
 
-// Domain-warped fractal noise (fbm) read as a fake height field; its gradient
-// approximates a surface normal, driving a cheap fake-specular highlight -- a
-// light-reflection trick, not real raytracing. rippleWarp() reimplements
-// lib/liquidMetalRipples.ts's rippleAmplitudeAt() shape (age fade x Gaussian
-// distance falloff) per-pixel, since GLSL can't call the TS function directly.
+// Domain-warped fbm (fbm sampled through two layers of its own offset field,
+// "flow") instead of a single flat fbm layer -- a flat layer just pans as a
+// static blob texture (reads as camo/marble, not liquid). Warping the sample
+// point through nested noise fields is what actually produces the swirling,
+// continuously-reshaping look real fluid simulations approximate. The
+// gradient of the final height field still drives a fake-specular highlight
+// (a light-reflection trick, not real raytracing), but now at a HIGHER
+// frequency than the base color layer so highlights read as thin metallic
+// streaks, not "each blob has a bright rim" (which is what made v1 look like
+// pinched blotches rather than chrome). Ripples are now an expanding wave
+// ring (sin of distance-minus-radius, localized by a Gaussian envelope
+// around the current radius) rather than a static one-shot radial bulge --
+// a real ripple propagates outward, it doesn't just dent the surface in
+// place. Revised 2026-08-12 per Dave's live-review feedback (v1 looked like
+// "pinching the areas the cursor hovers over," not flowing liquid metal).
 const FRAGMENT_SRC = `#version 300 es
 precision highp float;
 uniform vec2 u_resolution;
@@ -57,15 +66,30 @@ float noise(vec2 p) {
 float fbm(vec2 p) {
   float value = 0.0;
   float amplitude = 0.5;
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 4; i++) {
     value += amplitude * noise(p);
     p *= 2.0;
     amplitude *= 0.5;
   }
   return value;
 }
-vec2 rippleWarp(vec2 fragPx) {
-  vec2 warp = vec2(0.0);
+// Two layers of domain warp: each layer samples fbm at a point offset by the
+// previous layer's own fbm output, so the "flow" direction itself drifts
+// over time and space instead of the field just sliding sideways.
+float flow(vec2 p, float t) {
+  vec2 qa = vec2(fbm(p + vec2(0.0, 0.0) + t * 0.06), fbm(p + vec2(5.2, 1.3) - t * 0.05));
+  vec2 qb = vec2(
+    fbm(p + 3.1 * qa + vec2(1.7, 9.2) + t * 0.03),
+    fbm(p + 3.1 * qa + vec2(8.3, 2.8) - t * 0.04)
+  );
+  return fbm(p + 3.4 * qb);
+}
+// An expanding ring wave, not a static bulge: sin(dist - speed*age) creates
+// concentric crests that travel outward from the ripple origin, localized to
+// the current wavefront radius by a Gaussian envelope so old ripples don't
+// leave a permanent dent once their wave has passed.
+vec2 rippleDisplacement(vec2 fragPx) {
+  vec2 disp = vec2(0.0);
   for (int i = 0; i < ${MAX_RIPPLES}; i++) {
     if (i >= u_rippleCount) break;
     vec3 r = u_ripples[i];
@@ -73,31 +97,44 @@ vec2 rippleWarp(vec2 fragPx) {
     if (age < 0.0 || age >= ${RIPPLE_LIFETIME_SEC}) continue;
     float ageFade = 1.0 - age / ${RIPPLE_LIFETIME_SEC};
     vec2 delta = fragPx - r.xy;
-    float dist2 = dot(delta, delta);
-    float spatial = exp(-dist2 / (2.0 * ${RIPPLE_SIGMA_PX.toFixed(1)} * ${RIPPLE_SIGMA_PX.toFixed(1)}));
-    float amp = ageFade * spatial;
-    vec2 dir = dist2 > 0.0001 ? normalize(delta) : vec2(0.0);
-    warp += dir * amp * 40.0;
+    float dist = length(delta);
+    vec2 dir = dist > 0.0001 ? delta / dist : vec2(0.0);
+    float waveSpeed = 340.0;
+    float radius = waveSpeed * age;
+    float wavefront = exp(-pow((dist - radius) / 70.0, 2.0));
+    float wave = sin(dist * 0.05 - waveSpeed * age * 0.05);
+    disp += dir * wave * wavefront * ageFade * 16.0;
   }
-  return warp;
+  return disp;
 }
 void main() {
   vec2 fragPx = gl_FragCoord.xy;
-  vec2 warp = rippleWarp(fragPx);
-  vec2 p = (fragPx + warp) / u_resolution.y * 3.0;
-  p += vec2(u_time * 0.03, u_time * 0.02);
+  vec2 disp = rippleDisplacement(fragPx);
+  vec2 p = (fragPx + disp) / u_resolution.y * 1.6;
 
-  float h = fbm(p);
-  float eps = 0.01;
-  float hx = fbm(p + vec2(eps, 0.0)) - h;
-  float hy = fbm(p + vec2(0.0, eps)) - h;
-  vec3 normal = normalize(vec3(-hx, -hy, eps));
-  vec3 lightDir = normalize(vec3(0.4, 0.6, 0.7));
-  float specular = pow(max(dot(normal, lightDir), 0.0), 24.0);
+  float h = flow(p, u_time);
 
-  vec3 base = mix(u_colorBg, u_colorSurface, h);
-  vec3 color = mix(base, u_colorAccent, specular * 0.8);
-  fragColor = vec4(color, 1.0);
+  // Sample the SAME warped field at a finer offset for the normal, rather
+  // than differentiating the base layer directly -- this is what puts the
+  // specular detail at a different (higher) frequency than the color blobs,
+  // so highlights read as streaks across the surface, not blob outlines.
+  float eps = 0.006;
+  float hx = flow(p + vec2(eps, 0.0), u_time) - h;
+  float hy = flow(p + vec2(0.0, eps), u_time) - h;
+  vec3 normal = normalize(vec3(-hx, -hy, eps * 3.0));
+  vec3 lightDir = normalize(vec3(0.35, 0.55, 0.8));
+  float specular = pow(max(dot(normal, lightDir), 0.0), 70.0);
+  float rim = pow(1.0 - clamp(normal.z, 0.0, 1.0), 3.0);
+
+  // Narrow smoothstep + a dim multiplier keep this an ambient backdrop, not
+  // a foreground element competing with row-list/detail-panel text for
+  // attention -- most of the surface stays near-black, with the metallic
+  // sheen only showing through in a minority of the frame.
+  vec3 base = mix(u_colorBg, u_colorSurface, smoothstep(0.42, 0.82, h));
+  vec3 color = base;
+  color += u_colorAccent * specular * 0.6;
+  color += u_colorAccent * rim * 0.03;
+  fragColor = vec4(color * 0.8, 1.0);
 }`;
 
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
