@@ -208,6 +208,64 @@ body {
   }
 }
 
+/* Verdict badge stamp (idea #35) -- fires once per book per session, see
+   DetailPanel.tsx's sessionStorage gate in consumeVerdictStamp(). */
+.tf-verdict-stamp {
+  display: inline-block;
+  animation: verdict-stamp 400ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes verdict-stamp {
+  0% {
+    transform: scale(2) rotate(-8deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(0.95) rotate(2deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tf-verdict-stamp {
+    animation: none;
+  }
+}
+
+/* Divergence-status badge glow (idea #27) -- only when actually diverging; ok/
+   insufficient stay plain text, no cry-wolf glow on the common case. */
+.tf-divergence-pulse {
+  animation: divergence-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes divergence-pulse {
+  0%,
+  100% {
+    text-shadow: 0 0 0 rgba(248, 113, 113, 0);
+  }
+  50% {
+    text-shadow: 0 0 8px rgba(248, 113, 113, 0.7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tf-divergence-pulse {
+    animation: none;
+    text-decoration: underline;
+    text-decoration-color: rgba(248, 113, 113, 0.7);
+  }
+}
+
+/* Retired-book frozen treatment (idea #36) -- reinforces that a retired ledger's
+   record is deliberately frozen, not merely quiet. */
+.tf-frozen {
+  filter: saturate(0.45) brightness(0.92);
+}
+
 /* Row hover-lift (idea #32) -- the background-tint hover cue (Framer Motion, in
    RowList.tsx) already signals hover on its own, so the translate is pure extra
    motion, safe to drop entirely under reduced motion. */

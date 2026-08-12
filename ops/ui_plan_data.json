@@ -266,49 +266,49 @@
         {
           "id": "3.1",
           "title": "Failing tests for the new treatments",
-          "status": "pending",
+          "status": "done",
           "detail": "Extend DetailPanel.test.tsx with failing tests for: stat-tile rendering with the new style, verdict-stamp animation trigger (once per session per book), retired-frozen treatment, freshness ticker, divergence-status pulse, blurb word-reveal."
         },
         {
           "id": "3.2",
           "title": "Stat-tile depth treatment",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #33: the 6 existing stat tiles (Sharpe/Sortino/Calmar/MaxDD/CAGR/Vol) get individual subtle depth/border-glow instead of flat text in a row. THIS is what 2b's new 'Capital deployed' stat row (Phase 4) will reuse verbatim -- get the component/class reusable, not DetailPanel-specific inline styles."
         },
         {
           "id": "3.3",
           "title": "Oversized-number + typography motion",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #17: one number per view (today's equity) gets Wise-style oversized treatment vs. the other 5 stats. Idea #16: blurb reveals word-by-word on selection using the shared SPRING config. Idea #18: section headers get a subtle letter-spacing/opacity entrance."
         },
         {
           "id": "3.4",
           "title": "Verdict stamp + retired-frozen treatment",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #35: verdict badge (DEAD/ALIVE) gets a one-time 'stamp' animation on first render per session -- quick scale-in + slight rotation. Idea #36: retired-book panels get a 'frozen' desaturation/texture treatment, reinforcing that a retired ledger's record is deliberately frozen."
         },
         {
           "id": "3.5",
           "title": "Range-control feel + freshness/divergence indicators",
-          "status": "pending",
-          "detail": "Idea #25: RangeControl buttons get a tactile press (slight depress + spring release). Idea #26: a live 'as of Xs ago' mono-digit freshness indicator near the equity number. Idea #27: divergence-status badge pulses with a subtle glow when 'diverging'."
+          "status": "done",
+          "detail": "Idea #25: RangeControl buttons get a tactile press (slight depress + spring release) -- already shipped in 2a's RangeControl.tsx (whileTap + SPRING), confirmed still in place. Idea #26: a live 'as of Xs ago' mono-digit freshness indicator near the equity number. Idea #27: divergence-status badge pulses with a subtle glow when 'diverging'."
         },
         {
           "id": "3.6",
           "title": "Loading state + route transition",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #20: replace 'Loading...' with Phase 1's particle-ring loader. Idea #23: crossfade detail-panel content on /books/:name selection change instead of a hard swap."
         },
         {
           "id": "3.7",
           "title": "Chart tooltip restyle",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #45: restyle the Plotly tooltip/hover crosshair with the mono font + accent color in plotlyDarkTheme.ts, which already exists as the place to add it."
         },
         {
           "id": "3.8",
           "title": "Suites + PR",
-          "status": "pending",
+          "status": "done",
           "detail": "npm test, npm run build, pytest tests/ -n0 (no backend changes expected, run for safety) all green. Branch + PR."
         }
       ]

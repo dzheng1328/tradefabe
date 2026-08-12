@@ -1,8 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import type { SyntheticEvent } from "react";
+import type { ReactNode, SyntheticEvent } from "react";
 import { motion } from "framer-motion";
 import type { Data } from "plotly.js";
 import RangeControl from "./RangeControl";
+import RingLoader from "./RingLoader";
+import StatTile from "./StatTile";
 import { prefersReducedMotion, SPRING } from "../lib/motion";
 import { playDataLanded, playRangeChange } from "../lib/sound";
 
@@ -36,9 +38,109 @@ function fmt(v: number | null | undefined, kind: "ratio" | "pct" = "ratio") {
   return kind === "ratio" ? v.toFixed(2) : `${(v * 100).toFixed(1)}%`;
 }
 
+// Idea #17's hero number reads straight off the same trace react-plotly.js draws --
+// no separate backend field to keep in sync with the chart it sits above.
+function latestEquity(chart: DetailResponse["live_equity_chart"]): number | null {
+  const ys = (chart.data[0] as { y?: (number | null)[] } | undefined)?.y ?? [];
+  for (let i = ys.length - 1; i >= 0; i--) {
+    const v = ys[i];
+    if (v !== null && v !== undefined && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+// Idea #16: the blurb reveals word-by-word rather than popping in whole.
+function BlurbReveal({ text }: { text: string }) {
+  const words = text.split(" ");
+  return (
+    <p className="text-ink-muted mt-1">
+      {words.map((word, i) => (
+        <span key={i}>
+          <motion.span
+            className="tf-word inline-block"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...SPRING, delay: prefersReducedMotion() ? 0 : i * 0.03 }}
+          >
+            {word}
+          </motion.span>
+          {i < words.length - 1 ? " " : ""}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+// Idea #18: section headers get a subtle entrance. Uses a translateX + opacity
+// (compositor-only) rather than an animated letter-spacing, which would reflow the
+// text's layout on every frame (fixing-motion-performance rule 2: default to
+// transform/opacity for motion).
+// Idea #35: the verdict badge (DEAD/ALIVE) gets a one-time "stamp" animation the
+// first time it's rendered THIS SESSION per book -- sessionStorage, not
+// localStorage, since a stamp should replay on a fresh visit, just not on every
+// re-render/refetch within one sitting (matches Intro.tsx's session-gate shape).
+const VERDICT_STAMPED_KEY = "tradefabe.verdictStamped";
+
+function consumeVerdictStamp(book: string): boolean {
+  let stamped: string[] = [];
+  try {
+    stamped = JSON.parse(sessionStorage.getItem(VERDICT_STAMPED_KEY) ?? "[]");
+  } catch {
+    stamped = [];
+  }
+  if (stamped.includes(book)) return false;
+  sessionStorage.setItem(VERDICT_STAMPED_KEY, JSON.stringify([...stamped, book]));
+  return true;
+}
+
+function VerdictBadge({ book, verdict }: { book: string; verdict: string }) {
+  const [stamp] = useState(() => consumeVerdictStamp(book));
+  return (
+    <span
+      className={`font-mono ${stamp ? "tf-verdict-stamp" : ""} ${
+        verdict === "ALIVE" ? "text-accent" : "text-red-400"
+      }`}
+    >
+      {verdict}
+    </span>
+  );
+}
+
+// Idea #26: a live "as of Xs ago" ticker next to the equity number, so staleness is
+// legible without a page refresh. Ticks off when the CURRENT response actually
+// landed, not `live_start` (the book's own start date, unrelated to fetch recency).
+function FreshnessTicker({ landedAt }: { landedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const secondsAgo = Math.max(0, Math.floor((now - landedAt) / 1000));
+  const label = secondsAgo < 60 ? `${secondsAgo}s ago` : `${Math.floor(secondsAgo / 60)}m ago`;
+  return (
+    <span data-testid="freshness" className="text-xs font-mono tabular-nums text-ink-muted">
+      as of {label}
+    </span>
+  );
+}
+
+function SectionHeader({ children }: { children: ReactNode }) {
+  return (
+    <motion.span
+      className="tf-section-header text-sm text-ink inline-block"
+      initial={{ opacity: 0, x: -4 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={SPRING}
+    >
+      {children}
+    </motion.span>
+  );
+}
+
 export default function DetailPanel({ name }: { name: string }) {
   const [data, setData] = useState<DetailResponse | null>(null);
   const [window, setWindow] = useState("ALL");
+  const [dataLandedAt, setDataLandedAt] = useState(0);
   // True from a name change until that book's first response lands -- distinguishes
   // "just opened this book" (plays the landed sound) from "changed the range window on
   // a book already open" (RangeControl's own click sound already covers that feedback;
@@ -82,6 +184,7 @@ export default function DetailPanel({ name }: { name: string }) {
       .then((res) => res.json())
       .then((body: DetailResponse) => {
         setData(body);
+        setDataLandedAt(Date.now());
         if (isInitialLoad.current) {
           playDataLanded();
           isInitialLoad.current = false;
@@ -89,7 +192,18 @@ export default function DetailPanel({ name }: { name: string }) {
       });
   }, [name, window]);
 
-  if (!data) return <p className="text-ink-muted">Loading…</p>;
+  // Idea #20 replaces the plain "Loading…" text with Phase 0's ring loader. Idea
+  // #23's crossfade rides on the same mechanism already used when switching books:
+  // this motion.div is keyed by `name`, so React remounts it fresh on selection
+  // change and its own initial/animate fade-in (below) crossfades the new content
+  // in, rather than a hard, instant swap.
+  if (!data) {
+    return (
+      <div className="flex justify-center py-12">
+        <RingLoader />
+      </div>
+    );
+  }
 
   const statEntries: [string, number | null][] = [
     ["Sharpe", data.stats.Sharpe], ["Sortino", data.stats.Sortino],
@@ -98,9 +212,28 @@ export default function DetailPanel({ name }: { name: string }) {
   ];
 
   return (
-    <motion.div key={name} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={SPRING}>
+    <motion.div
+      key={name}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={SPRING}
+      className={data.retirement_note ? "tf-frozen" : undefined}
+    >
       <h2 className="text-2xl font-bold text-ink">{name}</h2>
-      <p className="text-ink-muted mt-1">{data.blurb}</p>
+      <BlurbReveal text={data.blurb} />
+
+      {latestEquity(data.live_equity_chart) !== null && (
+        <div className="mt-3 flex items-baseline gap-3">
+          <div className="tf-equity-hero font-mono tabular-nums font-bold text-ink text-5xl">
+            {latestEquity(data.live_equity_chart)!.toLocaleString(undefined, {
+              style: "currency",
+              currency: "USD",
+              maximumFractionDigits: 0,
+            })}
+          </div>
+          {dataLandedAt > 0 && <FreshnessTicker landedAt={dataLandedAt} />}
+        </div>
+      )}
 
       {data.retirement_note && (
         <div className="bg-surface bg-topo bg-repeat rounded-card p-4 mt-4 text-sm">
@@ -110,19 +243,18 @@ export default function DetailPanel({ name }: { name: string }) {
 
       <div className="grid grid-cols-6 gap-4 mt-6 pb-6 border-b border-white/5">
         {statEntries.map(([label, kind]) => (
-          <div key={label}>
-            <div className="text-xs text-ink-muted uppercase">{label}</div>
-            <div className="text-xl text-ink font-mono tabular-nums">
-              {fmt(kind, label === "Max Drawdown" || label === "CAGR" || label === "Vol (ann.)" ? "pct" : "ratio")}
-            </div>
-          </div>
+          <StatTile
+            key={label}
+            label={label}
+            value={fmt(kind, label === "Max Drawdown" || label === "CAGR" || label === "Vol (ann.)" ? "pct" : "ratio")}
+          />
         ))}
       </div>
 
       {data.kind === "equity" ? (
         <p className="text-xs text-ink-muted mt-2 font-mono">
-          Verdict: {data.verdict} · corr to 60/40: {fmt(data.corr_bench)} · noise floor:{" "}
-          {fmt(data.null_p95)} · rebalance {data.freq}
+          Verdict: <VerdictBadge book={name} verdict={data.verdict ?? "—"} /> · corr to 60/40:{" "}
+          {fmt(data.corr_bench)} · noise floor: {fmt(data.null_p95)} · rebalance {data.freq}
         </p>
       ) : (
         <p className="text-xs text-ink-muted mt-2 font-mono">
@@ -133,7 +265,7 @@ export default function DetailPanel({ name }: { name: string }) {
 
       <div className="mt-6 pt-6 border-t border-white/5">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-ink">Live paper equity</span>
+          <SectionHeader>Live paper equity</SectionHeader>
           <RangeControl options={data.available_windows} value={window} onChange={setWindow} />
         </div>
         <Suspense fallback={<div className="h-[340px]" />}>
@@ -147,13 +279,18 @@ export default function DetailPanel({ name }: { name: string }) {
         onToggle={handleBacktestToggle}
       >
         <summary className="text-sm text-ink cursor-pointer">
-          Backtest history & live tracking check
+          <SectionHeader>Backtest history & live tracking check</SectionHeader>
         </summary>
         <Suspense fallback={<div className="h-[340px]" />}>
           <PlotlyChart figure={data.backtest_chart} />
         </Suspense>
         <p className="text-xs text-ink-muted mt-2">
-          {data.divergence_state}: {data.divergence_detail}
+          <span
+            className={`font-mono ${data.divergence_state === "diverging" ? "tf-divergence-pulse text-red-400" : ""}`}
+          >
+            {data.divergence_state}
+          </span>
+          : {data.divergence_detail}
         </p>
       </details>
     </motion.div>

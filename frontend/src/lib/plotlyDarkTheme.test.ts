@@ -19,6 +19,15 @@ describe("applyDarkTheme", () => {
     expect((dark.yaxis as { gridcolor: string }).gridcolor).not.toBe("#e5e4e0");
   });
 
+  it("restyles the hover tooltip with the mono font + accent color (idea #45)", () => {
+    const dark = applyDarkTheme({ height: 340 });
+    const hoverlabel = dark.hoverlabel as { bgcolor: string; bordercolor: string; font: { family: string; color: string } };
+    expect(hoverlabel.bgcolor).toBe("#181c15");
+    expect(hoverlabel.bordercolor).toBe("#9fe870");
+    expect(hoverlabel.font.family).toMatch(/IBM Plex Mono/);
+    expect(hoverlabel.font.color).toBe("#9fe870");
+  });
+
   it("preserves layout keys it doesn't own, like height", () => {
     const dark = applyDarkTheme({ height: 340, showlegend: false });
     expect(dark.height).toBe(340);
