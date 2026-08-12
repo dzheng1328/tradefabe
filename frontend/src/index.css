@@ -120,3 +120,102 @@ body {
     color: #9fe870;
   }
 }
+
+/* Family-header underline draw-in (idea #28) -- scales in from zero width. */
+.animate-underline-draw {
+  animation: underline-draw 400ms ease both;
+}
+
+@keyframes underline-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-underline-draw {
+    animation: none;
+  }
+}
+
+/* Up-for-review badge pulse (idea #29) -- fires once when the count changed
+   since the last visit, see RowList.tsx's localStorage comparison. */
+.review-badge-pulse {
+  display: inline-block;
+  animation: review-badge-pulse 500ms ease;
+}
+
+@keyframes review-badge-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.3);
+    color: #9fe870;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-badge-pulse {
+    animation: review-badge-pulse-static 500ms ease;
+  }
+}
+
+@keyframes review-badge-pulse-static {
+  0%,
+  100% {
+    color: inherit;
+  }
+  30% {
+    color: #9fe870;
+  }
+}
+
+/* Skeleton ghost rows (idea #21) -- still visible as a loading cue under reduced
+   motion, just without Tailwind's default pulse opacity animation. */
+@media (prefers-reduced-motion: reduce) {
+  .tf-skeleton-row .animate-pulse {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* Born-book burst (idea #44) -- monochrome-accent flash the first time a brand-new
+   paper book appears, tracked via localStorage in RowList.tsx. box-shadow, not
+   background-color, so it doesn't fight the row's own Framer Motion selection-tint
+   animation over the same property. */
+.tf-book-burst {
+  animation: book-burst 900ms ease;
+}
+
+@keyframes book-burst {
+  0% {
+    box-shadow: inset 3px 0 0 #9fe870, inset 0 0 24px rgba(159, 232, 112, 0.25);
+  }
+  100% {
+    box-shadow: inset 3px 0 0 rgba(159, 232, 112, 0), inset 0 0 24px rgba(159, 232, 112, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tf-book-burst {
+    animation: none;
+    box-shadow: inset 2px 0 0 #9fe870;
+  }
+}
+
+/* Row hover-lift (idea #32) -- the background-tint hover cue (Framer Motion, in
+   RowList.tsx) already signals hover on its own, so the translate is pure extra
+   motion, safe to drop entirely under reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .tf-row {
+    transition: none;
+  }
+  .tf-row:hover {
+    transform: none;
+  }
+}

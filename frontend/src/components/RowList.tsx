@@ -37,15 +37,34 @@ function Sparkline({ points }: { points: (number | null)[] }) {
   const span = max - min || 1;
   const w = 40, h = 16;
   const step = w / (vals.length - 1);
-  const d = vals
-    .map((v, i) => `${i === 0 ? "M" : "L"}${i * step},${h - ((v - min) / span) * h}`)
-    .join(" ");
+  const coords = vals.map((v, i) => [i * step, h - ((v - min) / span) * h]);
+  const d = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
+  const [endX, endY] = coords[coords.length - 1];
   return (
     <svg width={w} height={h} className="inline-block">
       <path d={d} fill="none" stroke="#9fe870" strokeWidth={1.5} />
+      <circle cx={endX} cy={endY} r={1.75} fill="#9fe870" />
     </svg>
   );
 }
+
+// Books this browser has already rendered at least once -- idea #44's burst is a
+// one-time "hey, something new appeared" signal, not decoration on every visit.
+const SEEN_BOOKS_KEY = "tradefabe.seenBooks";
+
+function readSeenBooks(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(SEEN_BOOKS_KEY) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+// The one strategy that's cleared doctrine (STRATEGIES.md) -- idea #31's subtly
+// distinct row treatment. Hardcoded, not verdict-driven: doctrine promotion is a
+// deliberate human/harness event (see DOCTRINE.md v1.5/v1.6), not something a row
+// list should infer live.
+const FEATURED_BOOK = "carry_btc_eth";
 
 // Matches app.py's `intro.strftime("%-m.%-d.%y")` (tf-book-date) so the two UIs agree
 // on the same book's introduced date. Parsed from the ISO string's date digits
@@ -58,19 +77,29 @@ function formatIntroduced(iso: string | null): string {
   return `${Number(month)}.${Number(day)}.${year.slice(-2)}`;
 }
 
-function Row({ r, selected }: { r: BookRow; selected: boolean }) {
+function Row({ r, selected, isNew }: { r: BookRow; selected: boolean; isNew: boolean }) {
   const delta = r.return_today ?? r.return;
   return (
-    <Link to={`/books/${r.book}`} className="block no-underline" onClick={playSelect}>
+    <Link to={`/books/${r.book}`} className="block no-underline" data-book={r.book} onClick={playSelect}>
       <motion.div
+        layout="position"
         whileHover={{ backgroundColor: "rgba(159,232,112,0.06)" }}
         animate={{
           backgroundColor: selected ? "rgba(159,232,112,0.12)" : "rgba(0,0,0,0)",
         }}
         transition={SPRING}
-        className="flex items-center gap-3 px-4 py-2 h-14 text-sm border-b border-white/5"
+        className={`tf-row flex items-center gap-3 px-4 py-2 h-14 text-sm border-b border-white/5 transition-transform hover:-translate-y-px hover:shadow-[0_4px_16px_rgba(0,0,0,0.35)] ${
+          isNew ? "tf-book-burst" : ""
+        }`}
       >
-        <span className="text-ink truncate min-w-0 flex-1">{r.book}</span>
+        <span className="text-ink truncate min-w-0 flex-1 flex items-center gap-2">
+          {r.book}
+          {r.book === FEATURED_BOOK && (
+            <span className="tf-featured-chip text-[10px] leading-none px-1.5 py-0.5 rounded-full border border-accent text-accent shrink-0">
+              cleared
+            </span>
+          )}
+        </span>
         <span className="text-ink-muted font-mono text-xs shrink-0">
           {formatIntroduced(r.introduced)}
         </span>
@@ -95,6 +124,8 @@ export default function RowList({ selectedName }: { selectedName: string | null 
   const [showMonitorOnly, setShowMonitorOnly] = useState(true);
   const [data, setData] = useState<SummaryResponse | null>(null);
   const [review, setReview] = useState<ReviewRow[]>([]);
+  const [reviewCountPulsed, setReviewCountPulsed] = useState(false);
+  const [newBooks, setNewBooks] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -104,6 +135,9 @@ export default function RowList({ selectedName }: { selectedName: string | null 
       .then((body: SummaryResponse) => {
         setData(body);
         const allBooks = "families" in body ? body.families.flatMap((f) => f.books) : body.books;
+        const seen = readSeenBooks();
+        setNewBooks(new Set(allBooks.map((b) => b.book).filter((name) => !seen.has(name))));
+        localStorage.setItem(SEEN_BOOKS_KEY, JSON.stringify(allBooks.map((b) => b.book)));
         const stillVisible = selectedName !== null && allBooks.some((b) => b.book === selectedName);
         if (!stillVisible) {
           const first = allBooks[0];
@@ -115,10 +149,30 @@ export default function RowList({ selectedName }: { selectedName: string | null 
   useEffect(() => {
     fetch("http://localhost:8000/api/books/up_for_review")
       .then((res) => res.json())
-      .then((body: { books: ReviewRow[] }) => setReview(body.books));
+      .then((body: { books: ReviewRow[] }) => {
+        setReview(body.books);
+        const key = "tradefabe.reviewCount";
+        const prev = localStorage.getItem(key);
+        setReviewCountPulsed(prev !== null && Number(prev) !== body.books.length);
+        localStorage.setItem(key, String(body.books.length));
+      });
   }, []);
 
-  if (!data) return <p className="p-4 text-ink-muted">Loading…</p>;
+  if (!data) {
+    return (
+      <div className="p-4 pt-2">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div
+            key={i}
+            className="tf-skeleton-row flex items-center gap-3 h-14 border-b border-white/5"
+          >
+            <span className="h-3 w-32 rounded bg-surface animate-pulse" />
+            <span className="ml-auto h-3 w-16 rounded bg-surface animate-pulse" />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -149,7 +203,11 @@ export default function RowList({ selectedName }: { selectedName: string | null 
 
       {review.length > 0 && (
         <details className="px-4 pb-2 text-xs text-ink-muted">
-          <summary>Up for review ({review.length})</summary>
+          <summary>
+            Up for review (
+            <span className={reviewCountPulsed ? "review-badge-pulse" : undefined}>{review.length}</span>
+            )
+          </summary>
           <ul className="mt-2 space-y-1">
             {review.map((r) => (
               <li key={r.book}>{r.book} — {r.days_live}d live, {r.verdict}</li>
@@ -161,14 +219,17 @@ export default function RowList({ selectedName }: { selectedName: string | null 
       {"families" in data
         ? data.families.map((fam) => (
             <div key={fam.family}>
-              <div className="px-4 pt-3 pb-1 text-xs uppercase text-ink-muted">{fam.label}</div>
+              <div className="px-4 pt-3 pb-1 text-xs uppercase text-ink-muted">
+                {fam.label}
+                <span className="family-underline block h-px w-6 mt-1 bg-accent origin-left animate-underline-draw" />
+              </div>
               {fam.books.map((r) => (
-                <Row key={r.book} r={r} selected={r.book === selectedName} />
+                <Row key={r.book} r={r} selected={r.book === selectedName} isNew={newBooks.has(r.book)} />
               ))}
             </div>
           ))
         : data.books.map((r) => (
-            <Row key={r.book} r={r} selected={r.book === selectedName} />
+            <Row key={r.book} r={r} selected={r.book === selectedName} isNew={newBooks.has(r.book)} />
           ))}
     </div>
   );
