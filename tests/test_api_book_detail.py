@@ -144,6 +144,42 @@ def test_carry_book_detail_preserves_window_and_generated_at():
     assert isinstance(carry_meta["generated_at"], str)
 
 
+def test_carry_book_includes_risk_fields():
+    client = TestClient(app)
+    psum, _phist = dashboard.load_paper_state()
+    if psum is None or "carry_btc_eth" not in psum["book"].values:
+        return
+    body = client.get("/api/books/carry_btc_eth/detail").json()
+    assert "book_state" in body
+    assert "carry_risk" in body
+    assert "risk_register" in body
+    assert isinstance(body["risk_register"], list)
+    assert len(body["risk_register"]) > 0
+    for entry in body["risk_register"]:
+        for key in ("key", "title", "category", "likelihood", "impact", "detail", "measured"):
+            assert key in entry
+
+
+def test_carry_risk_survives_a_missing_report(monkeypatch):
+    client = TestClient(app)
+    psum, _phist = dashboard.load_paper_state()
+    if psum is None or "carry_btc_eth" not in psum["book"].values:
+        return
+    monkeypatch.setattr(dashboard, "load_carry_risk", lambda: None)
+    resp = client.get("/api/books/carry_btc_eth/detail")
+    assert resp.status_code == 200
+    assert resp.json()["carry_risk"] is None
+
+
+def test_carry_book_response_has_no_nan_token():
+    client = TestClient(app)
+    psum, _phist = dashboard.load_paper_state()
+    if psum is None or "carry_btc_eth" not in psum["book"].values:
+        return
+    resp = client.get("/api/books/carry_btc_eth/detail")
+    assert "NaN" not in resp.text
+
+
 def test_stats_nan_serializes_as_json_null_not_nan_token():
     """A book with < 30 OOS observations has every ann_stats() field as NaN --
     response body must be valid JSON."""

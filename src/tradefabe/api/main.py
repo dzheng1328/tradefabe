@@ -5,7 +5,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from tradefabe import dashboard
+from tradefabe import dashboard, risk_register
 
 app = FastAPI(title="tradefabe dashboard API")
 
@@ -28,6 +28,23 @@ def _finite_or_none(v):
     except (TypeError, ValueError):
         return None
     return v if math.isfinite(v) else None
+
+
+def _deep_finite(obj):
+    """Recursively applies _finite_or_none-style NaN-safety through a nested structure
+    -- carry_risk.json nests two levels (coins -> BTC/ETH -> postures -> tier). Only a
+    genuine float/int leaf that is NaN/inf gets nulled; bool/str/None pass through
+    unchanged (bool is checked before the int/float branch since bool is an int
+    subclass in Python)."""
+    if isinstance(obj, dict):
+        return {k: _deep_finite(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_deep_finite(v) for v in obj]
+    if isinstance(obj, bool) or obj is None or isinstance(obj, str):
+        return obj
+    if isinstance(obj, (int, float)):
+        return _finite_or_none(obj)
+    return obj
 
 
 def _load_gy_last():
@@ -244,6 +261,15 @@ def book_detail(name: str, window: str = "ALL"):
         body["trades"] = _trades_json(data["trades_df"])
     else:
         body["carry_meta"] = _carry_meta_json(data["carry_meta"])
+        book_json = data.get("book_json") or {}
+        body["book_state"] = {
+            "equity": _finite_or_none(book_json.get("equity")),
+            "last_run": book_json.get("last_run"),
+        }
+        curve, _carry_meta_unused = dashboard.load_carry_backtest()
+        risk_json = dashboard.load_carry_risk()
+        body["carry_risk"] = _deep_finite(risk_json) if risk_json is not None else None
+        body["risk_register"] = risk_register.build(curve, risk_json)
     return body
 
 
