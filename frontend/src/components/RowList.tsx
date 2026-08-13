@@ -173,26 +173,26 @@ export default function RowList({ selectedName }: { selectedName: string | null 
     );
   }
 
+  const sortControl = (
+    <label className="flex items-center gap-2 text-xs uppercase text-ink-muted shrink-0">
+      Sort by
+      <select
+        aria-label="Sort by"
+        value={sortLabel}
+        onChange={(e) => setSortLabel(e.target.value)}
+        className="bg-transparent text-ink-muted uppercase text-xs tracking-wide border-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:text-ink"
+      >
+        {Object.keys(SORT_OPTIONS).map((label) => (
+          <option key={label} value={label} className="normal-case bg-surface text-ink">
+            {label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
   return (
     <div>
-      <div className="p-4 pb-2 flex items-center justify-end">
-        <label className="flex items-center gap-2 text-xs uppercase text-ink-muted">
-          Sort by
-          <select
-            aria-label="Sort by"
-            value={sortLabel}
-            onChange={(e) => setSortLabel(e.target.value)}
-            className="bg-transparent text-ink-muted uppercase text-xs tracking-wide border-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:text-ink"
-          >
-            {Object.keys(SORT_OPTIONS).map((label) => (
-              <option key={label} value={label} className="normal-case bg-surface text-ink">
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
       {review.length > 0 && (
         <details className="px-4 pb-2 text-xs text-ink-muted">
           <summary>
@@ -209,20 +209,28 @@ export default function RowList({ selectedName }: { selectedName: string | null 
       )}
 
       {"families" in data
-        ? data.families.map((fam) => (
+        ? data.families.map((fam, i) => (
             <div key={fam.family}>
-              <div className="px-4 pt-3 pb-1 text-xs uppercase text-ink-muted">
-                {fam.label}
-                <span className="family-underline block h-px w-6 mt-1 bg-accent origin-left animate-underline-draw" />
+              <div className="px-4 pt-2 pb-1 flex items-center justify-between gap-4">
+                <span className="relative text-xs uppercase text-ink-muted">
+                  {fam.label}
+                  <span className="family-underline absolute -bottom-1 left-0 h-px w-6 bg-accent origin-left animate-underline-draw" />
+                </span>
+                {i === 0 && sortControl}
               </div>
               {fam.books.map((r) => (
                 <Row key={r.book} r={r} selected={r.book === selectedName} isNew={newBooks.has(r.book)} />
               ))}
             </div>
           ))
-        : data.books.map((r) => (
-            <Row key={r.book} r={r} selected={r.book === selectedName} isNew={newBooks.has(r.book)} />
-          ))}
+        : (
+            <>
+              <div className="px-4 pt-2 pb-1 flex items-center justify-end">{sortControl}</div>
+              {data.books.map((r) => (
+                <Row key={r.book} r={r} selected={r.book === selectedName} isNew={newBooks.has(r.book)} />
+              ))}
+            </>
+          )}
     </div>
   );
 }

@@ -27,9 +27,9 @@ export default function Nav() {
         <BrandGlyph className="w-4 h-4 text-accent shrink-0" />
         tradefabe
       </div>
-      <div className="text-ink">
+      <div className="relative text-ink">
         Paper Books
-        <span className="family-underline block h-px w-full mt-1 bg-accent origin-left animate-underline-draw" />
+        <span className="family-underline absolute -bottom-1.5 left-0 right-0 h-px bg-accent origin-left animate-underline-draw" />
       </div>
       <div>Research Lab</div>
       <button

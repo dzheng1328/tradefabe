@@ -34,6 +34,7 @@ function mockWebGL2Context({ compileOk = true, linkOk = true } = {}) {
     uniform1f: vi.fn(),
     uniform1i: vi.fn(),
     uniform2f: vi.fn(),
+    uniform2fv: vi.fn(),
     uniform3f: vi.fn(),
     uniform3fv: vi.fn(),
     viewport: vi.fn(),
