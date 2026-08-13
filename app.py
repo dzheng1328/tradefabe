@@ -19,7 +19,7 @@ from tradefabe.pricing import NON_PRICED as ACCRUAL_ONLY_BOOKS
 from tradefabe.dashboard import (
     ART, BASE, BENCH_C, CRIT, GOOD, INK2, MIN_CHART_POINTS,
     REVIEW_AGE_DAYS, SLOTS, SPY_C, Y_PAD,
-    load_carry_backtest, load_paper_state, load_book_json, ann_stats, fmt,
+    load_carry_backtest, load_carry_risk, load_paper_state, load_book_json, ann_stats, fmt,
     signals_cost_bps, money, _rgba, themed_layout, book_panel_data, trades_frame,
     window_slice, padded_range, live_equity_chart, backtest_chart, divergence_status,
     luck_floor_chart, drawdown_chart, correlation_heatmap, growth_chart,
@@ -172,17 +172,6 @@ def load_pairs_backtest():
     if not os.path.exists(path):
         return None
     return pd.read_csv(path, index_col=0, parse_dates=True)
-
-
-def load_carry_risk():
-    """Deliberately uncached, same reasoning as load_paper_state — this is the report
-    check_carry_risk() writes once per `tradefabe run` cycle, never fetched live from the
-    dashboard itself."""
-    path = os.path.join(BASE, "state", "paper", "carry_risk.json")
-    if not os.path.exists(path):
-        return None
-    with open(path) as fh:
-        return json.load(fh)
 
 
 # Delta-neutral carry/gated-carry books (#143). These update equity via a direct

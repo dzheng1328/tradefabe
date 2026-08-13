@@ -1,3 +1,6 @@
+import json
+import os
+
 import pandas as pd
 
 from tradefabe import dashboard
@@ -43,3 +46,18 @@ def test_available_windows_includes_all_when_span_covers_everything():
     live_hist = pd.Series(range(800), index=idx)
     windows = dashboard.available_windows(live_hist)
     assert windows == ["5H", "1D", "1W", "1M", "3M", "1Y", "ALL"]
+
+
+def test_load_carry_risk_returns_none_when_the_file_does_not_exist(monkeypatch, tmp_path):
+    monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
+    assert dashboard.load_carry_risk() is None
+
+
+def test_load_carry_risk_reads_the_persisted_report(monkeypatch, tmp_path):
+    paper_dir = tmp_path / "state" / "paper"
+    paper_dir.mkdir(parents=True)
+    report = {"generated_at": "2026-08-13T00:00:00", "coins": {"BTC": {"funding_7d": 0.001}}}
+    with open(paper_dir / "carry_risk.json", "w") as fh:
+        json.dump(report, fh)
+    monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
+    assert dashboard.load_carry_risk() == report
