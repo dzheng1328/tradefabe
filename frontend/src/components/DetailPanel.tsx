@@ -7,6 +7,7 @@ import RingLoader from "./RingLoader";
 import StatTile from "./StatTile";
 import { prefersReducedMotion, SPRING } from "../lib/motion";
 import { playDataLanded, playRangeChange } from "../lib/sound";
+import { fmt } from "../lib/format";
 
 // plotly.js alone is ~1.5MB gzipped -- lazy-loading keeps it out of the initial
 // bundle (RowList/Nav/routing shell) and fetches it only once a book is actually
@@ -32,11 +33,6 @@ type DetailResponse = {
   freq?: string;
   carry_meta?: Record<string, number | null>;
 };
-
-function fmt(v: number | null | undefined, kind: "ratio" | "pct" = "ratio") {
-  if (v === null || v === undefined) return "—";
-  return kind === "ratio" ? v.toFixed(2) : `${(v * 100).toFixed(1)}%`;
-}
 
 // Plotly's newer to_json() compresses numeric traces into a typed-array form
 // (`{dtype, bdata}`, base64) instead of a plain JS array -- the real API sends this
