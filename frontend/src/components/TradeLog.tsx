@@ -67,7 +67,8 @@ export default function TradeLog({
         Sides are named from the POSITION's view, not the order's: BUY/SELL open or
         grow a long, SHORT/COVER open or reduce a short. Simulated fills at the mark
         close with a {costBps !== null ? costBps.toFixed(0) : "—"}bp per-side cost,
-        capped at the most recent 500.
+        capped at the most recent 500 — these ledgers are committed to git every cycle, so
+        the log is bounded on purpose.
       </p>
     </div>
   );
