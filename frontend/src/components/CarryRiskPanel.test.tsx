@@ -37,8 +37,8 @@ describe("CarryRiskPanel", () => {
 
   it("renders both coins' 7d funding", () => {
     render(<CarryRiskPanel risk={RISK} />);
-    expect(screen.getByText("+0.1%")).toBeInTheDocument(); // BTC
-    expect(screen.getByText("-0.1%")).toBeInTheDocument(); // ETH, rounds to -0.1%
+    expect(screen.getByText("+0.11%")).toBeInTheDocument(); // BTC
+    expect(screen.getByText("-0.05%")).toBeInTheDocument(); // ETH
   });
 
   it("shows a funding-flip badge only for the coin that flipped", () => {
@@ -51,5 +51,19 @@ describe("CarryRiskPanel", () => {
     const warning = screen.getByText(/High risk/);
     expect(warning.textContent).toMatch(/ETH/);
     expect(warning.textContent).not.toMatch(/BTC/);
+  });
+
+  it("shows a fallback caption and suppresses the table/warning when both coins have no postures", () => {
+    const NO_POSTURES = {
+      ...RISK,
+      coins: {
+        BTC: { ...RISK.coins.BTC, postures: {} },
+        ETH: { ...RISK.coins.ETH, postures: {} },
+      },
+    };
+    render(<CarryRiskPanel risk={NO_POSTURES} />);
+    expect(screen.getByText(/Leverage tiers unavailable this run/)).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText(/High risk/)).not.toBeInTheDocument();
   });
 });

@@ -16,6 +16,15 @@ type CarryRisk = {
 
 const TIERS = ["10%", "25%", "50%", "100%"];
 
+// app.py formats funding_7d as f"{f7:+.2%}" -- 2 decimals, explicit sign. This is a
+// different precision from lib/format.ts's pct() (1 decimal), so it's formatted locally
+// rather than forced through the shared helper.
+function fundingPct(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return "—";
+  const sign = v >= 0 ? "+" : "";
+  return `${sign}${(v * 100).toFixed(2)}%`;
+}
+
 export default function CarryRiskPanel({ risk }: { risk: CarryRisk | null }) {
   if (!risk) {
     return (
@@ -25,6 +34,9 @@ export default function CarryRiskPanel({ risk }: { risk: CarryRisk | null }) {
     );
   }
   const flagged = (["BTC", "ETH"] as const).filter((c) => risk.high_risk_alert[c]);
+  const hasPostures =
+    Object.keys(risk.coins.BTC.postures).length > 0 ||
+    Object.keys(risk.coins.ETH.postures).length > 0;
   return (
     <div>
       <p className="text-xs text-ink-muted font-mono">
@@ -35,7 +47,7 @@ export default function CarryRiskPanel({ risk }: { risk: CarryRisk | null }) {
           <div key={coin}>
             <div className="text-xs text-ink-muted uppercase">{coin} 7d funding</div>
             <div className="text-xl text-ink font-mono tabular-nums">
-              {pct(risk.coins[coin].funding_7d)}
+              {fundingPct(risk.coins[coin].funding_7d)}
             </div>
             {risk.coins[coin].funding_flip_alert && (
               <span className="text-xs text-amber-400 font-mono">funding flip</span>
@@ -49,38 +61,47 @@ export default function CarryRiskPanel({ risk }: { risk: CarryRisk | null }) {
           money net of the fee drag until this flips back.
         </p>
       )}
-      <table className="w-full text-sm font-mono tabular-nums mt-4">
-        <thead>
-          <tr className="text-ink-muted text-xs uppercase text-left">
-            <th className="pb-2 font-sans">Posture</th>
-            <th className="pb-2 text-right">BTC leverage</th>
-            <th className="pb-2 text-right">BTC liq distance</th>
-            <th className="pb-2 text-right">ETH leverage</th>
-            <th className="pb-2 text-right">ETH liq distance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {TIERS.map((tier) => {
-            const btc = risk.coins.BTC.postures[tier];
-            const eth = risk.coins.ETH.postures[tier];
-            return (
-              <tr key={tier} className="border-t border-white/5">
-                <td className="py-1.5 font-sans">{tier}</td>
-                <td className="py-1.5 text-right">{btc ? `${btc.leverage.toFixed(1)}x` : "—"}</td>
-                <td className="py-1.5 text-right">{btc ? pct(btc.liq_distance) : "—"}</td>
-                <td className="py-1.5 text-right">{eth ? `${eth.leverage.toFixed(1)}x` : "—"}</td>
-                <td className="py-1.5 text-right">{eth ? pct(eth.liq_distance) : "—"}</td>
+      {hasPostures ? (
+        <>
+          <table className="w-full text-sm font-mono tabular-nums mt-4">
+            <thead>
+              <tr className="text-ink-muted text-xs uppercase text-left">
+                <th className="pb-2 font-sans">Posture</th>
+                <th className="pb-2 text-right">BTC leverage</th>
+                <th className="pb-2 text-right">BTC liq distance</th>
+                <th className="pb-2 text-right">ETH leverage</th>
+                <th className="pb-2 text-right">ETH liq distance</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {flagged.length > 0 && (
-        <p className="text-sm text-red-400 mt-3">
-          High risk: at {(risk.headline_leverage_fraction * 100).toFixed(0)}% of
-          Hyperliquid's live max leverage, <strong>{flagged.join(", ")}</strong>{" "}
-          liquidation distance is under the{" "}
-          {(risk.liq_distance_warn * 100).toFixed(0)}% pump-cushion threshold.
+            </thead>
+            <tbody>
+              {TIERS.map((tier) => {
+                const btc = risk.coins.BTC.postures[tier];
+                const eth = risk.coins.ETH.postures[tier];
+                return (
+                  <tr key={tier} className="border-t border-white/5">
+                    <td className="py-1.5 font-sans">{tier}</td>
+                    <td className="py-1.5 text-right">{btc ? `${btc.leverage.toFixed(1)}x` : "—"}</td>
+                    <td className="py-1.5 text-right">{btc ? pct(btc.liq_distance) : "—"}</td>
+                    <td className="py-1.5 text-right">{eth ? `${eth.leverage.toFixed(1)}x` : "—"}</td>
+                    <td className="py-1.5 text-right">{eth ? pct(eth.liq_distance) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {flagged.length > 0 && (
+            <p className="text-sm text-red-400 mt-3">
+              High risk: at {(risk.headline_leverage_fraction * 100).toFixed(0)}% of
+              Hyperliquid's live max leverage, <strong>{flagged.join(", ")}</strong>{" "}
+              liquidation distance is under the{" "}
+              {(risk.liq_distance_warn * 100).toFixed(0)}% pump-cushion threshold.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="text-ink-muted text-sm mt-4">
+          Leverage tiers unavailable this run (Hyperliquid unreachable) — funding alert
+          above still reflects the last successful fetch.
         </p>
       )}
       <p className="text-xs text-ink-muted mt-3">
