@@ -2,17 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import {
   addRipple,
   pruneExpiredRipples,
+  rippleDirection,
   MAX_RIPPLES,
   RIPPLE_LIFETIME_MS,
   type RipplePoint,
 } from "../lib/liquidMetalRipples";
 import { prefersReducedMotion } from "../lib/motion";
 
-// tailwind.config.js tokens (bg/surface/accent) as 0..1 rgb triplets -- kept in
-// sync by hand since the shader can't import the Tailwind config directly.
-const COLOR_BG: [number, number, number] = [0x0d / 255, 0x0f / 255, 0x0c / 255];
-const COLOR_SURFACE: [number, number, number] = [0x18 / 255, 0x1c / 255, 0x15 / 255];
-const COLOR_ACCENT: [number, number, number] = [0x9f / 255, 0xe8 / 255, 0x70 / 255];
+// This background intentionally uses its OWN palette, separate from
+// tailwind.config.js's green `accent` used everywhere else in the app --
+// Dave's explicit call: a dark royal-blue liquid surface, darkened enough
+// that muted grey UI text (e.g. family-header labels) stays clearly
+// legible over it. The cursor doesn't paint a highlight on top -- see
+// rippleDisplacement() below -- it physically drags the SAME blue pattern,
+// so there's only ever one color story to keep in sync here.
+const COLOR_BG: [number, number, number] = [0x05 / 255, 0x07 / 255, 0x12 / 255]; // near-black navy
+const COLOR_SURFACE: [number, number, number] = [0x19 / 255, 0x27 / 255, 0x64 / 255]; // dim royal blue
+const COLOR_SPECULAR: [number, number, number] = [0x8f / 255, 0xb2 / 255, 0xff / 255]; // icy blue-white sheen
 
 const RIPPLE_LIFETIME_SEC = (RIPPLE_LIFETIME_MS / 1000).toFixed(2);
 
@@ -25,25 +31,50 @@ void main() {
 // Fourth rewrite, 2026-08-12: the metaball attempt (isolated glowing dots)
 // missed the mark just as badly as the earlier noise-blotch attempts, per
 // live review -- separate glowing blobs read as decoration, not metal. Real
-// liquid metal is a CONTINUOUS surface. Back to the domain-warped fbm
-// "flow" field (the closest of the earlier attempts, per feedback), but now
-// mapped to color across its FULL range with no smoothstep threshold, so
-// there are zero gaps/islands -- colorBg/colorSurface are both near-black,
-// so this undertone stays subtle, and the flowing accent-green specular
-// streaks (sampled at a finer offset of the SAME field, so they ride the
-// surface rather than outlining separate shapes) are what reads as "liquid
-// metal": thin, moving, reflective highlights across one unbroken sheet.
-// Ripples stay the earlier expanding-wave-ring displacement (never flagged
-// as a problem) rather than the metaball attempt's per-point blending.
+// liquid metal is a CONTINUOUS surface. Domain-warped fbm "flow" field
+// (the closest of the earlier attempts, per feedback), mapped to color
+// across its FULL range with no smoothstep threshold, so there are zero
+// gaps/islands. Fifth pass, same day: recolored to royal blue (from the
+// app's usual green) with the ripple waves picked out in yellow -- ripple
+// intensity is now tracked as its own scalar (rippleGlow), separate from
+// the ambient blue specular sheen, so the wave rings actually read as a
+// distinct yellow highlight riding on the blue surface rather than just
+// another blue glint.
+// Sixth pass, 2026-08-13: two fixes per live feedback. (1) The old point
+// specular -- pow(dot(normal,lightDir), 45) -- lit up wherever the noisy
+// flow-field normal happened to align with the fixed light direction,
+// which scattered as isolated bright dots ("white spots") rather than a
+// sheen; replaced with a continuous slope-driven term (no exponent spike)
+// so brightness varies smoothly with how steep the surface is instead of
+// firing at discrete points. (2) Ripples were purely circular; real
+// skimming-object wakes are directional.
+// Seventh pass, same day: reimagined again per live feedback. The colored
+// "ripple glow" (a yellow highlight painted on TOP of the surface wherever
+// a wavefront ring passed) is gone entirely -- it read as decoration
+// layered over the liquid, not as the liquid actually moving. What's left
+// is only rippleDisplacement() below, which was already warping the
+// SAMPLED COORDINATE the flow field is evaluated at (real refraction-style
+// displacement, not paint), but the push was too small to see and mostly
+// radial. Now the push is large enough to visibly drag the existing blue
+// pattern, and its direction follows u_rippleDirs (the cursor's actual
+// direction of travel) rather than radiating outward as a ring -- so a
+// fast swipe visibly smears the metal along the path, and a stationary
+// click still gets a small circular push (falls back to radial when
+// there's no travel direction), the way a dropped stone ripples outward
+// but a dragged hand drags the water sideways. Overall palette darkened
+// substantially (per feedback the sheen was fighting muted grey UI text
+// for attention) -- both COLOR_SURFACE and the final brightness multiplier
+// dropped.
 const FRAGMENT_SRC = `#version 300 es
 precision highp float;
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform vec3 u_colorBg;
 uniform vec3 u_colorSurface;
-uniform vec3 u_colorAccent;
+uniform vec3 u_colorSpecular;
 uniform int u_rippleCount;
 uniform vec3 u_ripples[${MAX_RIPPLES}];
+uniform vec2 u_rippleDirs[${MAX_RIPPLES}];
 out vec4 fragColor;
 
 float hash(vec2 p) {
@@ -82,10 +113,18 @@ float flow(vec2 p, float t) {
   );
   return fbm(p + 3.2 * qb);
 }
-// An expanding ring wave, not a static bulge: sin(dist - speed*age) creates
-// concentric crests that travel outward from the ripple origin, localized to
-// the current wavefront radius by a Gaussian envelope so old ripples don't
-// leave a permanent dent once their wave has passed.
+// The cursor physically pushes the sampled flow-field coordinate, the same
+// way dragging a hand through water drags the surface with it -- this is
+// the WHOLE ripple effect now, no separate glow/color layered on top.
+// pushDir follows u_rippleDirs (the cursor's actual direction of travel at
+// the moment this point was laid down) rather than radiating outward from
+// the point, so a fast swipe visibly smears the existing pattern along the
+// path instead of sending circular rings out from it. A point with no
+// travel direction (a stationary click, or the very first sample) falls
+// back to pushing radially outward, like a dropped stone's circular
+// ripple. pushFade uses its own short time constant (~0.35s) independent
+// of RIPPLE_LIFETIME_MS (1.4s, still used just to prune the point buffer)
+// so the drag feels responsive rather than smeared out over a long tail.
 vec2 rippleDisplacement(vec2 fragPx) {
   vec2 disp = vec2(0.0);
   for (int i = 0; i < ${MAX_RIPPLES}; i++) {
@@ -93,15 +132,16 @@ vec2 rippleDisplacement(vec2 fragPx) {
     vec3 r = u_ripples[i];
     float age = r.z;
     if (age < 0.0 || age >= ${RIPPLE_LIFETIME_SEC}) continue;
-    float ageFade = 1.0 - age / ${RIPPLE_LIFETIME_SEC};
+    vec2 wakeVec = u_rippleDirs[i];
+    float speedMix = clamp(length(wakeVec), 0.0, 1.0);
     vec2 delta = fragPx - r.xy;
     float dist = length(delta);
-    vec2 dir = dist > 0.0001 ? delta / dist : vec2(0.0);
-    float waveSpeed = 340.0;
-    float radius = waveSpeed * age;
-    float wavefront = exp(-pow((dist - radius) / 70.0, 2.0));
-    float wave = sin(dist * 0.05 - waveSpeed * age * 0.05);
-    disp += dir * wave * wavefront * ageFade * 16.0;
+    vec2 pushDir = speedMix > 0.001 ? wakeVec / speedMix : (dist > 0.0001 ? delta / dist : vec2(0.0));
+    float sizeScale = mix(0.4, 1.6, speedMix);
+    float sigma = 55.0 * sizeScale;
+    float falloff = exp(-(dist * dist) / (2.0 * sigma * sigma));
+    float pushFade = exp(-age / 0.35);
+    disp += pushDir * falloff * pushFade * 220.0 * sizeScale;
   }
   return disp;
 }
@@ -116,19 +156,24 @@ void main() {
   // continuous surface, not islands of color separated by flat black.
   vec3 base = mix(u_colorBg, u_colorSurface, h);
 
-  // Sample the SAME warped field at a finer offset for the normal, rather
-  // than differentiating the base layer directly -- this puts the specular
-  // detail at a higher frequency than the base undertone, so highlights
-  // read as thin streaks riding the surface, not blob-shaped rims.
+  // Sample the SAME warped field at a finer offset to get the local slope,
+  // rather than differentiating the base layer directly -- this puts the
+  // sheen detail at a higher frequency than the base undertone. A slope
+  // magnitude with smoothstep (no exponent) reads as brightness that varies
+  // continuously with how steep the surface is, unlike a fixed-light-dot
+  // specular power curve, which only fires where the noisy normal happens
+  // to line up with the light and scatters into isolated bright spots.
   float eps = 0.004;
   float hx = flow(p + vec2(eps, 0.0), u_time) - h;
   float hy = flow(p + vec2(0.0, eps), u_time) - h;
-  vec3 normal = normalize(vec3(-hx, -hy, eps * 4.0));
-  vec3 lightDir = normalize(vec3(0.3, 0.5, 0.85));
-  float specular = pow(max(dot(normal, lightDir), 0.0), 45.0);
+  float slope = length(vec2(hx, hy)) / eps;
+  float sheen = smoothstep(0.15, 1.4, slope);
 
-  vec3 color = base + u_colorAccent * specular * 0.9;
-  fragColor = vec4(color * 0.72, 1.0);
+  vec3 color = base + u_colorSpecular * sheen * 0.22;
+  // Overall surface brightness dialed down hard (was 0.72, then 0.5) --
+  // muted grey UI text (e.g. the family-header labels) needs the surface
+  // dark enough that it's not competing for attention.
+  fragColor = vec4(color * 0.32, 1.0);
 }`;
 
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
@@ -183,9 +228,10 @@ export default function LiquidMetalField() {
     let uTime: WebGLUniformLocation | null;
     let uColorBg: WebGLUniformLocation | null;
     let uColorSurface: WebGLUniformLocation | null;
-    let uColorAccent: WebGLUniformLocation | null;
+    let uColorSpecular: WebGLUniformLocation | null;
     let uRippleCount: WebGLUniformLocation | null;
     let uRipples: WebGLUniformLocation | null;
+    let uRippleDirs: WebGLUniformLocation | null;
     try {
       program = createProgram(gl);
       gl.useProgram(program);
@@ -194,13 +240,14 @@ export default function LiquidMetalField() {
       uTime = gl.getUniformLocation(program, "u_time");
       uColorBg = gl.getUniformLocation(program, "u_colorBg");
       uColorSurface = gl.getUniformLocation(program, "u_colorSurface");
-      uColorAccent = gl.getUniformLocation(program, "u_colorAccent");
+      uColorSpecular = gl.getUniformLocation(program, "u_colorSpecular");
       uRippleCount = gl.getUniformLocation(program, "u_rippleCount");
       uRipples = gl.getUniformLocation(program, "u_ripples");
+      uRippleDirs = gl.getUniformLocation(program, "u_rippleDirs");
 
       gl.uniform3f(uColorBg, ...COLOR_BG);
       gl.uniform3f(uColorSurface, ...COLOR_SURFACE);
-      gl.uniform3f(uColorAccent, ...COLOR_ACCENT);
+      gl.uniform3f(uColorSpecular, ...COLOR_SPECULAR);
     } catch (err) {
       // A WebGL2 context can exist but still fail to compile/link this
       // shader (e.g. a driver that advertises WebGL2 but rejects it) --
@@ -215,11 +262,13 @@ export default function LiquidMetalField() {
     const reducedMotion = prefersReducedMotion();
 
     const rippleUniformData = new Float32Array(MAX_RIPPLES * 3);
+    const rippleDirData = new Float32Array(MAX_RIPPLES * 2);
 
     function drawFrame(timeSeconds: number, count: number) {
       gl!.uniform1f(uTime, timeSeconds);
       gl!.uniform1i(uRippleCount, count);
       gl!.uniform3fv(uRipples, rippleUniformData);
+      gl!.uniform2fv(uRippleDirs, rippleDirData);
       gl!.drawArrays(gl!.TRIANGLES, 0, 3);
     }
 
@@ -248,6 +297,8 @@ export default function LiquidMetalField() {
         rippleUniformData[i * 3] = r.x;
         rippleUniformData[i * 3 + 1] = r.y;
         rippleUniformData[i * 3 + 2] = (now - r.t) / 1000;
+        rippleDirData[i * 2] = r.dirX ?? 0;
+        rippleDirData[i * 2 + 1] = r.dirY ?? 0;
       });
       return ripples.length;
     }
@@ -271,11 +322,21 @@ export default function LiquidMetalField() {
     }
     window.addEventListener("pointermove", handlePointerMove);
 
+    // Direction is measured between consumed samples (one per rendered
+    // frame, see the pendingPoint comment above), not raw pointermove
+    // events, so it reflects on-screen travel rather than mouse-polling
+    // noise.
+    let lastConsumed: { x: number; y: number; t: number } | null = null;
     let frameId: number;
     const start = performance.now();
     function loop(now: number) {
       if (pendingPoint) {
-        ripples = addRipple(ripples, { x: pendingPoint.x, y: pendingPoint.y, t: performance.now() });
+        const t = performance.now();
+        const { dirX, dirY } = lastConsumed
+          ? rippleDirection(pendingPoint.x - lastConsumed.x, pendingPoint.y - lastConsumed.y, t - lastConsumed.t)
+          : { dirX: 0, dirY: 0 };
+        ripples = addRipple(ripples, { x: pendingPoint.x, y: pendingPoint.y, t, dirX, dirY });
+        lastConsumed = { x: pendingPoint.x, y: pendingPoint.y, t };
         pendingPoint = null;
       }
       const count = buildRippleUniforms(now);
