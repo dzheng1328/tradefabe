@@ -5,9 +5,14 @@ import type { Data } from "plotly.js";
 import RangeControl from "./RangeControl";
 import RingLoader from "./RingLoader";
 import StatTile from "./StatTile";
+import DeploymentStats from "./DeploymentStats";
+import PositionsTable from "./PositionsTable";
+import TradeLog from "./TradeLog";
+import CarryRiskPanel from "./CarryRiskPanel";
+import RiskRegister from "./RiskRegister";
 import { prefersReducedMotion, SPRING } from "../lib/motion";
 import { playDataLanded, playRangeChange } from "../lib/sound";
-import { fmt } from "../lib/format";
+import { fmt, money } from "../lib/format";
 
 // plotly.js alone is ~1.5MB gzipped -- lazy-loading keeps it out of the initial
 // bundle (RowList/Nav/routing shell) and fetches it only once a book is actually
@@ -32,6 +37,25 @@ type DetailResponse = {
   null_p95?: number | null;
   freq?: string;
   carry_meta?: Record<string, number | null>;
+  accrual_only?: boolean;
+  cost_bps?: number | null;
+  deployment?: {
+    cash: number | null; gross: number | null; net: number | null; equity: number | null;
+    cash_pct: number | null; gross_pct: number | null; net_pct: number | null;
+    n_unpriced: number; n_held: number; priced_at: string | null; is_short_funded: boolean;
+  } | null;
+  positions?: {
+    ticker: string; units: number | null; last_price: number | null;
+    value: number | null; weight: number | null;
+  }[] | null;
+  positions_asof?: string | null;
+  trades?: {
+    ts: string | null; ticker: string | null; side: string | null; shares: number | null;
+    price: number | null; notional: number | null; position_after: number | null;
+  }[];
+  book_state?: { equity: number | null; last_run: string | null } | null;
+  carry_risk?: Parameters<typeof CarryRiskPanel>[0]["risk"];
+  risk_register?: Parameters<typeof RiskRegister>[0]["entries"];
 };
 
 // Plotly's newer to_json() compresses numeric traces into a typed-array form
@@ -315,6 +339,68 @@ export default function DetailPanel({ name }: { name: string }) {
           : {data.divergence_detail}
         </p>
       </details>
+
+      <div className="mt-6 pt-6 border-t border-white/5">
+        {data.kind === "equity" ? (
+          data.accrual_only ? (
+            <p className="text-ink-muted text-sm">
+              This book is delta-neutral carry: its value moves from funding accrual,
+              not discrete positions, so there's no cash/gross/net breakdown to show
+              here — the live equity chart above is the real number.
+            </p>
+          ) : (
+            <>
+              <SectionHeader>Capital deployed</SectionHeader>
+              <div className="mt-3">
+                <DeploymentStats deployment={data.deployment!} />
+              </div>
+              <div className="mt-6">
+                <SectionHeader>Current positions</SectionHeader>
+                <div className="mt-3">
+                  <PositionsTable positions={data.positions ?? null} positionsAsof={data.positions_asof ?? null} />
+                </div>
+              </div>
+            </>
+          )
+        ) : null}
+
+        {data.kind === "equity" && (
+          <div className="mt-6 pt-6 border-t border-white/5">
+            <SectionHeader>Trade log</SectionHeader>
+            <div className="mt-3">
+              <TradeLog
+                trades={data.trades ?? []}
+                accrualOnly={data.accrual_only ?? false}
+                costBps={data.cost_bps ?? null}
+              />
+            </div>
+          </div>
+        )}
+
+        {data.kind === "carry" && (
+          <>
+            <SectionHeader>Book state</SectionHeader>
+            <p className="text-sm text-ink mt-2">
+              Equity <strong className="font-mono">{money(data.book_state?.equity ?? null)}</strong>
+              {" · "}last run <strong className="font-mono">{data.book_state?.last_run ?? "—"}</strong>
+            </p>
+
+            <div className="mt-6 pt-6 border-t border-white/5">
+              <SectionHeader>Risk monitor — funding-flip alert + short-leg liquidation distance</SectionHeader>
+              <div className="mt-3">
+                <CarryRiskPanel risk={data.carry_risk ?? null} />
+              </div>
+            </div>
+
+            <div className="mt-6 pt-6 border-t border-white/5">
+              <SectionHeader>Risk register — what the ~12%/yr is actually paying for</SectionHeader>
+              <div className="mt-3">
+                <RiskRegister entries={data.risk_register ?? []} />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </motion.div>
   );
 }

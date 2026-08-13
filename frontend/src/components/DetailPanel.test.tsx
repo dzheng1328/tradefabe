@@ -23,6 +23,16 @@ const DETAIL_RESPONSE = {
   corr_bench: 0.1,
   null_p95: 0.4,
   freq: "D",
+  accrual_only: false,
+  cost_bps: 5,
+  deployment: {
+    cash: 100000, gross: 0, net: 0, equity: 100000,
+    cash_pct: 1, gross_pct: 0, net_pct: 0,
+    n_unpriced: 0, n_held: 0, priced_at: null, is_short_funded: false,
+  },
+  positions: [],
+  positions_asof: null,
+  trades: [],
 };
 
 beforeEach(() => {
@@ -224,5 +234,84 @@ describe("DetailPanel", () => {
     expect(playRangeChange).toHaveBeenCalledTimes(1);
     await userEvent.click(summary); // close
     expect(playRangeChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders capital-deployed stats, positions, and trade log for an equity book", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ...DETAIL_RESPONSE,
+            accrual_only: false,
+            cost_bps: 5,
+            deployment: {
+              cash: 20000, gross: 90000, net: 80000, equity: 100000,
+              cash_pct: 0.2, gross_pct: 0.9, net_pct: 0.8,
+              n_unpriced: 0, n_held: 1, priced_at: "2026-08-12", is_short_funded: false,
+            },
+            positions: [{ ticker: "SPY", units: 10, last_price: 450, value: 4500, weight: 0.045 }],
+            positions_asof: "2026-08-12",
+            trades: [],
+          }),
+      })
+    ) as unknown as typeof fetch;
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("$100,000")).toBeInTheDocument());
+    expect(screen.getByText("SPY")).toBeInTheDocument();
+    expect(screen.getByText(/No fills recorded yet/)).toBeInTheDocument();
+  });
+
+  it("shows the accrual-only caption instead of deployment/positions for a delta-neutral equity book", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ...DETAIL_RESPONSE,
+            accrual_only: true, cost_bps: null, deployment: null, positions: null,
+            positions_asof: null, trades: [],
+          }),
+      })
+    ) as unknown as typeof fetch;
+    render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() =>
+      expect(screen.getByText(/no cash\/gross\/net breakdown/)).toBeInTheDocument()
+    );
+  });
+
+  it("renders the risk-monitor panel and risk register for the carry book", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ...DETAIL_RESPONSE,
+            kind: "carry",
+            carry_meta: { net_yield: 0.12, pct_days_positive: 0.87 },
+            book_state: { equity: 105000, last_run: "2026-08-12" },
+            carry_risk: {
+              generated_at: "2026-08-13T00:00:00", funding_window_days: 7,
+              coins: {
+                BTC: { funding_7d: 0.001, funding_flip_alert: false, max_leverage: 40,
+                       maint_margin: 0.0125, postures: {} },
+                ETH: { funding_7d: 0.001, funding_flip_alert: false, max_leverage: 25,
+                       maint_margin: 0.02, postures: {} },
+              },
+              blended_funding_7d: 0.001, blended_funding_flip_alert: false,
+              headline_leverage_fraction: 0.25, liq_distance_warn: 0.25,
+              high_risk_alert: { BTC: false, ETH: false },
+            },
+            risk_register: [
+              { key: "op", title: "Operational / data bugs", category: "operational",
+                likelihood: "Several.", impact: "Wrong numbers.", detail: "See CLAUDE.md.",
+                source: null, url: null, measured: true },
+            ],
+          }),
+      })
+    ) as unknown as typeof fetch;
+    render(<DetailPanel name="carry_btc_eth" />);
+    await waitFor(() => expect(screen.getByText("Operational / data bugs")).toBeInTheDocument());
+    expect(screen.getByText(/trailing 7d funding/)).toBeInTheDocument();
   });
 });
