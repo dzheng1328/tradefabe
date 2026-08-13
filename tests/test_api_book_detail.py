@@ -31,18 +31,67 @@ def test_known_book_returns_the_expected_shape():
         assert stat_key in body["stats"]
 
 
-def test_2a_excludes_positions_and_deployment():
-    """The whole point of compute_positions=False -- 2a's response must not carry
-    fields that 2b's slice adds later, and the expensive pricing loop must not run."""
+def test_equity_book_includes_positions_deployment_trades():
+    """The whole point of flipping compute_positions to True for 2b -- these fields
+    must now be present (2a's own test asserted the opposite; that was correct for 2a's
+    scope and is now stale)."""
+    client = TestClient(app)
+    psum, _phist = dashboard.load_paper_state()
+    if psum is None or psum.empty:
+        return
+    equity_books = [n for n in psum["book"].tolist()
+                    if n != "carry_btc_eth" and n not in dashboard.ACCRUAL_ONLY_BOOKS]
+    if not equity_books:
+        return  # no plain equity book with real positions in this environment
+    name = equity_books[0]
+    body = client.get(f"/api/books/{name}/detail").json()
+    assert body["accrual_only"] is False
+    assert "deployment" in body
+    assert "positions" in body
+    assert "trades" in body
+    assert isinstance(body["trades"], list)  # always a list, never null
+
+
+def test_accrual_only_equity_book_has_null_deployment_and_positions():
+    client = TestClient(app)
+    psum, _phist = dashboard.load_paper_state()
+    if psum is None or psum.empty:
+        return
+    accrual_books = [n for n in psum["book"].tolist()
+                     if n != "carry_btc_eth" and n in dashboard.ACCRUAL_ONLY_BOOKS]
+    if not accrual_books:
+        return  # no accrual-only equity book opened in this environment
+    name = accrual_books[0]
+    body = client.get(f"/api/books/{name}/detail").json()
+    assert body["accrual_only"] is True
+    assert body["deployment"] is None
+    assert body["positions"] is None
+    assert body["trades"] == []
+
+
+def test_cost_bps_is_present_and_finite():
     client = TestClient(app)
     psum, _phist = dashboard.load_paper_state()
     if psum is None or psum.empty:
         return
     name = psum["book"].iloc[0]
     body = client.get(f"/api/books/{name}/detail").json()
-    assert "positions" not in body
-    assert "deployment" not in body
-    assert "trades" not in body
+    assert "cost_bps" in body
+    if body["cost_bps"] is not None:
+        assert body["cost_bps"] >= 0
+
+
+def test_positions_response_has_no_nan_token():
+    client = TestClient(app)
+    psum, _phist = dashboard.load_paper_state()
+    if psum is None or psum.empty:
+        return
+    equity_books = [n for n in psum["book"].tolist()
+                    if n != "carry_btc_eth" and n not in dashboard.ACCRUAL_ONLY_BOOKS]
+    if not equity_books:
+        return
+    resp = client.get(f"/api/books/{equity_books[0]}/detail")
+    assert "NaN" not in resp.text
 
 
 def test_window_param_changes_the_chart_payload():
