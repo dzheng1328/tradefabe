@@ -397,6 +397,90 @@ def research_strategy_detail(name: str):
     return body
 
 
+@app.get("/api/research/luck_floor")
+def research_luck_floor(strategy: str):
+    try:
+        full, meta, nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+    if strategy not in nulls:
+        raise HTTPException(status_code=400, detail=f"no null distribution for: {strategy}")
+
+    gy_last = dashboard.latest_verdicts(gy)
+    strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
+    color_of = {s: dashboard.SLOTS[i % len(dashboard.SLOTS)] for i, s in enumerate(strats)}
+    arr = nulls[strategy]
+    freq = meta.get("strategy_freq", {}).get(strategy, "")
+    marks = ([(strategy, float(gy_last.loc[strategy, "oos_sharpe"]))]
+              if strategy in gy_last.index else [])
+    freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
+    label = f"{freq_names.get(freq, freq)} — {strategy}" if freq else strategy
+    chart = dashboard.luck_floor_chart(arr, label, marks, color_of)
+    return {"chart": json.loads(chart.to_json()), "label": label}
+
+
+@app.get("/api/research/drawdown")
+def research_drawdown(pick: str):
+    try:
+        full, meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
+    col = {"60/40": "bench_6040", "SPY": "spy"}.get(pick, pick)
+    if col not in oos.columns:
+        raise HTTPException(status_code=400, detail=f"unknown pick: {pick}")
+
+    color_of = {s: dashboard.SLOTS[i % len(dashboard.SLOTS)] for i, s in enumerate(strats)}
+    c = color_of.get(pick, dashboard.BENCH_C if pick == "60/40" else dashboard.SPY_C)
+    r = oos[col].fillna(0)
+    eq = (1 + r).cumprod()
+    dd = eq / eq.cummax() - 1
+    chart = dashboard.drawdown_chart(dd, c)
+    return {"chart": json.loads(chart.to_json()), "max_drawdown": _finite_or_none(dd.min())}
+
+
+@app.get("/api/research/piggyback")
+def research_piggyback(sleeve: str, weight: int):
+    try:
+        full, meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+    if not (0 <= weight <= 100):
+        raise HTTPException(status_code=400, detail="weight must be 0-100")
+
+    sleeve_names = [s for s in sleeve.split(",") if s]
+    if not sleeve_names:
+        raise HTTPException(status_code=400, detail="sleeve must name at least one strategy")
+
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    unknown = [s for s in sleeve_names if s not in oos.columns]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unknown strategies in sleeve: {unknown}")
+
+    result = dashboard.piggyback_blend(oos, sleeve_names, weight)
+    bench = result["bench_stats"]
+    combo = result["combo_stats"]
+    bench_growth = (1 + oos["bench_6040"].fillna(0)).cumprod()
+    show = pd.DataFrame({"60/40 + sleeve": result["combo"], "60/40 alone": bench_growth})
+    chart = dashboard.growth_chart(show, ["#2a78d6", dashboard.BENCH_C])
+
+    return {
+        "stats": {
+            "sharpe": _finite_or_none(combo["Sharpe"]),
+            "sharpe_delta": _finite_or_none(combo["Sharpe"] - bench["Sharpe"]),
+            "calmar": _finite_or_none(combo["Calmar"]),
+            "calmar_delta": _finite_or_none(combo["Calmar"] - bench["Calmar"]),
+            "maxdd": _finite_or_none(combo["MaxDD"]),
+            "maxdd_delta": _finite_or_none(combo["MaxDD"] - bench["MaxDD"]),
+        },
+        "chart": json.loads(chart.to_json()),
+    }
+
+
 def run():
     """Entry point for the `tradefabe-api` console script."""
     import uvicorn

@@ -58,3 +58,72 @@ def test_strategy_detail_known_strategy_has_expected_shape():
         assert body["chart"] is not None
     else:
         assert body["chart"] is None
+
+
+def test_luck_floor_unknown_strategy_is_400():
+    client = TestClient(app)
+    resp = client.get("/api/research/luck_floor?strategy=not_a_real_strategy")
+    assert resp.status_code == 400
+
+
+def test_luck_floor_known_strategy_returns_chart():
+    from tradefabe import dashboard
+    client = TestClient(app)
+    _full, _meta, nulls, _gy = dashboard.load_backtest()
+    strategy = next(iter(nulls))
+    resp = client.get(f"/api/research/luck_floor?strategy={strategy}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "chart" in body and "label" in body
+
+
+def test_drawdown_bench_pick():
+    client = TestClient(app)
+    resp = client.get("/api/research/drawdown?pick=60/40")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "chart" in body
+    assert body["max_drawdown"] <= 0
+
+
+def test_drawdown_unknown_pick_is_400():
+    client = TestClient(app)
+    resp = client.get("/api/research/drawdown?pick=not_a_real_pick")
+    assert resp.status_code == 400
+
+
+def test_piggyback_zero_weight_matches_bench_sharpe():
+    from tradefabe import dashboard
+    import pandas as pd
+    client = TestClient(app)
+    full, meta, _nulls, gy = dashboard.load_backtest()
+    gy_last = dashboard.latest_verdicts(gy)
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    # Pick a strategy that has OOS backtest returns
+    strat = next(s for s in gy_last.index if s in oos.columns)
+    resp = client.get(f"/api/research/piggyback?sleeve={strat}&weight=0")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert abs(body["stats"]["sharpe_delta"]) < 1e-6
+    assert "chart" in body
+
+
+def test_piggyback_empty_sleeve_is_400():
+    client = TestClient(app)
+    resp = client.get("/api/research/piggyback?sleeve=&weight=30")
+    assert resp.status_code == 400
+
+
+def test_piggyback_weight_out_of_range_is_400():
+    from tradefabe import dashboard
+    import pandas as pd
+    client = TestClient(app)
+    full, meta, _nulls, gy = dashboard.load_backtest()
+    gy_last = dashboard.latest_verdicts(gy)
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    # Pick a strategy that has OOS backtest returns
+    strat = next(s for s in gy_last.index if s in oos.columns)
+    resp = client.get(f"/api/research/piggyback?sleeve={strat}&weight=150")
+    assert resp.status_code == 400
