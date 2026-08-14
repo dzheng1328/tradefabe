@@ -1,8 +1,24 @@
 import { useEffect, useRef, useState } from "react";
+import { NavLink } from "react-router-dom";
 import { isSoundEnabled, onSoundPlayed, setSoundEnabled } from "../lib/sound";
 import BrandGlyph from "./BrandGlyph";
 
 const PULSE_MS = 500;
+
+function NavItem({ to, label }: { to: string; label: string }) {
+  return (
+    <NavLink to={to} className="relative text-ink no-underline">
+      {({ isActive }) => (
+        <>
+          {label}
+          {isActive && (
+            <span className="family-underline absolute -bottom-1.5 left-0 right-0 h-px bg-accent origin-left animate-underline-draw" />
+          )}
+        </>
+      )}
+    </NavLink>
+  );
+}
 
 export default function Nav() {
   const [soundOn, setSoundOn] = useState(isSoundEnabled());
@@ -27,11 +43,8 @@ export default function Nav() {
         <BrandGlyph className="w-4 h-4 text-accent shrink-0" />
         tradefabe
       </div>
-      <div className="relative text-ink">
-        Paper Books
-        <span className="family-underline absolute -bottom-1.5 left-0 right-0 h-px bg-accent origin-left animate-underline-draw" />
-      </div>
-      <div>Research Lab</div>
+      <NavItem to="/books" label="Paper Books" />
+      <NavItem to="/research" label="Research Lab" />
       <button
         className={`ml-auto text-xs text-ink-muted${pulsing ? " sound-toggle-pulse" : ""}`}
         onClick={() => {
