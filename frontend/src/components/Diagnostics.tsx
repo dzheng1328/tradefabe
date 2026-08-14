@@ -10,8 +10,9 @@ export default function Diagnostics({ selected }: { selected: string | null }) {
   const [luckFloorError, setLuckFloorError] = useState<string | null>(null);
   const [drawdownPick, setDrawdownPick] = useState<string | null>(selected);
   const [drawdown, setDrawdown] = useState<(ChartResponse & { max_drawdown: number }) | null>(null);
+  const [drawdownError, setDrawdownError] = useState<string | null>(null);
 
-  useEffect(() => { setDrawdownPick(selected); }, [selected]);
+  useEffect(() => { setDrawdownPick(selected); setDrawdownError(null); }, [selected]);
 
   useEffect(() => {
     if (!selected) { setLuckFloor(null); setLuckFloorError(null); return; }
@@ -29,10 +30,18 @@ export default function Diagnostics({ selected }: { selected: string | null }) {
   }, [selected]);
 
   useEffect(() => {
-    if (!drawdownPick) { setDrawdown(null); return; }
+    if (!drawdownPick) { setDrawdown(null); setDrawdownError(null); return; }
+    setDrawdownError(null);
     fetch(`http://localhost:8000/api/research/drawdown?pick=${encodeURIComponent(drawdownPick)}`)
-      .then((res) => res.json())
-      .then(setDrawdown);
+      .then((res) => {
+        if (!res.ok) {
+          setDrawdown(null);
+          setDrawdownError("No backtest curve available for this pick.");
+          return null;
+        }
+        return res.json();
+      })
+      .then((data) => { if (data) setDrawdown(data); });
   }, [drawdownPick]);
 
   if (!selected) {
@@ -65,7 +74,9 @@ export default function Diagnostics({ selected }: { selected: string | null }) {
             <option value="SPY">SPY</option>
           </select>
         </div>
-        {drawdown ? (
+        {drawdownError ? (
+          <p className="text-ink-muted text-sm py-12">{drawdownError}</p>
+        ) : drawdown ? (
           <>
             <Suspense fallback={<div className="h-[280px]" />}>
               <PlotlyChart figure={drawdown.chart} />

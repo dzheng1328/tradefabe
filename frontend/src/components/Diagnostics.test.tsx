@@ -39,4 +39,19 @@ describe("Diagnostics", () => {
       expect(screen.getByText(/no luck-floor distribution available/i)).toBeInTheDocument()
     );
   });
+
+  it("shows an unavailable message when drawdown 400s (e.g. kronos-family strategies with no full_returns column)", async () => {
+    globalThis.fetch = vi.fn((url: string) => {
+      if (url.includes("drawdown")) {
+        return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ detail: "no backtest curve" }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(LUCK_FLOOR_RESPONSE) });
+    }) as unknown as typeof fetch;
+
+    render(<Diagnostics selected="carry_kronos_vol" />);
+    await waitFor(() =>
+      expect(screen.getByText(/no backtest curve available/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/NaN%/)).not.toBeInTheDocument();
+  });
 });
