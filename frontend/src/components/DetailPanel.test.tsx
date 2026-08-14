@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,7 +53,48 @@ afterEach(() => {
 
 vi.mock("../lib/sound", () => ({ playDataLanded: vi.fn(), playRangeChange: vi.fn() }));
 
+// jsdom never runs framer-motion's real layout-projection engine, so the only
+// observable proxy for idea #24's shared-element handoff is which prop the
+// motion.div wrapping the chart actually received -- stub motion.div down to a plain
+// div that surfaces `layoutId` as a `data-layoutid` attribute. Matches the same stub
+// RowList.test.tsx uses for the sparkline side of this same handoff.
+vi.mock("framer-motion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("framer-motion")>();
+  const Div = ({
+    layoutId,
+    children,
+    className,
+  }: {
+    layoutId?: string;
+    children?: ReactNode;
+    className?: string;
+  }) => (
+    <div className={className} data-layoutid={layoutId}>
+      {children}
+    </div>
+  );
+  // `motion` is a Proxy (framer-motion synthesizes `motion.<tag>` lazily), so
+  // spreading it drops every tag but the ones already accessed -- wrap it instead of
+  // replacing it, intercepting only the two tags this file's components use.
+  const motionProxy = new Proxy(actual.motion, {
+    get(target, prop, receiver) {
+      if (prop === "div" || prop === "span") return Div;
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  return { ...actual, motion: motionProxy };
+});
+
 describe("DetailPanel", () => {
+  it("idea #24: wraps the live equity chart in the same shared layoutId RowList hands off from the selected sparkline", async () => {
+    const { container } = render(<DetailPanel name="tsmom_12m" />);
+    await waitFor(() => expect(screen.getByText("Sign", { exact: false })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(container.querySelector('[data-layoutid="sparkline-tsmom_12m"]')).not.toBeNull()
+    );
+  });
+
+
   it("shows the ring-loader while loading, not a plain Loading… flash", async () => {
     const { container } = render(<DetailPanel name="tsmom_12m" />);
     expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();

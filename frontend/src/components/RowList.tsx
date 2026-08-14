@@ -48,6 +48,49 @@ function Sparkline({ points }: { points: (number | null)[] }) {
   );
 }
 
+// Idea #24: the shared layoutId lives on this wrapper, not the Sparkline SVG itself,
+// and only for a brief window right after selection -- matching Framer's own
+// lightbox-demo pattern (thumbnail grid stays mounted forever; the layoutId is handed
+// off to whichever instance is "active" so exactly one element owns it at a time).
+// DetailPanel's chart-area wrapper claims the same `sparkline-<book>` id for the same
+// brief window on open, so the id transfers from the row's sparkline to the chart and
+// back to a plain, un-shared sparkline once the SPRING settles.
+//
+// The row's own local timer (not a prop driven by DetailPanel) is what makes the
+// hand-back actually work: if `layoutId` were computed straight from `selected` (true
+// for the whole time a book stays open), this component's own props would never
+// change again after the initial claim, so it would never re-render once DetailPanel
+// dropped its side -- and Framer leaves a claimed-but-abandoned layoutId node exactly
+// where it last animated it: `opacity: 0` with a transform pinned at the chart's
+// rect, permanently invisible (reproduced live, then confirmed via the node's own
+// inline style before this fix). Timing out 50ms after DetailPanel's own release
+// (see DetailPanel.tsx) guarantees the chart fully lets go first.
+const MORPH_CLAIM_MS = 500;
+
+function SparklineSlot({ book, selected, points }: { book: string; selected: boolean; points: (number | null)[] }) {
+  const [claiming, setClaiming] = useState(false);
+
+  useEffect(() => {
+    if (!selected) {
+      setClaiming(false);
+      return;
+    }
+    setClaiming(true);
+    const id = setTimeout(() => setClaiming(false), MORPH_CLAIM_MS);
+    return () => clearTimeout(id);
+  }, [selected, book]);
+
+  return (
+    <motion.span
+      layoutId={claiming ? `sparkline-${book}` : undefined}
+      transition={SPRING}
+      className="shrink-0"
+    >
+      <Sparkline points={points} />
+    </motion.span>
+  );
+}
+
 // Books this browser has already rendered at least once -- idea #44's burst is a
 // one-time "hey, something new appeared" signal, not decoration on every visit.
 const SEEN_BOOKS_KEY = "tradefabe.seenBooks";
@@ -103,7 +146,7 @@ function Row({ r, selected, isNew }: { r: BookRow; selected: boolean; isNew: boo
         <span className="text-ink-muted font-mono text-xs shrink-0">
           {formatIntroduced(r.introduced)}
         </span>
-        <span className="shrink-0"><Sparkline points={r.sparkline} /></span>
+        <SparklineSlot book={r.book} selected={selected} points={r.sparkline} />
         <span className="text-ink-muted font-mono tabular-nums shrink-0">
           ${r.equity?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "—"}
         </span>

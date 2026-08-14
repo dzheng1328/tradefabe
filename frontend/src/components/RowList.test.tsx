@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -53,6 +54,22 @@ afterEach(() => {
 });
 
 vi.mock("../lib/sound", () => ({ playSelect: vi.fn() }));
+
+// jsdom never runs framer-motion's real layout-projection engine, so the only
+// observable proxy for idea #24's shared-element handoff is which prop each
+// motion.* element actually received -- stub motion.span/motion.div down to plain
+// DOM elements that surface `layoutId` as a `data-layoutid` attribute.
+vi.mock("framer-motion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("framer-motion")>();
+  type StubProps = { layoutId?: string; children?: ReactNode; className?: string };
+  const Span = ({ layoutId, children, className }: StubProps) => (
+    <span className={className} data-layoutid={layoutId}>{children}</span>
+  );
+  const Div = ({ layoutId, children, className }: StubProps) => (
+    <div className={className} data-layoutid={layoutId}>{children}</div>
+  );
+  return { ...actual, motion: { ...actual.motion, span: Span, div: Div } };
+});
 
 describe("RowList", () => {
   it("renders family-grouped rows by default", async () => {
@@ -291,6 +308,40 @@ describe("RowList", () => {
     );
     await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
     expect(container.querySelectorAll(".tf-book-burst")).toHaveLength(0);
+  });
+
+  it("idea #24: gives only the selected row's sparkline a shared layoutId, for the morph into DetailPanel's chart", async () => {
+    render(
+      <MemoryRouter>
+        <RowList selectedName="tsmom_12m" />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    const selectedRow = screen.getByText("tsmom_12m").closest(".tf-row");
+    const otherRow = screen.getByText("carry_btc_eth").closest(".tf-row");
+    await waitFor(() =>
+      expect(selectedRow?.querySelector("[data-layoutid]")?.getAttribute("data-layoutid")).toBe(
+        "sparkline-tsmom_12m"
+      )
+    );
+    expect(otherRow?.querySelector("[data-layoutid]")).toBeNull();
+  });
+
+  it("idea #24: releases the row's claim on the shared layoutId once the morph window passes, so the sparkline doesn't stay a permanently-hidden framer-motion duplicate", async () => {
+    render(
+      <MemoryRouter>
+        <RowList selectedName="tsmom_12m" />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    const selectedRow = screen.getByText("tsmom_12m").closest(".tf-row");
+    await waitFor(() =>
+      expect(selectedRow?.querySelector("[data-layoutid]")?.getAttribute("data-layoutid")).toBe(
+        "sparkline-tsmom_12m"
+      )
+    );
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await waitFor(() => expect(selectedRow?.querySelector("[data-layoutid]")).toBeNull());
   });
 
   it("plays the select sound when a row is clicked", async () => {
