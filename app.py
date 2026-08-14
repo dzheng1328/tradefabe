@@ -707,14 +707,10 @@ DOCTRINE <b>v1.0.1</b> — pre-registered gates, no tuning after verdicts</div>"
                "Sharpe/Calmar (below) are the fair comparison — raw growth favors whoever took more risk.")
 
     st.subheader("Verdicts — the graveyard ledger")
-    tbl = gy_last.reset_index()[["strategy", "freq", "timestamp", "oos_sharpe", "oos_sortino",
-                                 "oos_calmar", "oos_maxdd", "corr_bench", "null_p95", "verdict"]].copy()
-    tbl["tested"] = pd.to_datetime(tbl["timestamp"]).dt.strftime("%m-%d %H:%M")
-    tbl = tbl.drop(columns=["timestamp"]).sort_values("tested", ascending=False)
-    cols = ["strategy", "freq", "tested", "oos_sharpe", "oos_sortino", "oos_calmar",
-            "oos_maxdd", "corr_bench", "null_p95", "verdict"]
+    tbl = gy_last.reset_index()[["strategy", "freq", "oos_sharpe", "oos_sortino", "oos_calmar",
+                                 "oos_maxdd", "corr_bench", "null_p95", "verdict"]].copy()
     st.dataframe(
-        tbl[cols].style.map(lambda v: f"color: {GOOD}; font-weight: 600" if "ALIVE" in str(v)
+        tbl.style.map(lambda v: f"color: {GOOD}; font-weight: 600" if "ALIVE" in str(v)
                       else (f"color: {CRIT}; font-weight: 600" if "DEAD" in str(v) else ""),
                       subset=["verdict"]),
         width="stretch", hide_index=True)
