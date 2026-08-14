@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import StatTile from "./StatTile";
 import RingLoader from "./RingLoader";
 import { fmt } from "../lib/format";
+import { fetchJSON } from "../lib/api";
 
 const PlotlyChart = lazy(() => import("./PlotlyChart"));
 
@@ -16,31 +17,40 @@ type PiggybackResponse = {
 
 export default function PiggybackLab() {
   const [strategies, setStrategies] = useState<string[] | null>(null);
+  const [strategiesError, setStrategiesError] = useState<string | null>(null);
   const [weight, setWeight] = useState(30);
   const [sleeve, setSleeve] = useState<string[]>([]);
   const [result, setResult] = useState<PiggybackResponse | null>(null);
+  const [resultError, setResultError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/research/overview")
-      .then((res) => res.json())
-      .then((body: { strategies: string[] }) => {
+    fetchJSON<{ strategies: string[] }>("http://localhost:8000/api/research/overview")
+      .then((body) => {
         setStrategies(body.strategies);
         setSleeve(DEFAULT_SLEEVE.filter((s) => body.strategies.includes(s)));
-      });
+      })
+      .catch(() => setStrategiesError("Couldn't load the strategy list."));
   }, []);
 
   useEffect(() => {
-    if (sleeve.length === 0) { setResult(null); return; }
+    if (sleeve.length === 0) { setResult(null); setResultError(null); return; }
+    setResultError(null);
     const id = setTimeout(() => {
-      fetch(`http://localhost:8000/api/research/piggyback?sleeve=${sleeve.join(",")}&weight=${weight}`)
-        .then((res) => res.json())
-        .then(setResult);
+      fetchJSON<PiggybackResponse>(
+        `http://localhost:8000/api/research/piggyback?sleeve=${sleeve.join(",")}&weight=${weight}`
+      )
+        .then(setResult)
+        .catch(() => { setResult(null); setResultError("Couldn't simulate this sleeve."); });
     }, DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [sleeve, weight]);
 
   function toggle(name: string) {
     setSleeve((prev) => (prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]));
+  }
+
+  if (strategiesError) {
+    return <p className="text-ink-muted text-sm">{strategiesError}</p>;
   }
 
   if (!strategies) {
@@ -73,7 +83,9 @@ export default function PiggybackLab() {
         </div>
       </div>
       <div className="flex-1">
-        {result ? (
+        {resultError ? (
+          <p className="text-ink-muted text-sm">{resultError}</p>
+        ) : result ? (
           <>
             <div className="grid grid-cols-3 gap-4">
               <StatTile label="Sharpe" value={`${fmt(result.stats.sharpe)} (${fmt(result.stats.sharpe_delta)} vs 60/40)`} />

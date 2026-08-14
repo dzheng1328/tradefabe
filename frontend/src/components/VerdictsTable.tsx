@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fmt } from "../lib/format";
+import { fetchJSON } from "../lib/api";
 import RingLoader from "./RingLoader";
 
 type VerdictRow = {
@@ -18,14 +19,19 @@ const COLUMNS: { key: keyof VerdictRow; label: string }[] = [
 
 export default function VerdictsTable({ onSelect }: { onSelect: (name: string) => void }) {
   const [rows, setRows] = useState<VerdictRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<keyof VerdictRow>("strategy");
   const [sortDir, setSortDir] = useState<1 | -1>(1);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/research/verdicts")
-      .then((res) => res.json())
-      .then((body: { rows: VerdictRow[] }) => setRows(body.rows));
+    fetchJSON<{ rows: VerdictRow[] }>("http://localhost:8000/api/research/verdicts")
+      .then((body) => setRows(body.rows))
+      .catch(() => setError("Couldn't load the verdicts table."));
   }, []);
+
+  if (error) {
+    return <p className="text-ink-muted text-sm">{error}</p>;
+  }
 
   if (!rows) {
     return (

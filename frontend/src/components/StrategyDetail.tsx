@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import StatTile from "./StatTile";
 import RingLoader from "./RingLoader";
 import { fmt } from "../lib/format";
+import { fetchJSON } from "../lib/api";
 
 const PlotlyChart = lazy(() => import("./PlotlyChart"));
 
@@ -14,16 +15,21 @@ type StrategyResponse = {
 
 export default function StrategyDetail({ selected }: { selected: string | null }) {
   const [data, setData] = useState<StrategyResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!selected) { setData(null); return; }
-    fetch(`http://localhost:8000/api/research/strategy/${selected}`)
-      .then((res) => res.json())
-      .then(setData);
+    if (!selected) { setData(null); setError(null); return; }
+    setError(null);
+    fetchJSON<StrategyResponse>(`http://localhost:8000/api/research/strategy/${selected}`)
+      .then(setData)
+      .catch(() => setError("Couldn't load this strategy's detail."));
   }, [selected]);
 
   if (!selected) {
     return <p className="text-ink-muted text-sm">Pick a strategy from the Verdicts tab to see its detail.</p>;
+  }
+  if (error) {
+    return <p className="text-ink-muted text-sm">{error}</p>;
   }
   if (!data) {
     return (

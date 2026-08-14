@@ -28,4 +28,13 @@ describe("StrategyDetail", () => {
     expect(screen.getByText("ALIVE")).toBeInTheDocument();
     expect(screen.getByText("1.14")).toBeInTheDocument();
   });
+
+  it("shows an error message instead of crashing when the fetch fails", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ detail: "unknown strategy" }) })
+    ) as unknown as typeof fetch;
+
+    render(<StrategyDetail selected="not_a_real_strategy" />);
+    await waitFor(() => expect(screen.getByText(/couldn't load/i)).toBeInTheDocument());
+  });
 });

@@ -33,4 +33,13 @@ describe("VerdictsTable", () => {
     await userEvent.click(screen.getByText("carry_btc_eth"));
     expect(onSelect).toHaveBeenCalledWith("carry_btc_eth");
   });
+
+  it("shows an error message instead of crashing when the fetch fails", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ detail: "boom" }) })
+    ) as unknown as typeof fetch;
+
+    render(<VerdictsTable onSelect={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/couldn't load/i)).toBeInTheDocument());
+  });
 });

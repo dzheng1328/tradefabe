@@ -26,4 +26,20 @@ describe("ResearchOverview", () => {
     expect(screen.getByText("4")).toBeInTheDocument();
     expect(screen.getByText("473")).toBeInTheDocument();
   });
+
+  it("shows an error message instead of crashing when the fetch fails", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ detail: "boom" }) })
+    ) as unknown as typeof fetch;
+
+    render(<ResearchOverview />);
+    await waitFor(() => expect(screen.getByText(/couldn't load/i)).toBeInTheDocument());
+  });
+
+  it("shows an error message when fetch itself rejects", async () => {
+    globalThis.fetch = vi.fn(() => Promise.reject(new Error("network down"))) as unknown as typeof fetch;
+
+    render(<ResearchOverview />);
+    await waitFor(() => expect(screen.getByText(/couldn't load/i)).toBeInTheDocument());
+  });
 });

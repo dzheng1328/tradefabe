@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import StatTile from "./StatTile";
 import RingLoader from "./RingLoader";
 import { fmt } from "../lib/format";
+import { fetchJSON } from "../lib/api";
 
 const PlotlyChart = lazy(() => import("./PlotlyChart"));
 
@@ -18,12 +19,17 @@ type OverviewResponse = {
 
 export default function ResearchOverview() {
   const [data, setData] = useState<OverviewResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/research/overview")
-      .then((res) => res.json())
-      .then(setData);
+    fetchJSON<OverviewResponse>("http://localhost:8000/api/research/overview")
+      .then(setData)
+      .catch(() => setError("Couldn't load the research overview."));
   }, []);
+
+  if (error) {
+    return <p className="text-ink-muted text-sm">{error}</p>;
+  }
 
   if (!data) {
     return (

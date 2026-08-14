@@ -40,4 +40,25 @@ describe("PiggybackLab", () => {
     await userEvent.click(checkbox);
     expect(checkbox).not.toBeChecked();
   });
+
+  it("shows an error message instead of crashing when the strategy list fetch fails", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ detail: "boom" }) })
+    ) as unknown as typeof fetch;
+
+    render(<PiggybackLab />);
+    await waitFor(() => expect(screen.getByText(/couldn't load the strategy list/i)).toBeInTheDocument());
+  });
+
+  it("shows an error message instead of crashing when the piggyback simulation fetch fails", async () => {
+    globalThis.fetch = vi.fn((url: string) => {
+      if (url.includes("piggyback")) {
+        return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ detail: "boom" }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(OVERVIEW_RESPONSE) });
+    }) as unknown as typeof fetch;
+
+    render(<PiggybackLab />);
+    await waitFor(() => expect(screen.getByText(/couldn't simulate this sleeve/i)).toBeInTheDocument());
+  });
 });
