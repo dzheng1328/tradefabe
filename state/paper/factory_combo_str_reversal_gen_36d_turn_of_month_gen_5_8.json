@@ -1,12 +1,11 @@
 {
  "name": "factory_combo_str_reversal_gen_36d_turn_of_month_gen_5_8",
- "cash": 23354.250053956413,
+ "cash": 24251.003025424678,
  "positions": {
-  "IEF": 305.8548759815522,
-  "QQQ": 1.0711870355770716,
-  "SPY": 55.20900468095421,
-  "TLT": 27.63759447828799,
-  "UUP": 144.0337802533091
+  "IEF": 305.9956835067674,
+  "SPY": 55.05231788797634,
+  "TLT": 27.347998338844548,
+  "UUP": 144.72978756884282
  },
  "history": [
   [
@@ -1564,20 +1563,23 @@
   [
    "2026-08-14T02:02",
    101962.14
+  ],
+  [
+   "2026-08-14T04:15",
+   101961.66
   ]
  ],
- "last_run": "2026-08-14T02:02:45",
- "last_rebalance": "2026-08-12",
+ "last_run": "2026-08-14T04:15:35",
+ "last_rebalance": "2026-08-13",
  "last_backfill_bar": "2026-08-13T19:30",
  "last_price_bar": "2026-08-13",
  "last_prices": {
   "IEF": 93.300003,
-  "QQQ": 732.070007,
   "SPY": 777.880005,
   "TLT": 82.589996,
   "UUP": 28.18
  },
- "last_prices_at": "2026-08-14T02:02",
+ "last_prices_at": "2026-08-14T04:15",
  "trades": [
   {
    "ts": "2026-08-04T05:22",
@@ -2343,6 +2345,51 @@
    "price": 28.200001,
    "notional": 21.68,
    "position_after": 144.03378
+  },
+  {
+   "ts": "2026-08-14T04:15",
+   "ticker": "IEF",
+   "side": "BUY",
+   "shares": 0.140808,
+   "price": 93.300003,
+   "notional": 13.14,
+   "position_after": 305.995684
+  },
+  {
+   "ts": "2026-08-14T04:15",
+   "ticker": "QQQ",
+   "side": "SELL",
+   "shares": -1.071187,
+   "price": 732.070007,
+   "notional": 784.18,
+   "position_after": 0.0
+  },
+  {
+   "ts": "2026-08-14T04:15",
+   "ticker": "SPY",
+   "side": "SELL",
+   "shares": -0.156687,
+   "price": 777.880005,
+   "notional": 121.88,
+   "position_after": 55.052318
+  },
+  {
+   "ts": "2026-08-14T04:15",
+   "ticker": "TLT",
+   "side": "SELL",
+   "shares": -0.289596,
+   "price": 82.589996,
+   "notional": 23.92,
+   "position_after": 27.347998
+  },
+  {
+   "ts": "2026-08-14T04:15",
+   "ticker": "UUP",
+   "side": "BUY",
+   "shares": 0.696007,
+   "price": 28.18,
+   "notional": 19.61,
+   "position_after": 144.729788
   }
  ]
 }
