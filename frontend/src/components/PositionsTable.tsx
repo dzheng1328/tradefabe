@@ -19,7 +19,7 @@ export default function PositionsTable({
       <table className="w-full text-sm font-mono tabular-nums">
         <thead>
           <tr className="text-ink-muted text-xs uppercase text-left">
-            <th className="pb-2">Ticker</th>
+            <th className="pb-2 font-sans">Ticker</th>
             <th className="pb-2 text-right">Units</th>
             <th className="pb-2 text-right">Last price</th>
             <th className="pb-2 text-right">Value</th>

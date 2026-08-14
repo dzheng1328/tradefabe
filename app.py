@@ -9,7 +9,6 @@ Two views, picked from the sidebar:
 
 Paper/backtest only — no live trading.
 """
-import json
 import os
 import numpy as np
 import pandas as pd

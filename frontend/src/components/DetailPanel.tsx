@@ -342,26 +342,28 @@ export default function DetailPanel({ name }: { name: string }) {
 
       <div className="mt-6 pt-6 border-t border-white/5">
         {data.kind === "equity" ? (
-          data.accrual_only ? (
-            <p className="text-ink-muted text-sm">
-              This book is delta-neutral carry: its value moves from funding accrual,
-              not discrete positions, so there's no cash/gross/net breakdown to show
-              here — the live equity chart above is the real number.
-            </p>
-          ) : (
-            <>
-              <SectionHeader>Capital deployed</SectionHeader>
-              <div className="mt-3">
-                <DeploymentStats deployment={data.deployment!} />
-              </div>
-              <div className="mt-6">
-                <SectionHeader>Current positions</SectionHeader>
+          <>
+            <SectionHeader>Capital deployed</SectionHeader>
+            {data.accrual_only ? (
+              <p className="text-ink-muted text-sm mt-3">
+                This book is delta-neutral carry: its value moves from funding accrual,
+                not discrete positions, so there's no cash/gross/net breakdown to show
+                here — the live equity chart above is the real number.
+              </p>
+            ) : (
+              <>
                 <div className="mt-3">
-                  <PositionsTable positions={data.positions ?? null} positionsAsof={data.positions_asof ?? null} />
+                  <DeploymentStats deployment={data.deployment!} />
                 </div>
-              </div>
-            </>
-          )
+                <div className="mt-6">
+                  <SectionHeader>Current positions</SectionHeader>
+                  <div className="mt-3">
+                    <PositionsTable positions={data.positions ?? null} positionsAsof={data.positions_asof ?? null} />
+                  </div>
+                </div>
+              </>
+            )}
+          </>
         ) : null}
 
         {data.kind === "equity" && (

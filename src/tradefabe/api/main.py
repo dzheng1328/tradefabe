@@ -255,7 +255,7 @@ def book_detail(name: str, window: str = "ALL"):
         body["deployment"] = _deployment_json(data["deployment"])
         body["positions"] = _positions_json(data["positions_df"])
         body["positions_asof"] = (
-            data["positions_asof"].isoformat()
+            data["positions_asof"].date().isoformat()
             if data.get("positions_asof") is not None else None
         )
         body["trades"] = _trades_json(data["trades_df"])

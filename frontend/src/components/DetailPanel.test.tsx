@@ -278,6 +278,10 @@ describe("DetailPanel", () => {
     await waitFor(() =>
       expect(screen.getByText(/no cash\/gross\/net breakdown/)).toBeInTheDocument()
     );
+    // The "Capital deployed" header must still appear above the accrual-only
+    // caption -- app.py's Streamlit equivalent renders it unconditionally, and
+    // without it the caption used to float headerless right above "Trade log".
+    expect(screen.getByText("Capital deployed")).toBeInTheDocument();
   });
 
   it("renders the risk-monitor panel and risk register for the carry book", async () => {

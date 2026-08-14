@@ -50,6 +50,11 @@ def test_equity_book_includes_positions_deployment_trades():
     assert "positions" in body
     assert "trades" in body
     assert isinstance(body["trades"], list)  # always a list, never null
+    if body.get("positions_asof") is not None:
+        # positions_asof must be a bare ISO date ("2026-07-31"), not a full
+        # datetime ("2026-07-31T00:00:00") -- app.py:526's Streamlit equivalent
+        # renders asof.date(), and PositionsTable.tsx shows this value raw.
+        assert "T" not in body["positions_asof"]
 
 
 def test_accrual_only_equity_book_has_null_deployment_and_positions():
