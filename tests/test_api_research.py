@@ -1,3 +1,4 @@
+import numpy as np
 from fastapi.testclient import TestClient
 
 from tradefabe.api.main import app
@@ -83,7 +84,9 @@ def test_luck_floor_falls_back_to_legacy_per_frequency_nulls_shape():
     per-strategy, so `strategy not in nulls` used to be true for every strategy and the
     endpoint 400'd for everything. Pick a real strategy whose name isn't itself a key in
     `nulls` (true for any real strategy under the legacy shape) and confirm the endpoint
-    falls back to the strategy's own frequency bucket instead of 400ing."""
+    falls back to the strategy's own frequency bucket instead of 400ing. Also confirms the
+    per-frequency response is labeled as a SHARED distribution (DOCTRINE v1.5 distinction,
+    finding 2): `shape` says "per_frequency" and the label doesn't name this one strategy."""
     from tradefabe import dashboard
     client = TestClient(app)
     _full, _meta, nulls, gy = dashboard.load_backtest()
@@ -93,6 +96,38 @@ def test_luck_floor_falls_back_to_legacy_per_frequency_nulls_shape():
     assert resp.status_code == 200
     body = resp.json()
     assert "chart" in body and "label" in body
+    assert body["shape"] == "per_frequency"
+    assert strategy not in body["label"]
+
+
+def test_luck_floor_per_strategy_shape_does_not_fall_through_to_frequency(monkeypatch):
+    """Finding 3: the real on-disk nulls.npz is legacy per-frequency shaped, so every
+    other test here only exercises the `elif freq in nulls` branch. Monkeypatch
+    dashboard.load_backtest to simulate the per-strategy shape DOCTRINE v1.5 / harness.py
+    would produce going forward, and confirm the endpoint takes the `if strategy in nulls`
+    branch: shape == "per_strategy" and the strategy name stays in the label."""
+    from tradefabe import dashboard
+    from tradefabe.api import main as api_main
+
+    client = TestClient(app)
+    full, meta, nulls, gy = dashboard.load_backtest()
+    gy_last = dashboard.latest_verdicts(gy)
+    strategy = gy_last.index[0]
+
+    fake_nulls = dict(nulls)
+    fake_nulls[strategy] = np.random.default_rng(0).normal(size=500)
+
+    def fake_load_backtest(*args, **kwargs):
+        return full, meta, fake_nulls, gy
+
+    monkeypatch.setattr(api_main.dashboard, "load_backtest", fake_load_backtest)
+
+    resp = client.get(f"/api/research/luck_floor?strategy={strategy}")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["shape"] == "per_strategy"
+    assert strategy in body["label"]
 
 
 def test_drawdown_bench_pick():
@@ -108,6 +143,44 @@ def test_drawdown_unknown_pick_is_400():
     client = TestClient(app)
     resp = client.get("/api/research/drawdown?pick=not_a_real_pick")
     assert resp.status_code == 400
+
+
+def test_drawdown_resolves_strategy_not_in_full_returns_via_cascade():
+    """Finding 1 regression: research_drawdown used to check `full_returns.csv` columns
+    only, so 400ing for any strategy resolvable only through the factory/pipeline/etc.
+    cascade research_strategy_detail already uses. Pick a real strategy that's in the
+    graveyard but NOT a full_returns.csv column, confirm the drawdown endpoint now
+    resolves it via the same dashboard._dead_strategy_returns cascade."""
+    from tradefabe import dashboard
+    import pandas as pd
+
+    client = TestClient(app)
+    full, meta, _nulls, gy = dashboard.load_backtest()
+    gy_last = dashboard.latest_verdicts(gy)
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    factory_bt = dashboard.load_factory_backtest()
+    pipeline_bt = dashboard.load_pipeline_backtest()
+
+    strategy = next(
+        (s for s in gy_last.index
+         if s not in oos.columns and factory_bt is not None and s in factory_bt.columns),
+        None,
+    )
+    if strategy is None:
+        strategy = next(
+            (s for s in gy_last.index
+             if s not in oos.columns and pipeline_bt is not None and s in pipeline_bt.columns),
+            None,
+        )
+    if strategy is None:
+        return  # no such strategy in this environment's artifacts -- nothing to assert
+
+    resp = client.get(f"/api/research/drawdown?pick={strategy}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "chart" in body
+    assert body["max_drawdown"] is None or body["max_drawdown"] <= 0
 
 
 def test_piggyback_zero_weight_matches_bench_sharpe():

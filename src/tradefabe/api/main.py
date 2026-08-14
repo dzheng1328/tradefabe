@@ -414,19 +414,25 @@ def research_luck_floor(strategy: str):
     freq = gy_last.loc[strategy, "freq"]
     marks = [(strategy, float(gy_last.loc[strategy, "oos_sharpe"]))]
 
-    # nulls.npz is either keyed per-strategy (current shape) or per-frequency (legacy
-    # shape, {D,M,W} -- the real artifact on disk as of 2026-08). Mirror app.py's
-    # render_research_lab detection so both shapes work behind the same URL contract.
+    # nulls.npz is either keyed per-strategy (current shape, DOCTRINE v1.5) or per-frequency
+    # (legacy shape, {D,M,W} -- the real artifact on disk as of 2026-08). Mirror app.py's
+    # render_research_lab detection so both shapes work behind the same URL contract. The two
+    # shapes carry a real semantic difference (this strategy's own null distribution vs. a
+    # distribution SHARED across every same-frequency strategy) -- callers need to know which
+    # one they got, hence `shape` in the response.
     if strategy in nulls:
         arr = nulls[strategy]
+        shape = "per_strategy"
+        label = f"{freq_names.get(freq, freq)} — {strategy}" if freq else strategy
     elif freq in nulls:
         arr = nulls[freq]
+        shape = "per_frequency"
+        label = freq_names.get(freq, freq)
     else:
         raise HTTPException(status_code=400, detail=f"no null distribution for: {strategy}")
 
-    label = f"{freq_names.get(freq, freq)} — {strategy}" if freq else strategy
     chart = dashboard.luck_floor_chart(arr, label, marks, color_of)
-    return {"chart": json.loads(chart.to_json()), "label": label}
+    return {"chart": json.loads(chart.to_json()), "label": label, "shape": shape}
 
 
 @app.get("/api/research/drawdown")
@@ -439,13 +445,28 @@ def research_drawdown(pick: str):
     OOS = pd.Timestamp(meta["oos_start"])
     oos = full[full.index >= OOS]
     strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
-    col = {"60/40": "bench_6040", "SPY": "spy"}.get(pick, pick)
-    if col not in oos.columns:
-        raise HTTPException(status_code=400, detail=f"unknown pick: {pick}")
-
     color_of = {s: dashboard.SLOTS[i % len(dashboard.SLOTS)] for i, s in enumerate(strats)}
-    c = color_of.get(pick, dashboard.BENCH_C if pick == "60/40" else dashboard.SPY_C)
-    r = oos[col].fillna(0)
+
+    if pick in ("60/40", "SPY"):
+        col = {"60/40": "bench_6040", "SPY": "spy"}[pick]
+        if col not in oos.columns:
+            raise HTTPException(status_code=400, detail=f"unknown pick: {pick}")
+        r = oos[col].fillna(0)
+        c = dashboard.BENCH_C if pick == "60/40" else dashboard.SPY_C
+    else:
+        piggy = dashboard.load_piggyback_backtest()
+        factory_bt = dashboard.load_factory_backtest()
+        hourly_bt = dashboard.load_hourly_backtest()
+        kronos_bt = dashboard.load_kronos_backtest()
+        pairs_bt = dashboard.load_pairs_backtest()
+        pipeline_bt = dashboard.load_pipeline_backtest()
+        r = dashboard._dead_strategy_returns(pick, oos, piggy, factory_bt, hourly_bt,
+                                              kronos_bt, pairs_bt, pipeline_bt)
+        if r is None:
+            raise HTTPException(status_code=400, detail=f"unknown pick: {pick}")
+        r = r.fillna(0)
+        c = color_of.get(pick, dashboard.INK2)
+
     eq = (1 + r).cumprod()
     dd = eq / eq.cummax() - 1
     chart = dashboard.drawdown_chart(dd, c)

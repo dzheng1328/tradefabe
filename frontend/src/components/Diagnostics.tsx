@@ -4,9 +4,12 @@ import RingLoader from "./RingLoader";
 const PlotlyChart = lazy(() => import("./PlotlyChart"));
 
 type ChartResponse = { chart: { data: unknown[]; layout: Record<string, unknown> } };
+type LuckFloorShape = "per_strategy" | "per_frequency";
 
 export default function Diagnostics({ selected }: { selected: string | null }) {
-  const [luckFloor, setLuckFloor] = useState<(ChartResponse & { label: string }) | null>(null);
+  const [luckFloor, setLuckFloor] = useState<
+    (ChartResponse & { label: string; shape: LuckFloorShape }) | null
+  >(null);
   const [luckFloorError, setLuckFloorError] = useState<string | null>(null);
   const [drawdownPick, setDrawdownPick] = useState<string | null>(selected);
   const [drawdown, setDrawdown] = useState<(ChartResponse & { max_drawdown: number }) | null>(null);
@@ -54,9 +57,16 @@ export default function Diagnostics({ selected }: { selected: string | null }) {
       {luckFloorError ? (
         <p className="text-ink-muted text-sm py-12">{luckFloorError}</p>
       ) : luckFloor ? (
-        <Suspense fallback={<div className="h-[340px]" />}>
-          <PlotlyChart figure={luckFloor.chart} />
-        </Suspense>
+        <>
+          <p className="text-xs text-ink-muted mt-1">
+            {luckFloor.shape === "per_strategy"
+              ? "Scored against random rotations of this strategy's own signal (DOCTRINE v1.5)."
+              : `Shared distribution across all ${luckFloor.label.toLowerCase()} strategies - not specific to this one.`}
+          </p>
+          <Suspense fallback={<div className="h-[340px]" />}>
+            <PlotlyChart figure={luckFloor.chart} />
+          </Suspense>
+        </>
       ) : (
         <div className="flex justify-center py-12"><RingLoader /></div>
       )}
