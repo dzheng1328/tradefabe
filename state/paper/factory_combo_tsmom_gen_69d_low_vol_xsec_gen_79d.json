@@ -1292,11 +1292,15 @@
   [
    "2026-08-14T17:30",
    99991.49
+  ],
+  [
+   "2026-08-14T18:30",
+   100021.17
   ]
  ],
- "last_run": "2026-08-14T17:54:25",
+ "last_run": "2026-08-14T18:55:56",
  "last_rebalance": "2026-08-07",
- "last_backfill_bar": "2026-08-14T17:30",
+ "last_backfill_bar": "2026-08-14T18:30",
  "last_price_bar": "2026-08-13",
  "last_prices": {
   "DBC": 29.780001,
@@ -1392,5 +1396,9 @@
    "notional": 1271.61,
    "position_after": 12.918878
   }
- ]
+ ],
+ "retired": {
+  "at": "2026-08-14T19:02",
+  "reason": "near-duplicate of tsmom_gen_86d_low_vol_xsec_gen_53d (corr 0.998 full backtest), lower sharpe 0.898 vs 0.920"
+ }
 }

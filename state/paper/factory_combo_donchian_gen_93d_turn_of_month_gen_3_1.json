@@ -1700,11 +1700,15 @@
   [
    "2026-08-14T17:30",
    101702.85
+  ],
+  [
+   "2026-08-14T18:30",
+   101731.39
   ]
  ],
- "last_run": "2026-08-14T17:54:25",
+ "last_run": "2026-08-14T18:55:56",
  "last_rebalance": "2026-08-13",
- "last_backfill_bar": "2026-08-14T17:30",
+ "last_backfill_bar": "2026-08-14T18:30",
  "last_price_bar": "2026-08-13",
  "last_prices": {
   "GLD": 398.959991,
@@ -3240,5 +3244,9 @@
    "notional": 9.51,
    "position_after": 72.331731
   }
- ]
+ ],
+ "retired": {
+  "at": "2026-08-14T19:02",
+  "reason": "near-duplicate of factory_combo_donchian_gen_109d_turn_of_month_gen_1_2 (corr 0.999) and the wider combo supercluster, lower sharpe 0.829 vs 0.920"
+ }
 }

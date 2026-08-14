@@ -1287,12 +1287,16 @@
   [
    "2026-08-14T17:30",
    100638.77
+  ],
+  [
+   "2026-08-14T18:30",
+   100642.93
   ]
  ],
- "last_run": "2026-08-14T17:54:25",
+ "last_run": "2026-08-14T18:55:56",
  "last_rebalance": "2026-08-13",
  "last_price_bar": "2026-08-13",
- "last_backfill_bar": "2026-08-14T17:30",
+ "last_backfill_bar": "2026-08-14T18:30",
  "last_prices": {
   "GLD": 398.959991,
   "IWM": 303.5,
@@ -3510,5 +3514,9 @@
    "notional": 10.38,
    "position_after": 476.450369
   }
- ]
+ ],
+ "retired": {
+  "at": "2026-08-14T19:02",
+  "reason": "near-duplicate calendar window of turn_of_month_gen_1_6 (kept, sharpe 0.583), all below 60/40 benchmark, this one 0.365"
+ }
 }
