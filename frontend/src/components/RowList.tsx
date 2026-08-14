@@ -120,8 +120,32 @@ function formatIntroduced(iso: string | null): string {
   return `${Number(month)}.${Number(day)}.${year.slice(-2)}`;
 }
 
-function Row({ r, selected, isNew }: { r: BookRow; selected: boolean; isNew: boolean }) {
-  const delta = r.return_today ?? r.return;
+// Which % this list is currently showing per row: "today" (change since the prior
+// close, only meaningful when explicitly sorted that way) or "total" (return since
+// each book's own inception, relative to its $100k starting capital -- the only
+// number that's comparable across books of very different ages, so it's the default
+// for every other sort mode).
+type DeltaMode = "today" | "total";
+
+function rowDelta(r: BookRow, mode: DeltaMode): number | null {
+  return mode === "today" ? r.return_today ?? r.return : r.return;
+}
+
+// toFixed(1) on a genuine-but-tiny negative (e.g. -0.0004) prints the confusing
+// "-0.0%" -- reads as a loss at a glance, but is actually indistinguishable from flat
+// at this precision. Round first, then normalize -0 to 0 before formatting.
+function formatPct(delta: number): string {
+  const rounded = Math.round(delta * 1000) / 10;
+  return `${rounded === 0 ? 0 : rounded}%`;
+}
+
+function Row({
+  r, selected, isNew, deltaMode, indented = false, trailingBadge,
+}: {
+  r: BookRow; selected: boolean; isNew: boolean; deltaMode: DeltaMode; indented?: boolean;
+  trailingBadge?: import("react").ReactNode;
+}) {
+  const delta = rowDelta(r, deltaMode);
   return (
     <Link to={`/books/${r.book}`} className="block no-underline" data-book={r.book} onClick={playSelect}>
       <motion.div
@@ -133,7 +157,7 @@ function Row({ r, selected, isNew }: { r: BookRow; selected: boolean; isNew: boo
         transition={SPRING}
         className={`tf-row flex items-center gap-3 px-4 py-2 h-14 text-sm border-b border-white/5 transition-transform hover:-translate-y-px hover:shadow-[0_4px_16px_rgba(0,0,0,0.35)] ${
           isNew ? "tf-book-burst" : ""
-        }`}
+        } ${indented ? "pl-8" : ""}`}
       >
         <span className="text-ink truncate min-w-0 flex-1 flex items-center gap-2">
           {r.book}
@@ -143,6 +167,7 @@ function Row({ r, selected, isNew }: { r: BookRow; selected: boolean; isNew: boo
             </span>
           )}
         </span>
+        {trailingBadge}
         <span className="text-ink-muted font-mono text-xs shrink-0">
           {formatIntroduced(r.introduced)}
         </span>
@@ -155,10 +180,91 @@ function Row({ r, selected, isNew }: { r: BookRow; selected: boolean; isNew: boo
             delta != null && delta >= 0 ? "text-accent" : "text-red-400"
           }`}
         >
-          {delta != null ? `${(delta * 100).toFixed(1)}%` : "—"}
+          {delta != null ? formatPct(delta) : "—"}
         </span>
       </motion.div>
     </Link>
+  );
+}
+
+// A cluster's signature: books whose equity, total return, AND full sparkline are all
+// identical -- i.e. their live paper curves have been genuinely indistinguishable so
+// far, not just "close." Sparkline is included (not just equity) so two books that
+// happen to match today but diverged yesterday are NOT collapsed.
+function curveSignature(r: BookRow): string {
+  const eq = r.equity == null ? null : Math.round(r.equity * 100);
+  const ret = r.return == null ? null : Math.round(r.return * 10000);
+  const spark = r.sparkline.map((v) => (v == null ? null : Math.round(v * 100)));
+  return JSON.stringify([eq, ret, spark]);
+}
+
+// Groups rows that share a curveSignature, preserving first-seen order both across
+// groups and within a group -- the server's own sort order stays intact for whichever
+// book of each cluster is picked as the representative.
+function clusterRows(rows: BookRow[]): BookRow[][] {
+  const order: string[] = [];
+  const groups = new Map<string, BookRow[]>();
+  for (const r of rows) {
+    const sig = curveSignature(r);
+    if (!groups.has(sig)) {
+      groups.set(sig, []);
+      order.push(sig);
+    }
+    groups.get(sig)!.push(r);
+  }
+  return order.map((sig) => groups.get(sig)!);
+}
+
+function ClusterRow({
+  group, selectedName, newBooks, deltaMode,
+}: { group: BookRow[]; selectedName: string | null; newBooks: Set<string>; deltaMode: DeltaMode }) {
+  const containsSelected = group.some((r) => r.book === selectedName);
+  const [expanded, setExpanded] = useState(containsSelected);
+
+  useEffect(() => {
+    if (containsSelected) setExpanded(true);
+  }, [containsSelected]);
+
+  if (group.length === 1) {
+    const r = group[0];
+    return <Row r={r} selected={r.book === selectedName} isNew={newBooks.has(r.book)} deltaMode={deltaMode} />;
+  }
+
+  const [head, ...rest] = group;
+  const badge = (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setExpanded((v) => !v);
+      }}
+      className="text-[10px] uppercase tracking-wide text-ink-muted hover:text-accent px-1.5 py-0.5 rounded-full border border-white/10 shrink-0"
+    >
+      {expanded ? "hide" : `+${rest.length} identical`}
+    </button>
+  );
+  return (
+    <div>
+      <Row
+        r={head}
+        selected={head.book === selectedName}
+        isNew={newBooks.has(head.book)}
+        deltaMode={deltaMode}
+        trailingBadge={badge}
+      />
+      {expanded &&
+        rest.map((r) => (
+          <Row
+            key={r.book}
+            r={r}
+            selected={r.book === selectedName}
+            isNew={newBooks.has(r.book)}
+            deltaMode={deltaMode}
+            indented
+          />
+        ))}
+    </div>
   );
 }
 
@@ -234,6 +340,8 @@ export default function RowList({ selectedName }: { selectedName: string | null 
     </label>
   );
 
+  const deltaMode: DeltaMode = sortLabel === "Return today" ? "today" : "total";
+
   return (
     <div>
       {review.length > 0 && (
@@ -261,16 +369,28 @@ export default function RowList({ selectedName }: { selectedName: string | null 
                 </span>
                 {i === 0 && sortControl}
               </div>
-              {fam.books.map((r) => (
-                <Row key={r.book} r={r} selected={r.book === selectedName} isNew={newBooks.has(r.book)} />
+              {clusterRows(fam.books).map((group) => (
+                <ClusterRow
+                  key={group[0].book}
+                  group={group}
+                  selectedName={selectedName}
+                  newBooks={newBooks}
+                  deltaMode={deltaMode}
+                />
               ))}
             </div>
           ))
         : (
             <>
               <div className="px-4 pt-2 pb-1 flex items-center justify-end">{sortControl}</div>
-              {data.books.map((r) => (
-                <Row key={r.book} r={r} selected={r.book === selectedName} isNew={newBooks.has(r.book)} />
+              {clusterRows(data.books).map((group) => (
+                <ClusterRow
+                  key={group[0].book}
+                  group={group}
+                  selectedName={selectedName}
+                  newBooks={newBooks}
+                  deltaMode={deltaMode}
+                />
               ))}
             </>
           )}

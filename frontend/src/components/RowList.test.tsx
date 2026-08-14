@@ -355,4 +355,94 @@ describe("RowList", () => {
     await userEvent.click(screen.getByText("tsmom_12m"));
     expect(playSelect).toHaveBeenCalled();
   });
+
+  const DUPLICATE_BOOK = (name: string) => ({
+    book: name, equity: 100627.66, return: 0.0063, last_run: "2026-08-06",
+    retired_at: null, family: "C", color: "#7d8877", introduced: "2026-07-23",
+    return_today: -0.0007, monitor_only: false,
+    sparkline: [100600, 100610, 100627.66],
+  });
+
+  function mockFetchWithFamilies(families: unknown[]) {
+    return vi.fn((url: string) => {
+      if (url.includes("up_for_review")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(UP_FOR_REVIEW_RESPONSE) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ families }) });
+    }) as unknown as typeof fetch;
+  }
+
+  it("collapses books with an identical equity/return/sparkline curve into one row with a badge", async () => {
+    globalThis.fetch = mockFetchWithFamilies([
+      {
+        family: "C", label: "Calendar / seasonality",
+        books: [
+          DUPLICATE_BOOK("turn_of_month_gen_5_7"),
+          DUPLICATE_BOOK("turn_of_month_gen_7_2"),
+          DUPLICATE_BOOK("turn_of_month_gen_1_6"),
+        ],
+      },
+    ]);
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("turn_of_month_gen_5_7")).toBeInTheDocument());
+    expect(screen.getByText("+2 identical")).toBeInTheDocument();
+    expect(screen.queryByText("turn_of_month_gen_7_2")).not.toBeInTheDocument();
+    expect(screen.queryByText("turn_of_month_gen_1_6")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("+2 identical"));
+    expect(screen.getByText("turn_of_month_gen_7_2")).toBeInTheDocument();
+    expect(screen.getByText("turn_of_month_gen_1_6")).toBeInTheDocument();
+    expect(screen.getByText("hide")).toBeInTheDocument();
+  });
+
+  it("does not cluster books whose sparklines diverge even if today's equity happens to match", async () => {
+    globalThis.fetch = mockFetchWithFamilies([
+      {
+        family: "C", label: "Calendar / seasonality",
+        books: [
+          { ...DUPLICATE_BOOK("turn_of_month_gen_5_7"), sparkline: [100600, 100610, 100627.66] },
+          { ...DUPLICATE_BOOK("turn_of_month_gen_9_9"), sparkline: [100000, 100300, 100627.66] },
+        ],
+      },
+    ]);
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("turn_of_month_gen_5_7")).toBeInTheDocument());
+    expect(screen.getByText("turn_of_month_gen_9_9")).toBeInTheDocument();
+    expect(screen.queryByText(/identical/)).not.toBeInTheDocument();
+  });
+
+  it("shows total return (not today's return) for the default Family sort", async () => {
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    // tsmom_12m: return 0.032 (3.2%), return_today 0.012 (1.2%) -- must show total, not today.
+    const row = screen.getByText("tsmom_12m").closest(".tf-row");
+    expect(row?.textContent).toContain("3.2%");
+    expect(row?.textContent).not.toContain("1.2%");
+  });
+
+  it("shows return_today once the user explicitly sorts by Return today", async () => {
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    await userEvent.selectOptions(screen.getByLabelText(/sort by/i), "Return today");
+    await waitFor(() => {
+      const row = screen.getByText("tsmom_12m").closest(".tf-row");
+      expect(row?.textContent).toContain("1.2%");
+    });
+  });
 });
