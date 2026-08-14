@@ -69,8 +69,26 @@ def test_luck_floor_unknown_strategy_is_400():
 def test_luck_floor_known_strategy_returns_chart():
     from tradefabe import dashboard
     client = TestClient(app)
-    _full, _meta, nulls, _gy = dashboard.load_backtest()
-    strategy = next(iter(nulls))
+    _full, _meta, _nulls, gy = dashboard.load_backtest()
+    gy_last = dashboard.latest_verdicts(gy)
+    strategy = gy_last.index[0]
+    resp = client.get(f"/api/research/luck_floor?strategy={strategy}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "chart" in body and "label" in body
+
+
+def test_luck_floor_falls_back_to_legacy_per_frequency_nulls_shape():
+    """Regression test: the real artifacts/nulls.npz on disk is keyed by {D,M,W}, not
+    per-strategy, so `strategy not in nulls` used to be true for every strategy and the
+    endpoint 400'd for everything. Pick a real strategy whose name isn't itself a key in
+    `nulls` (true for any real strategy under the legacy shape) and confirm the endpoint
+    falls back to the strategy's own frequency bucket instead of 400ing."""
+    from tradefabe import dashboard
+    client = TestClient(app)
+    _full, _meta, nulls, gy = dashboard.load_backtest()
+    gy_last = dashboard.latest_verdicts(gy)
+    strategy = next(s for s in gy_last.index if s not in nulls)
     resp = client.get(f"/api/research/luck_floor?strategy={strategy}")
     assert resp.status_code == 200
     body = resp.json()

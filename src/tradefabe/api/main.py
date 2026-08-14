@@ -403,17 +403,27 @@ def research_luck_floor(strategy: str):
         full, meta, nulls, gy = dashboard.load_backtest()
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail="backtest artifacts not found")
-    if strategy not in nulls:
-        raise HTTPException(status_code=400, detail=f"no null distribution for: {strategy}")
 
     gy_last = dashboard.latest_verdicts(gy)
+    if strategy not in gy_last.index:
+        raise HTTPException(status_code=400, detail=f"unknown strategy: {strategy}")
+
     strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
     color_of = {s: dashboard.SLOTS[i % len(dashboard.SLOTS)] for i, s in enumerate(strats)}
-    arr = nulls[strategy]
-    freq = meta.get("strategy_freq", {}).get(strategy, "")
-    marks = ([(strategy, float(gy_last.loc[strategy, "oos_sharpe"]))]
-              if strategy in gy_last.index else [])
     freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
+    freq = gy_last.loc[strategy, "freq"]
+    marks = [(strategy, float(gy_last.loc[strategy, "oos_sharpe"]))]
+
+    # nulls.npz is either keyed per-strategy (current shape) or per-frequency (legacy
+    # shape, {D,M,W} -- the real artifact on disk as of 2026-08). Mirror app.py's
+    # render_research_lab detection so both shapes work behind the same URL contract.
+    if strategy in nulls:
+        arr = nulls[strategy]
+    elif freq in nulls:
+        arr = nulls[freq]
+    else:
+        raise HTTPException(status_code=400, detail=f"no null distribution for: {strategy}")
+
     label = f"{freq_names.get(freq, freq)} — {strategy}" if freq else strategy
     chart = dashboard.luck_floor_chart(arr, label, marks, color_of)
     return {"chart": json.loads(chart.to_json()), "label": label}
