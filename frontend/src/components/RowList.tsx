@@ -146,6 +146,7 @@ function Row({
   trailingBadge?: import("react").ReactNode;
 }) {
   const delta = rowDelta(r, deltaMode);
+  const retired = r.retired_at !== null;
   return (
     <Link to={`/books/${r.book}`} className="block no-underline" data-book={r.book} onClick={playSelect}>
       <motion.div
@@ -157,13 +158,21 @@ function Row({
         transition={SPRING}
         className={`tf-row flex items-center gap-3 px-4 py-2 h-14 text-sm border-b border-white/5 transition-transform hover:-translate-y-px hover:shadow-[0_4px_16px_rgba(0,0,0,0.35)] ${
           isNew ? "tf-book-burst" : ""
-        } ${indented ? "pl-8" : ""}`}
+        } ${indented ? "pl-8" : ""} ${retired ? "opacity-50" : ""}`}
       >
         <span className="text-ink truncate min-w-0 flex-1 flex items-center gap-2">
           {r.book}
           {r.book === FEATURED_BOOK && (
             <span className="tf-featured-chip text-[10px] leading-none px-1.5 py-0.5 rounded-full border border-accent text-accent shrink-0">
               cleared
+            </span>
+          )}
+          {retired && (
+            <span
+              title={`Retired ${r.retired_at}`}
+              className="text-[10px] leading-none px-1.5 py-0.5 rounded-full border border-ink-muted text-ink-muted shrink-0"
+            >
+              retired
             </span>
           )}
         </span>
