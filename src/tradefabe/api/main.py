@@ -5,7 +5,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from tradefabe import dashboard
+from tradefabe import dashboard, risk_register
 
 app = FastAPI(title="tradefabe dashboard API")
 
@@ -28,6 +28,23 @@ def _finite_or_none(v):
     except (TypeError, ValueError):
         return None
     return v if math.isfinite(v) else None
+
+
+def _deep_finite(obj):
+    """Recursively applies _finite_or_none-style NaN-safety through a nested structure
+    -- carry_risk.json nests two levels (coins -> BTC/ETH -> postures -> tier). Only a
+    genuine float/int leaf that is NaN/inf gets nulled; bool/str/None pass through
+    unchanged (bool is checked before the int/float branch since bool is an int
+    subclass in Python)."""
+    if isinstance(obj, dict):
+        return {k: _deep_finite(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_deep_finite(v) for v in obj]
+    if isinstance(obj, bool) or obj is None or isinstance(obj, str):
+        return obj
+    if isinstance(obj, (int, float)):
+        return _finite_or_none(obj)
+    return obj
 
 
 def _load_gy_last():
@@ -135,6 +152,53 @@ def _carry_meta_json(carry_meta):
             for k, v in carry_meta.items()}
 
 
+def _deployment_json(dep):
+    if dep is None:
+        return None
+    return {
+        "cash": _finite_or_none(dep["cash"]), "gross": _finite_or_none(dep["gross"]),
+        "net": _finite_or_none(dep["net"]), "equity": _finite_or_none(dep["equity"]),
+        "cash_pct": _finite_or_none(dep["cash_pct"]),
+        "gross_pct": _finite_or_none(dep["gross_pct"]),
+        "net_pct": _finite_or_none(dep["net_pct"]),
+        "n_unpriced": int(dep["n_unpriced"]), "n_held": int(dep["n_held"]),
+        "priced_at": dep.get("priced_at"),
+        "is_short_funded": bool(dep["is_short_funded"]),
+    }
+
+
+def _positions_json(positions_df):
+    if positions_df is None:
+        return None
+    has_weight = "weight" in positions_df.columns
+    out = []
+    for _, row in positions_df.iterrows():
+        out.append({
+            "ticker": row["ticker"],
+            "units": _finite_or_none(row["units"]),
+            "last_price": _finite_or_none(row.get("last_price")),
+            "value": _finite_or_none(row.get("value")),
+            "weight": _finite_or_none(row.get("weight")) if has_weight else None,
+        })
+    return out
+
+
+def _trades_json(trades_df):
+    out = []
+    for _, row in trades_df.iterrows():
+        ts = row["ts"]
+        out.append({
+            "ts": ts.isoformat() if pd.notna(ts) else None,
+            "ticker": row["ticker"] if isinstance(row["ticker"], str) else None,
+            "side": row["side"] if isinstance(row["side"], str) else None,
+            "shares": _finite_or_none(row["shares"]),
+            "price": _finite_or_none(row["price"]),
+            "notional": _finite_or_none(row["notional"]),
+            "position_after": _finite_or_none(row["position_after"]),
+        })
+    return out
+
+
 @app.get("/api/books/{name}/detail")
 def book_detail(name: str, window: str = "ALL"):
     psum, phist = dashboard.load_paper_state()
@@ -156,7 +220,7 @@ def book_detail(name: str, window: str = "ALL"):
 
     data = dashboard.book_panel_data(
         name, phist, full, meta, gy_last, price_now, price_date, piggy,
-        factory_bt, hourly_bt, kronos_bt, pipeline_bt, compute_positions=False,
+        factory_bt, hourly_bt, kronos_bt, pipeline_bt, compute_positions=True,
     )
 
     live_hist = data["live_hist"]
@@ -186,8 +250,26 @@ def book_detail(name: str, window: str = "ALL"):
         body["corr_bench"] = _finite_or_none(data["corr_bench"])
         body["null_p95"] = _finite_or_none(data["null_p95"])
         body["freq"] = data["freq"]
+        body["accrual_only"] = name in dashboard.ACCRUAL_ONLY_BOOKS
+        body["cost_bps"] = _finite_or_none(dashboard.signals_cost_bps())
+        body["deployment"] = _deployment_json(data["deployment"])
+        body["positions"] = _positions_json(data["positions_df"])
+        body["positions_asof"] = (
+            data["positions_asof"].date().isoformat()
+            if data.get("positions_asof") is not None else None
+        )
+        body["trades"] = _trades_json(data["trades_df"])
     else:
         body["carry_meta"] = _carry_meta_json(data["carry_meta"])
+        book_json = data.get("book_json") or {}
+        body["book_state"] = {
+            "equity": _finite_or_none(book_json.get("equity")),
+            "last_run": book_json.get("last_run"),
+        }
+        curve, _carry_meta_unused = dashboard.load_carry_backtest()
+        risk_json = dashboard.load_carry_risk()
+        body["carry_risk"] = _deep_finite(risk_json) if risk_json is not None else None
+        body["risk_register"] = risk_register.build(curve, risk_json)
     return body
 
 

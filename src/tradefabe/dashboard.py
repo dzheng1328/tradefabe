@@ -51,6 +51,17 @@ def load_carry_backtest():
     return curve.iloc[:, 0].rename("carry_net"), meta
 
 
+def load_carry_risk():
+    """Deliberately uncached, same reasoning as load_paper_state() -- this is the
+    report check_carry_risk() writes once per `tradefabe run` cycle, never fetched live
+    from the dashboard itself."""
+    path = os.path.join(BASE, "state", "paper", "carry_risk.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as fh:
+        return json.load(fh)
+
+
 def load_backtest():
     full = pd.read_csv(os.path.join(ART, "full_returns.csv"), index_col=0, parse_dates=True)
     with open(os.path.join(ART, "meta.json")) as fh:
