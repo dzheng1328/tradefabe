@@ -25,3 +25,16 @@ Phase 1.6: started -- Accessibility + performance audit
 Phase 1.6: complete -- Accessibility + performance audit
 Phase 1.7: started -- Suites + PR
 Phase 1.7: complete -- Suites + PR
+Phase 4.1: complete -- Verify backend coverage
+Phase 4.2: complete -- Failing frontend tests
+Phase 4.3: complete -- Capital deployed stat row
+Phase 4.4: complete -- Positions table with weight-bar
+Phase 4.5: complete -- Trade log table
+Phase 4.6: complete -- Risk-monitor panel (carry book)
+Phase 4.7: complete -- Risk-register panel (carry book)
+Phase 4.8: complete -- Wire Option A layout
+Phase 4.9: complete -- Manual full-stack smoke test + PR
+Phase 5.1: started -- Sparkline-to-chart morph
+Phase 5.1: complete -- Sparkline-to-chart morph
+Phase 5.2: started -- Suites + PR
+Phase 5.2: complete -- Suites + PR

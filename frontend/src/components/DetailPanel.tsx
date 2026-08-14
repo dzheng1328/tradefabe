@@ -193,12 +193,26 @@ export default function DetailPanel({ name }: { name: string }) {
   // playing both would double up).
   const isInitialLoad = useRef(true);
   const backtestDetailsRef = useRef<HTMLDetailsElement>(null);
+  // Idea #24's shared layoutId can only ever have one live owner: RowList's selected
+  // sparkline never unmounts, so if this chart wrapper held the same layoutId forever
+  // too, framer-motion would treat it as a permanent duplicate and hide one copy
+  // outright (reproduced live -- the selected row's own sparkline vanished). Claiming
+  // the id only for the one-time grow animation, then handing it back to the row once
+  // the SPRING transition has settled, keeps exactly one owner at rest.
+  const [morphing, setMorphing] = useState(true);
 
   useEffect(() => {
     setData(null);
     setWindow("ALL");
     isInitialLoad.current = true;
+    setMorphing(true);
   }, [name]);
+
+  useEffect(() => {
+    if (!data) return;
+    const id = setTimeout(() => setMorphing(false), 450);
+    return () => clearTimeout(id);
+  }, [data]);
 
   // Native <details> fires onToggle for both open AND close -- only the reveal gets
   // a sound (idea #43's "about to play" spirit: closing isn't a new thing appearing).
@@ -314,9 +328,11 @@ export default function DetailPanel({ name }: { name: string }) {
           <SectionHeader>Live paper equity</SectionHeader>
           <RangeControl options={data.available_windows} value={window} onChange={setWindow} />
         </div>
-        <Suspense fallback={<div className="h-[340px]" />}>
-          <PlotlyChart figure={data.live_equity_chart} />
-        </Suspense>
+        <motion.div layoutId={morphing ? `sparkline-${name}` : undefined} transition={SPRING}>
+          <Suspense fallback={<div className="h-[340px]" />}>
+            <PlotlyChart figure={data.live_equity_chart} />
+          </Suspense>
+        </motion.div>
       </div>
 
       <details

@@ -335,55 +335,55 @@
         {
           "id": "4.1",
           "title": "Verify backend coverage",
-          "status": "pending",
+          "status": "done",
           "detail": "Confirm GET /api/books/{name}/detail already returns positions_df/deployment/trades_df/carry_risk data via the existing compute_positions flag (dashboard.py book_panel_data()). Add any missing API test coverage in tests/test_api_book_detail.py. Expect NO new backend endpoints -- 2a's spec deliberately designed the response shape to be additive here."
         },
         {
           "id": "4.2",
           "title": "Failing frontend tests",
-          "status": "pending",
+          "status": "done",
           "detail": "Write failing tests for the new positions table, trade log, and risk-monitor/risk-register rendering, covering both equity-book and carry-book kinds."
         },
         {
           "id": "4.3",
           "title": "Capital deployed stat row",
-          "status": "pending",
+          "status": "done",
           "detail": "Cash / gross / net / total-equity stat row for equity books, using Phase 3.2's stat-tile component directly -- not a new styled block."
         },
         {
           "id": "4.4",
           "title": "Positions table with weight-bar",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #34: current-positions table (ticker/units/last/value/weight) with a thin colored left-edge bar sized to |weight| built in from the start -- this is the same piece of work as building the table, not a follow-up."
         },
         {
           "id": "4.5",
           "title": "Trade log table",
-          "status": "pending",
+          "status": "done",
           "detail": "Fill log (when/ticker/side/delta-units/fill/notional/position-after), matching app.py's render_trade_log semantics (ACCRUAL_ONLY_BOOKS caption, 500-row cap, position-view side naming)."
         },
         {
           "id": "4.6",
           "title": "Risk-monitor panel (carry book)",
-          "status": "pending",
+          "status": "done",
           "detail": "Funding-flip alerts per coin, 7d funding, leverage/liq-distance table pivoted by posture (10/25/50/100%), high-risk alert banner -- matching app.py's render_carry_risk_panel."
         },
         {
           "id": "4.7",
           "title": "Risk-register panel (carry book)",
-          "status": "pending",
+          "status": "done",
           "detail": "Expandable entries (severity badge, measured/cited tag, likelihood, impact, detail, source) -- matching app.py's render_risk_register."
         },
         {
           "id": "4.8",
           "title": "Wire Option A layout",
-          "status": "pending",
+          "status": "done",
           "detail": "Append all of the above below the existing backtest-history expander in DetailPanel, continuous scroll -- Dave's confirmed layout choice over the expander-based alternative."
         },
         {
           "id": "4.9",
           "title": "Manual full-stack smoke test + PR",
-          "status": "pending",
+          "status": "done",
           "detail": "Same rigor as sub-project 2a's Task 9: both dev servers, walk positions/trades/risk-panel for at least one equity book and the carry book, confirm dark-theme charts, confirm no regression in 2a's existing golden path. pytest + npm test green. Branch + PR, file the 2b issue if not already filed."
         }
       ]
@@ -408,13 +408,13 @@
         {
           "id": "5.1",
           "title": "Sparkline-to-chart morph",
-          "status": "pending",
+          "status": "done",
           "detail": "Idea #24: clicking a row's tiny sparkline visually grows into the big Plotly chart (shared-element transition) rather than an unrelated redraw. Highest integration risk of any idea in the backlog -- prototype as a spike first if it fights Framer Motion's layout animation model."
         },
         {
           "id": "5.2",
           "title": "Suites + PR",
-          "status": "pending",
+          "status": "done",
           "detail": "npm test, npm run build green. Branch + PR."
         }
       ]
