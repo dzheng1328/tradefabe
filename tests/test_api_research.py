@@ -33,3 +33,28 @@ def test_verdicts_row_count_matches_latest_verdicts():
                 "oos_maxdd", "corr_bench", "null_p95", "verdict"):
         assert key in row
     assert row["verdict"] in ("ALIVE", "DEAD")
+
+
+def test_strategy_detail_unknown_name_is_404():
+    client = TestClient(app)
+    resp = client.get("/api/research/strategy/not_a_real_strategy")
+    assert resp.status_code == 404
+
+
+def test_strategy_detail_known_strategy_has_expected_shape():
+    from tradefabe import dashboard
+    client = TestClient(app)
+    _full, _meta, _nulls, gy = dashboard.load_backtest()
+    gy_last = dashboard.latest_verdicts(gy)
+    name = gy_last.index[0]
+    resp = client.get(f"/api/research/strategy/{name}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == name
+    assert body["verdict"] in ("ALIVE", "DEAD")
+    assert "Sharpe" in body["stats"]
+    if body["has_returns"]:
+        assert "CAGR" in body["stats"] and "Vol" in body["stats"]
+        assert body["chart"] is not None
+    else:
+        assert body["chart"] is None

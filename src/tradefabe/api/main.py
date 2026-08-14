@@ -347,6 +347,56 @@ def research_verdicts():
     return {"rows": rows}
 
 
+@app.get("/api/research/strategy/{name}")
+def research_strategy_detail(name: str):
+    try:
+        full, meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+
+    gy_last = dashboard.latest_verdicts(gy)
+    if name not in gy_last.index:
+        raise HTTPException(status_code=404, detail=f"unknown strategy: {name}")
+    row = gy_last.loc[name]
+
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    piggy = dashboard.load_piggyback_backtest()
+    factory_bt = dashboard.load_factory_backtest()
+    hourly_bt = dashboard.load_hourly_backtest()
+    kronos_bt = dashboard.load_kronos_backtest()
+    pairs_bt = dashboard.load_pairs_backtest()
+    pipeline_bt = dashboard.load_pipeline_backtest()
+
+    r = dashboard._dead_strategy_returns(name, oos, piggy, factory_bt, hourly_bt,
+                                          kronos_bt, pairs_bt, pipeline_bt)
+
+    body = {
+        "name": name,
+        "blurb": dashboard.strategy_description(name),
+        "verdict": row["verdict"],
+        "freq": row["freq"],
+        "corr_bench": _finite_or_none(row["corr_bench"]),
+        "null_p95": _finite_or_none(row["null_p95"]),
+        "has_returns": r is not None,
+    }
+    if r is not None:
+        s = dashboard.ann_stats(r)
+        body["stats"] = _stats_json(s)
+        eq = (1 + r).cumprod()
+        chart = dashboard.backtest_chart(eq, dashboard.INK2)
+        body["chart"] = json.loads(chart.to_json())
+    else:
+        body["stats"] = {
+            "Sharpe": _finite_or_none(row["oos_sharpe"]),
+            "Sortino": _finite_or_none(row["oos_sortino"]),
+            "Calmar": _finite_or_none(row["oos_calmar"]),
+            "MaxDD": _finite_or_none(row["oos_maxdd"]),
+        }
+        body["chart"] = None
+    return body
+
+
 def run():
     """Entry point for the `tradefabe-api` console script."""
     import uvicorn
