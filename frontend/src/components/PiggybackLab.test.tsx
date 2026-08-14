@@ -30,7 +30,7 @@ describe("PiggybackLab", () => {
   it("fetches the sleeve simulation once strategies are known and a sleeve is selected", async () => {
     render(<PiggybackLab />);
     await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("0.02")).toBeInTheDocument(), { timeout: 1000 });
+    await waitFor(() => expect(screen.getByText(/0\.02/)).toBeInTheDocument(), { timeout: 1000 });
   });
 
   it("lets the user toggle a sleeve strategy off", async () => {
