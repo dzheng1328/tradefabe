@@ -677,6 +677,30 @@ def _load_pipeline_ledger():
             for _, row in df.iterrows()}
 
 
+# harness.is_factory_origin()/is_pipeline_origin() are the doctrine-authoritative
+# classifiers, but harness.py lives at the repo root, outside the installed `tradefabe`
+# package -- importable from a pytest run (pyproject's pythonpath=[".", ...]) or a
+# script invoked FROM the repo root, but not reliably from the `tradefabe-api` console
+# script, whose sys.path has no repo-root entry. So this mirrors the same naming
+# conventions locally (same "_gen_"/"combo"/rp_-prefix rules, fixed before any candidate
+# of either kind is drawn) rather than importing harness -- for the DASHBOARD's own
+# "how was this found" label, not for n_tested's statistical correction (that logic,
+# and its promoted-name reclassification, stays in harness.py; this is presentation
+# only, so it doesn't need promoted_names()'s "rejoins hand-picked" rule).
+def research_kind(name: str) -> str:
+    """Buckets a graveyard strategy name into how it was found, for the Research Lab UI:
+    "pipeline" (thesis-driven, from the daily research pipeline, #174), "factory"
+    (parameter tuning -- a fixed TEMPLATES entry or a live-generated `_gen_`/combo draw,
+    #28/#28b), or "hand" (everything else -- the original doctrine roster, hourly/Kronos/
+    pairs families, etc.)."""
+    if name.startswith("rp_") or name in _load_pipeline_ledger():
+        return "pipeline"
+    if ("_gen_" in name or "combo" in name.lower()
+            or name in factory.TEMPLATES or name in _load_generated_ledger()):
+        return "factory"
+    return "hand"
+
+
 def book_family(name):
     """BOOK_FAMILY lookup with two pattern-based fallbacks: factory_run.py names every
     combo it builds `factory_combo_<leg_a>_<leg_b>` (the legs vary run to run, since

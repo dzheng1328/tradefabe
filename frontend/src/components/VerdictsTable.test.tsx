@@ -5,12 +5,12 @@ import VerdictsTable from "./VerdictsTable";
 
 const VERDICTS_RESPONSE = {
   rows: [
-    { strategy: "carry_btc_eth", freq: "D", tested: "2026-08-14T15:28:00", oos_sharpe: 1.14,
-      oos_sortino: 1.5, oos_calmar: 2.1, oos_maxdd: -0.062, corr_bench: 0.1, null_p95: 0.65,
-      verdict: "ALIVE" },
-    { strategy: "tsmom_gen_382d", freq: "M", tested: "2026-08-13T21:56:00", oos_sharpe: 0.59,
-      oos_sortino: 0.78, oos_calmar: 0.25, oos_maxdd: -0.113, corr_bench: 0.39, null_p95: 0.65,
-      verdict: "DEAD" },
+    { strategy: "carry_btc_eth", freq: "D", tested: "2026-08-14T15:28:00", kind: "hand",
+      oos_sharpe: 1.14, oos_sortino: 1.5, oos_calmar: 2.1, oos_maxdd: -0.062, corr_bench: 0.1,
+      null_p95: 0.65, verdict: "ALIVE" },
+    { strategy: "tsmom_gen_382d", freq: "M", tested: "2026-08-13T21:56:00", kind: "factory",
+      oos_sharpe: 0.59, oos_sortino: 0.78, oos_calmar: 0.25, oos_maxdd: -0.113, corr_bench: 0.39,
+      null_p95: 0.65, verdict: "DEAD" },
   ],
 };
 

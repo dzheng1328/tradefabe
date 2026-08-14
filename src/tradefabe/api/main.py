@@ -337,6 +337,7 @@ def research_verdicts():
             "strategy": strategy,
             "freq": row["freq"],
             "tested": row["timestamp"],
+            "kind": dashboard.research_kind(strategy),
             "oos_sharpe": _finite_or_none(row["oos_sharpe"]),
             "oos_sortino": _finite_or_none(row["oos_sortino"]),
             "oos_calmar": _finite_or_none(row["oos_calmar"]),
