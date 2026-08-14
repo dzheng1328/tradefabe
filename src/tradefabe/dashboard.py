@@ -554,6 +554,23 @@ def correlation_heatmap(cm):
     return fig
 
 
+def piggyback_blend(oos, sleeve, weight_pct):
+    """Blend an equal-weighted sleeve of strategies into the 60/40 core at weight_pct%
+    (0-100), mirroring render_research_lab's Streamlit slider inline exactly -- same
+    (1-w)*bench + w*sleeve_mean formula, just returned as data instead of drawn as a
+    chart directly. weight_pct=0 degenerates to the bench alone; weight_pct=100 to the
+    sleeve mean alone -- both are valid inputs, not edge cases to special-case."""
+    w = weight_pct / 100
+    sleeve_returns = oos[sleeve].mean(axis=1)
+    bench_returns = oos["bench_6040"].fillna(0)
+    combo_returns = (1 - w) * bench_returns + w * sleeve_returns.fillna(0)
+    return {
+        "combo": (1 + combo_returns).cumprod(),
+        "bench_stats": ann_stats(bench_returns),
+        "combo_stats": ann_stats(combo_returns),
+    }
+
+
 def growth_chart(show, colors):
     fig = go.Figure()
     for col, c in zip(show.columns, colors):
