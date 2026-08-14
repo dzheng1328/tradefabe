@@ -392,15 +392,47 @@ export default function RowList({ selectedName }: { selectedName: string | null 
         : (
             <>
               <div className="px-4 pt-2 pb-1 flex items-center justify-end">{sortControl}</div>
-              {clusterRows(data.books).map((group) => (
-                <ClusterRow
-                  key={group[0].book}
-                  group={group}
-                  selectedName={selectedName}
-                  newBooks={newBooks}
-                  deltaMode={deltaMode}
-                />
-              ))}
+              {(() => {
+                // Backend already sorts retired last regardless of sort_key (see
+                // dashboard.sort_books_flat's own "_retired" primary sort key) -- this
+                // just draws the same "Retired" divider the family view gets for free
+                // from its own trailing group, so retired books read as a distinct
+                // section here too instead of trailing off silently.
+                const active = data.books.filter((b) => b.retired_at === null);
+                const retired = data.books.filter((b) => b.retired_at !== null);
+                return (
+                  <>
+                    {clusterRows(active).map((group) => (
+                      <ClusterRow
+                        key={group[0].book}
+                        group={group}
+                        selectedName={selectedName}
+                        newBooks={newBooks}
+                        deltaMode={deltaMode}
+                      />
+                    ))}
+                    {retired.length > 0 && (
+                      <div>
+                        <div className="px-4 pt-2 pb-1">
+                          <span className="relative text-xs uppercase text-ink-muted">
+                            Retired
+                            <span className="family-underline absolute -bottom-1 left-0 h-px w-6 bg-accent origin-left animate-underline-draw" />
+                          </span>
+                        </div>
+                        {clusterRows(retired).map((group) => (
+                          <ClusterRow
+                            key={group[0].book}
+                            group={group}
+                            selectedName={selectedName}
+                            newBooks={newBooks}
+                            deltaMode={deltaMode}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
     </div>

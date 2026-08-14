@@ -31,6 +31,12 @@ export function applyDarkTheme(
       bgcolor: SURFACE,
       bordercolor: ACCENT,
       font: { family: MONO_FONT, color: ACCENT, size: 11 },
+      // -1 = show the full trace name, never Plotly's default "turn_of_mont…" ellipsis
+      // truncation -- the "x unified" hover box (themed_layout's default) is the ONLY
+      // place a strategy name is readable now that the overview chart's legend is
+      // hidden (growth_chart(show_legend=False)), so it can't be the one place names
+      // get cut off.
+      namelength: -1,
     },
   };
 }

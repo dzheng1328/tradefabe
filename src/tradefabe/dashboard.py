@@ -541,16 +541,30 @@ def drawdown_chart(dd, color):
     return fig
 
 
+# Above this many strategies, the per-cell "%{text}" numbers overlap into an unreadable
+# smear (28x28 was the case that prompted this) -- hover already carries the exact value,
+# so text is worth it only while a cell is still big enough to hold it legibly.
+HEATMAP_INLINE_TEXT_MAX = 14
+
+
 def correlation_heatmap(cm):
+    n = len(cm.columns)
     colorscale = [[0.0, DIV[0]], [0.5, DIV[1]], [1.0, DIV[2]]]
+    show_text = n <= HEATMAP_INLINE_TEXT_MAX
     fig = go.Figure(go.Heatmap(
         z=cm.values, x=list(cm.columns), y=list(cm.columns), zmin=-1, zmax=1,
         colorscale=colorscale, colorbar=dict(title=""),
-        text=cm.round(2).values, texttemplate="%{text}",
-        textfont=dict(size=10, color=INK),
+        **(dict(text=cm.round(2).values, texttemplate="%{text}",
+                textfont=dict(size=10, color=INK)) if show_text else {}),
         hovertemplate="%{y} vs %{x}: %{z:.2f}<extra></extra>"))
-    fig.update_layout(**themed_layout(height=440, xaxis=dict(gridcolor=GRID, tickangle=-40),
-                                      yaxis=dict(gridcolor=GRID, autorange="reversed")))
+    # Height and bottom margin grow with the asset count so tick labels (rotated -40deg)
+    # and cells stay legible instead of being squeezed into a fixed 440px regardless of
+    # whether there are 8 strategies or 28.
+    height = max(440, 18 * n + 160)
+    fig.update_layout(**themed_layout(
+        height=height, xaxis=dict(gridcolor=GRID, tickangle=-40, tickfont=dict(size=10)),
+        yaxis=dict(gridcolor=GRID, autorange="reversed", tickfont=dict(size=10)),
+        margin=dict(l=44, r=20, t=28, b=140)))
     return fig
 
 
@@ -663,12 +677,18 @@ def piggyback_blend(oos, sleeve, weight_pct):
     }
 
 
-def growth_chart(show, colors):
+def growth_chart(show, colors, show_legend=True):
+    """show_legend=False for the Research Lab overview's big multi-strategy chart (up
+    to ~27 lines, #28/#174-widened universe): a legend that size ate half the visible
+    chart area for information hovermode="x unified" (themed_layout's own default)
+    already gives on demand. Left True (default) for 2-line charts (piggyback's sleeve-
+    vs-bench comparison) where a legend is still the cheaper way to read it."""
     fig = go.Figure()
     for col, c in zip(show.columns, colors):
         fig.add_trace(go.Scatter(x=show.index, y=show[col], mode="lines", name=col,
                                  line=dict(color=c, width=1.6)))
-    fig.update_layout(**themed_layout(height=340, yaxis_title="growth of $1"))
+    fig.update_layout(**themed_layout(height=340, yaxis_title="growth of $1",
+                                      showlegend=show_legend))
     return fig
 
 
@@ -899,17 +919,34 @@ def _is_monitor_only(name, gy_last):
     return gy_last is not None and name in gy_last.index and gy_last.loc[name, "verdict"] == "DEAD"
 
 
+def _row_is_retired(r) -> bool:
+    """True if a psum row (or the dict shape sort_books_flat/group_books_by_family both
+    use) carries a non-null retired_at -- summary.csv's own column, the same one
+    /api/books/summary's _row_json already surfaces to the frontend."""
+    v = r.get("retired_at") if hasattr(r, "get") else None
+    return v is not None and pd.notna(v) and v != ""
+
+
 def group_books_by_family(psum, gy_last=None, show_monitor_only=True):
     """Pure grouping logic behind render_book_status(), split out so it's testable
     without a Streamlit runtime: which family each book in `psum` belongs to (unmapped
     names fall back to family key "?", displayed as "Other"), filtered by the
     monitor-only toggle. Returns an ordered list of (family_key, family_label, rows)
     tuples, family order matching BOOK_FAMILIES (A-H) then "Other" last, and empty
-    families omitted entirely."""
+    families omitted entirely.
+
+    A retired book is pulled OUT of its normal family bucket into one universal
+    "Retired" group appended at the very end, regardless of which family it belongs to
+    -- otherwise a retired book stayed mixed into its family's rows, indistinguishable
+    at a glance from the still-live ones sitting right next to it."""
     monitor_only = {r["book"]: _is_monitor_only(r["book"], gy_last) for _, r in psum.iterrows()}
     by_family = {}
+    retired_rows = []
     for _, r in psum.iterrows():
         if not show_monitor_only and monitor_only[r["book"]]:
+            continue
+        if _row_is_retired(r):
+            retired_rows.append(r)
             continue
         by_family.setdefault(book_family(r["book"]), []).append(r)
     out = []
@@ -917,6 +954,8 @@ def group_books_by_family(psum, gy_last=None, show_monitor_only=True):
         rows = by_family.get(family)
         if rows:
             out.append((family, BOOK_FAMILIES.get(family, "Other"), rows))
+    if retired_rows:
+        out.append(("retired", "Retired", retired_rows))
     return out
 
 
@@ -965,9 +1004,13 @@ def sort_books_flat(psum, phist, gy_last=None, show_monitor_only=True, sort_key=
     df = pd.DataFrame(rows)
     df["_introduced"] = df["book"].map(lambda n: introduced.get(n, pd.NaT))
     df["_return_today"] = df["book"].map(lambda n: return_today.get(n, float("nan")))
+    # Retired sorts last no matter which sort_key is active -- primary key, ascending
+    # (False=0 before True=1), so it wins ties over the secondary chosen-sort column
+    # without disturbing that column's own ordering within either group.
+    df["_retired"] = df.apply(_row_is_retired, axis=1)
     sort_col = {"recent": "_introduced", "return_today": "_return_today",
                 "total_return": "return"}[sort_key]
-    df = df.sort_values(sort_col, ascending=False, na_position="last")
+    df = df.sort_values(["_retired", sort_col], ascending=[True, False], na_position="last")
     return list(df.to_dict("records"))
 
 

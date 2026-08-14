@@ -302,7 +302,7 @@ def research_overview():
     spy_oos = full[full.index >= OOS]["spy"]
     show["SPY"] = (1 + spy_oos.reindex(oos.index).fillna(0)).cumprod()
     colors.append(dashboard.SPY_C)
-    growth = dashboard.growth_chart(show, colors)
+    growth = dashboard.growth_chart(show, colors, show_legend=False)
 
     cm = oos[strats + ["bench_6040"]].rename(columns={"bench_6040": "60/40"}).corr()
     heatmap = dashboard.correlation_heatmap(cm)
