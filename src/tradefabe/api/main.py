@@ -273,6 +273,80 @@ def book_detail(name: str, window: str = "ALL"):
     return body
 
 
+@app.get("/api/research/overview")
+def research_overview():
+    try:
+        full, meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    gy_last = dashboard.latest_verdicts(gy)
+    strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
+
+    best = gy_last["oos_sharpe"].astype(float).idxmax()
+    n_alive = int((gy_last["verdict"] == "ALIVE").sum())
+
+    show = pd.DataFrame(index=oos.index)
+    colors = []
+    for s in strats:
+        show[s] = (1 + oos[s].fillna(0)).cumprod()
+        colors.append(dashboard.SLOTS[strats.index(s) % len(dashboard.SLOTS)])
+    show["60/40"] = (1 + oos["bench_6040"].fillna(0)).cumprod()
+    colors.append(dashboard.BENCH_C)
+    show["SPY"] = (1 + oos["spy"].fillna(0)).cumprod()
+    colors.append(dashboard.SPY_C)
+    growth = dashboard.growth_chart(show, colors)
+
+    cm = oos[strats + ["bench_6040"]].rename(columns={"bench_6040": "60/40"}).corr()
+    heatmap = dashboard.correlation_heatmap(cm)
+
+    return {
+        "meta": {
+            "source": meta["source"], "start": meta["start"], "end": meta["end"],
+            "oos_start": meta["oos_start"], "n_assets": meta["n_assets"],
+        },
+        "stats": {
+            "n_tested": int(gy_last.shape[0]), "n_alive": n_alive,
+            "n_dead": int(gy_last.shape[0]) - n_alive,
+            "luck_floor_p95": _finite_or_none(meta["null_bars"].get("M", float("nan"))),
+            "best_strategy": best,
+            "best_sharpe": _finite_or_none(gy_last.loc[best, "oos_sharpe"]),
+            "bench_sharpe": _finite_or_none(gy_last["bench_sharpe"].iloc[0]),
+        },
+        "strategies": strats,
+        "growth_chart": json.loads(growth.to_json()),
+        "correlation_heatmap": json.loads(heatmap.to_json()),
+    }
+
+
+@app.get("/api/research/verdicts")
+def research_verdicts():
+    try:
+        _full, _meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+
+    gy_last = dashboard.latest_verdicts(gy)
+    cols = ["freq", "oos_sharpe", "oos_sortino", "oos_calmar", "oos_maxdd",
+            "corr_bench", "null_p95", "verdict"]
+    rows = []
+    for strategy, row in gy_last[cols].iterrows():
+        rows.append({
+            "strategy": strategy,
+            "freq": row["freq"],
+            "oos_sharpe": _finite_or_none(row["oos_sharpe"]),
+            "oos_sortino": _finite_or_none(row["oos_sortino"]),
+            "oos_calmar": _finite_or_none(row["oos_calmar"]),
+            "oos_maxdd": _finite_or_none(row["oos_maxdd"]),
+            "corr_bench": _finite_or_none(row["corr_bench"]),
+            "null_p95": _finite_or_none(row["null_p95"]),
+            "verdict": row["verdict"],
+        })
+    return {"rows": rows}
+
+
 def run():
     """Entry point for the `tradefabe-api` console script."""
     import uvicorn
