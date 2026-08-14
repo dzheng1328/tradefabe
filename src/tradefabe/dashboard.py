@@ -554,6 +554,98 @@ def correlation_heatmap(cm):
     return fig
 
 
+UNIQUE_STRATEGY_CORR_THRESHOLD = 0.97   # matches the threshold used to identify the
+                                        # near-duplicate factory-promoted clusters
+                                        # retired 2026-08-14 -- same "genuinely the
+                                        # same bet" bar, applied here to what gets
+                                        # PLOTTED rather than what gets RETIRED.
+
+
+@functools.cache
+def _all_candidate_returns():
+    """Unions every backtest curve source that's actually been PERSISTED to disk --
+    full_returns.csv (the original hand-picked roster) plus factory/pipeline/hourly/
+    kronos/pairs (#28/#174/#86/#105/#172's own studies) -- into one returns DataFrame,
+    plus the 60/40 bench column separately (piggyback_blend() needs it attached to
+    `oos`, callers building a correlation/growth chart don't).
+
+    Deliberately excludes piggyback_returns.csv: those 4 columns are COMPOSITE blends
+    of strategies already in the union above, not raw candidates, so including them
+    would just add trivially-correlated near-duplicates of things already here.
+
+    This is NOT "every strategy ever tested" -- research/factory_run.py's own
+    _persist_backtest_curve() docstring is explicit that it only saves a curve for
+    the single candidate that wins EACH cycle's promotion, not all ~20/day tested (see
+    CLAUDE.md's graveyard.csv note: verdicts are permanent, curves are not, by design,
+    to avoid ~20x the disk cost for candidates nobody kept). So this universe is
+    bounded by "has a live or once-live paper book," not by graveyard.csv's full count.
+
+    full_returns.csv and pairs_returns.csv carry pre-OOS history (like `full` does
+    everywhere else in this module) and get sliced to OOS_START here; factory/pipeline/
+    hourly/kronos are already OOS-only at persist time (see each load_*_backtest()'s
+    own docstring), so they're used as-is.
+
+    @functools.cache for the same reason _load_generated_ledger() is: called once per
+    Research Lab overview/piggyback request, and reads+concats 6 CSVs each time
+    otherwise."""
+    full, meta, _nulls, _gy = load_backtest()
+    OOS = pd.Timestamp(meta["oos_start"])
+    full_oos = full[full.index >= OOS]
+    bench = full_oos[["bench_6040"]]
+
+    frames = [full_oos.drop(columns=["bench_6040", "spy"])]
+    for loader in (load_factory_backtest, load_pipeline_backtest,
+                  load_hourly_backtest, load_kronos_backtest):
+        bt = loader()
+        if bt is not None:
+            frames.append(bt)
+    pairs_bt = load_pairs_backtest()
+    if pairs_bt is not None:
+        frames.append(pairs_bt[pairs_bt.index >= OOS])
+
+    combined = pd.concat(frames, axis=1, sort=False)
+    combined = combined.loc[:, ~combined.columns.duplicated()]
+    return combined, bench
+
+
+def unique_strategy_universe(gy_last, corr_threshold=UNIQUE_STRATEGY_CORR_THRESHOLD):
+    """The candidate universe for the Research Lab overview and the piggyback sleeve
+    picker, deduplicated: greedily keeps one representative per near-duplicate cluster
+    instead of every raw curve, so a chart or a recommendation list isn't dominated by
+    cosmetically-different draws of the same underlying bet (the donchian_gen_108d/109d
+    problem, one level up).
+
+    Same greedy method as the 2026-08-14 factory-pool retirement: rank candidates by
+    backtest oos_sharpe descending (a candidate missing from gy_last -- a stale curve
+    whose graveyard row predates a naming fix -- sorts last, not excluded), then walk
+    the ranked list keeping a name only if it does NOT correlate above `corr_threshold`
+    with any name already kept. Deterministic and order-independent in outcome (ties
+    aside) because the ranking is fixed before the walk starts.
+
+    Returns (kept_names in sharpe-descending order, returns_df) where returns_df is
+    `combined[kept_names]` joined with bench_6040 -- directly usable as `oos` for
+    piggyback_blend() or for a correlation/growth chart alongside the bench column."""
+    combined, bench = _all_candidate_returns()
+    corr = combined.corr()
+
+    def _sharpe(name):
+        if name in gy_last.index:
+            v = gy_last.loc[name, "oos_sharpe"]
+            if pd.notna(v):
+                return float(v)
+        return float("-inf")
+
+    ranked = sorted(combined.columns, key=lambda n: -_sharpe(n))
+    kept: list[str] = []
+    for name in ranked:
+        if any(pd.notna(corr.loc[name, k]) and corr.loc[name, k] > corr_threshold
+               for k in kept):
+            continue
+        kept.append(name)
+
+    return kept, combined[kept].join(bench)
+
+
 def piggyback_blend(oos, sleeve, weight_pct):
     """Blend an equal-weighted sleeve of strategies into the 60/40 core at weight_pct%
     (0-100), mirroring render_research_lab's Streamlit slider inline exactly -- same
