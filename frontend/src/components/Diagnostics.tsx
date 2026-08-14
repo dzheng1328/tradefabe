@@ -7,16 +7,25 @@ type ChartResponse = { chart: { data: unknown[]; layout: Record<string, unknown>
 
 export default function Diagnostics({ selected }: { selected: string | null }) {
   const [luckFloor, setLuckFloor] = useState<(ChartResponse & { label: string }) | null>(null);
+  const [luckFloorError, setLuckFloorError] = useState<string | null>(null);
   const [drawdownPick, setDrawdownPick] = useState<string | null>(selected);
   const [drawdown, setDrawdown] = useState<(ChartResponse & { max_drawdown: number }) | null>(null);
 
   useEffect(() => { setDrawdownPick(selected); }, [selected]);
 
   useEffect(() => {
-    if (!selected) { setLuckFloor(null); return; }
+    if (!selected) { setLuckFloor(null); setLuckFloorError(null); return; }
+    setLuckFloorError(null);
     fetch(`http://localhost:8000/api/research/luck_floor?strategy=${selected}`)
-      .then((res) => res.json())
-      .then(setLuckFloor);
+      .then((res) => {
+        if (!res.ok) {
+          setLuckFloor(null);
+          setLuckFloorError("No luck-floor distribution available for this strategy.");
+          return null;
+        }
+        return res.json();
+      })
+      .then((data) => { if (data) setLuckFloor(data); });
   }, [selected]);
 
   useEffect(() => {
@@ -33,7 +42,9 @@ export default function Diagnostics({ selected }: { selected: string | null }) {
   return (
     <div>
       <h4 className="text-sm text-ink">{luckFloor?.label ?? "Luck floor"}</h4>
-      {luckFloor ? (
+      {luckFloorError ? (
+        <p className="text-ink-muted text-sm py-12">{luckFloorError}</p>
+      ) : luckFloor ? (
         <Suspense fallback={<div className="h-[340px]" />}>
           <PlotlyChart figure={luckFloor.chart} />
         </Suspense>

@@ -25,4 +25,18 @@ describe("Diagnostics", () => {
     await waitFor(() => expect(screen.getByText(/Daily-rebalanced/)).toBeInTheDocument());
     expect(screen.getByText(/-6.2%/)).toBeInTheDocument();
   });
+
+  it("shows an unavailable message when luck floor 400s (e.g. hourly-family strategies with no null distribution)", async () => {
+    globalThis.fetch = vi.fn((url: string) => {
+      if (url.includes("luck_floor")) {
+        return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ detail: "no distribution" }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(DRAWDOWN_RESPONSE) });
+    }) as unknown as typeof fetch;
+
+    render(<Diagnostics selected="funding_timing_1h" />);
+    await waitFor(() =>
+      expect(screen.getByText(/no luck-floor distribution available/i)).toBeInTheDocument()
+    );
+  });
 });
