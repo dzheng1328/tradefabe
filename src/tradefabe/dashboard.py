@@ -121,6 +121,18 @@ def load_hourly_backtest():
     return pd.read_csv(path, index_col=0, parse_dates=True)
 
 
+def load_pairs_backtest():
+    """Backtest OOS returns for family N, pairs/cointegration (research/pairs_backtest.py,
+    #172). A sixth curve source beside full/piggyback/factory/hourly/kronos -- same reason
+    as hourly: the study builds its own signal over a ticker subset (only pairs that
+    cleared the cointegration filter), not harness.py's full-universe daily cache. None if
+    the study hasn't been run."""
+    path = os.path.join(ART, "pairs_returns.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
 def load_kronos_backtest():
     """Backtest OOS returns for family M, the Kronos candidates (research/kronos_backtest.py,
     #105). A FIFTH curve source beside full/piggyback/factory/hourly.
@@ -540,6 +552,23 @@ def correlation_heatmap(cm):
     fig.update_layout(**themed_layout(height=440, xaxis=dict(gridcolor=GRID, tickangle=-40),
                                       yaxis=dict(gridcolor=GRID, autorange="reversed")))
     return fig
+
+
+def piggyback_blend(oos, sleeve, weight_pct):
+    """Blend an equal-weighted sleeve of strategies into the 60/40 core at weight_pct%
+    (0-100), mirroring render_research_lab's Streamlit slider inline exactly -- same
+    (1-w)*bench + w*sleeve_mean formula, just returned as data instead of drawn as a
+    chart directly. weight_pct=0 degenerates to the bench alone; weight_pct=100 to the
+    sleeve mean alone -- both are valid inputs, not edge cases to special-case."""
+    w = weight_pct / 100
+    sleeve_returns = oos[sleeve].mean(axis=1)
+    bench_returns = oos["bench_6040"].fillna(0)
+    combo_returns = (1 - w) * bench_returns + w * sleeve_returns.fillna(0)
+    return {
+        "combo": (1 + combo_returns).cumprod(),
+        "bench_stats": ann_stats(bench_returns),
+        "combo_stats": ann_stats(combo_returns),
+    }
 
 
 def growth_chart(show, colors):

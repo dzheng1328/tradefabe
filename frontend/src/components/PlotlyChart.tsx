@@ -7,7 +7,8 @@ type PlotlyFigure = {
   layout: Record<string, unknown>;
 };
 
-export default function PlotlyChart({ figure }: { figure: PlotlyFigure }) {
+export default function PlotlyChart({ figure }: { figure: PlotlyFigure | null | undefined }) {
+  if (!figure || !figure.data) return null;
   return (
     <Plot
       data={figure.data}

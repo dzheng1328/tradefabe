@@ -5,6 +5,7 @@ import RowList from "./components/RowList";
 import DetailPanel from "./components/DetailPanel";
 import LiquidMetalField from "./components/LiquidMetalField";
 import Intro from "./components/Intro";
+import ResearchLab from "./components/ResearchLab";
 
 function BooksLayout() {
   const { name } = useParams();
@@ -51,6 +52,15 @@ export default function App() {
         <Route path="/" element={<Navigate to="/books" replace />} />
         <Route path="/books" element={<BooksIndexRedirect />} />
         <Route path="/books/:name" element={<BooksLayout />} />
+        <Route
+          path="/research"
+          element={
+            <div className="h-screen flex flex-col overflow-hidden">
+              <Nav />
+              <ResearchLab />
+            </div>
+          }
+        />
       </Routes>
     </MotionConfig>
   );

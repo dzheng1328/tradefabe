@@ -26,7 +26,7 @@ from tradefabe.dashboard import (
     _is_monitor_only, group_books_by_family, book_introduced_dates, book_return_today,
     sort_books_flat, strategy_description, retirement_note, _dead_strategy_returns,
     load_backtest, load_piggyback_backtest, load_factory_backtest,
-    load_pipeline_backtest, load_hourly_backtest, load_kronos_backtest,
+    load_pipeline_backtest, load_hourly_backtest, load_kronos_backtest, load_pairs_backtest,
     load_price_snapshot, book_colors, latest_verdicts, available_windows,
 )
 
@@ -158,19 +158,6 @@ def _bind_refresh_shortcut():
 
 
 # ==================================================================== data loading
-
-
-@st.cache_data
-def load_pairs_backtest():
-    """Backtest OOS returns for family N, pairs/cointegration (research/pairs_backtest.py,
-    #172). A SIXTH curve source beside full/piggyback/factory/hourly/kronos -- same reason
-    as hourly: the study builds its own signal over a ticker subset (only pairs that
-    cleared the cointegration filter), not harness.py's full-universe daily cache. None if
-    the study hasn't been run."""
-    path = os.path.join(ART, "pairs_returns.csv")
-    if not os.path.exists(path):
-        return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
 
 
 # Delta-neutral carry/gated-carry books (#143). These update equity via a direct

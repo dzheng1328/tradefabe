@@ -273,6 +273,245 @@ def book_detail(name: str, window: str = "ALL"):
     return body
 
 
+@app.get("/api/research/overview")
+def research_overview():
+    try:
+        full, meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    gy_last = dashboard.latest_verdicts(gy)
+    strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
+
+    best = gy_last["oos_sharpe"].astype(float).idxmax()
+    n_alive = int((gy_last["verdict"] == "ALIVE").sum())
+
+    show = pd.DataFrame(index=oos.index)
+    colors = []
+    for s in strats:
+        show[s] = (1 + oos[s].fillna(0)).cumprod()
+        colors.append(dashboard.SLOTS[strats.index(s) % len(dashboard.SLOTS)])
+    show["60/40"] = (1 + oos["bench_6040"].fillna(0)).cumprod()
+    colors.append(dashboard.BENCH_C)
+    show["SPY"] = (1 + oos["spy"].fillna(0)).cumprod()
+    colors.append(dashboard.SPY_C)
+    growth = dashboard.growth_chart(show, colors)
+
+    cm = oos[strats + ["bench_6040"]].rename(columns={"bench_6040": "60/40"}).corr()
+    heatmap = dashboard.correlation_heatmap(cm)
+
+    return {
+        "meta": {
+            "source": meta["source"], "start": meta["start"], "end": meta["end"],
+            "oos_start": meta["oos_start"], "n_assets": meta["n_assets"],
+        },
+        "stats": {
+            "n_tested": int(gy_last.shape[0]), "n_alive": n_alive,
+            "n_dead": int(gy_last.shape[0]) - n_alive,
+            "luck_floor_p95": _finite_or_none(meta["null_bars"].get("M", float("nan"))),
+            "best_strategy": best,
+            "best_sharpe": _finite_or_none(gy_last.loc[best, "oos_sharpe"]),
+            "bench_sharpe": _finite_or_none(gy_last["bench_sharpe"].iloc[0]),
+        },
+        "strategies": strats,
+        "growth_chart": json.loads(growth.to_json()),
+        "correlation_heatmap": json.loads(heatmap.to_json()),
+    }
+
+
+@app.get("/api/research/verdicts")
+def research_verdicts():
+    try:
+        _full, _meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+
+    gy_last = dashboard.latest_verdicts(gy)
+    cols = ["freq", "oos_sharpe", "oos_sortino", "oos_calmar", "oos_maxdd",
+            "corr_bench", "null_p95", "verdict"]
+    rows = []
+    for strategy, row in gy_last[cols].iterrows():
+        rows.append({
+            "strategy": strategy,
+            "freq": row["freq"],
+            "oos_sharpe": _finite_or_none(row["oos_sharpe"]),
+            "oos_sortino": _finite_or_none(row["oos_sortino"]),
+            "oos_calmar": _finite_or_none(row["oos_calmar"]),
+            "oos_maxdd": _finite_or_none(row["oos_maxdd"]),
+            "corr_bench": _finite_or_none(row["corr_bench"]),
+            "null_p95": _finite_or_none(row["null_p95"]),
+            "verdict": row["verdict"],
+        })
+    return {"rows": rows}
+
+
+@app.get("/api/research/strategy/{name}")
+def research_strategy_detail(name: str):
+    try:
+        full, meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+
+    gy_last = dashboard.latest_verdicts(gy)
+    if name not in gy_last.index:
+        raise HTTPException(status_code=404, detail=f"unknown strategy: {name}")
+    row = gy_last.loc[name]
+
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    piggy = dashboard.load_piggyback_backtest()
+    factory_bt = dashboard.load_factory_backtest()
+    hourly_bt = dashboard.load_hourly_backtest()
+    kronos_bt = dashboard.load_kronos_backtest()
+    pairs_bt = dashboard.load_pairs_backtest()
+    pipeline_bt = dashboard.load_pipeline_backtest()
+
+    r = dashboard._dead_strategy_returns(name, oos, piggy, factory_bt, hourly_bt,
+                                          kronos_bt, pairs_bt, pipeline_bt)
+
+    body = {
+        "name": name,
+        "blurb": dashboard.strategy_description(name),
+        "verdict": row["verdict"],
+        "freq": row["freq"],
+        "corr_bench": _finite_or_none(row["corr_bench"]),
+        "null_p95": _finite_or_none(row["null_p95"]),
+        "has_returns": r is not None,
+    }
+    if r is not None:
+        s = dashboard.ann_stats(r)
+        body["stats"] = _stats_json(s)
+        eq = (1 + r).cumprod()
+        chart = dashboard.backtest_chart(eq, dashboard.INK2)
+        body["chart"] = json.loads(chart.to_json())
+    else:
+        body["stats"] = {
+            "Sharpe": _finite_or_none(row["oos_sharpe"]),
+            "Sortino": _finite_or_none(row["oos_sortino"]),
+            "Calmar": _finite_or_none(row["oos_calmar"]),
+            "MaxDD": _finite_or_none(row["oos_maxdd"]),
+        }
+        body["chart"] = None
+    return body
+
+
+@app.get("/api/research/luck_floor")
+def research_luck_floor(strategy: str):
+    try:
+        full, meta, nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+
+    gy_last = dashboard.latest_verdicts(gy)
+    if strategy not in gy_last.index:
+        raise HTTPException(status_code=400, detail=f"unknown strategy: {strategy}")
+
+    strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
+    color_of = {s: dashboard.SLOTS[i % len(dashboard.SLOTS)] for i, s in enumerate(strats)}
+    freq_names = {"M": "Monthly-rebalanced", "W": "Weekly-rebalanced", "D": "Daily-rebalanced"}
+    freq = gy_last.loc[strategy, "freq"]
+    marks = [(strategy, float(gy_last.loc[strategy, "oos_sharpe"]))]
+
+    # nulls.npz is either keyed per-strategy (current shape, DOCTRINE v1.5) or per-frequency
+    # (legacy shape, {D,M,W} -- the real artifact on disk as of 2026-08). Mirror app.py's
+    # render_research_lab detection so both shapes work behind the same URL contract. The two
+    # shapes carry a real semantic difference (this strategy's own null distribution vs. a
+    # distribution SHARED across every same-frequency strategy) -- callers need to know which
+    # one they got, hence `shape` in the response.
+    if strategy in nulls:
+        arr = nulls[strategy]
+        shape = "per_strategy"
+        label = f"{freq_names.get(freq, freq)} — {strategy}" if freq else strategy
+    elif freq in nulls:
+        arr = nulls[freq]
+        shape = "per_frequency"
+        label = freq_names.get(freq, freq)
+    else:
+        raise HTTPException(status_code=400, detail=f"no null distribution for: {strategy}")
+
+    chart = dashboard.luck_floor_chart(arr, label, marks, color_of)
+    return {"chart": json.loads(chart.to_json()), "label": label, "shape": shape}
+
+
+@app.get("/api/research/drawdown")
+def research_drawdown(pick: str):
+    try:
+        full, meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
+    color_of = {s: dashboard.SLOTS[i % len(dashboard.SLOTS)] for i, s in enumerate(strats)}
+
+    if pick in ("60/40", "SPY"):
+        col = {"60/40": "bench_6040", "SPY": "spy"}[pick]
+        if col not in oos.columns:
+            raise HTTPException(status_code=400, detail=f"unknown pick: {pick}")
+        r = oos[col].fillna(0)
+        c = dashboard.BENCH_C if pick == "60/40" else dashboard.SPY_C
+    else:
+        piggy = dashboard.load_piggyback_backtest()
+        factory_bt = dashboard.load_factory_backtest()
+        hourly_bt = dashboard.load_hourly_backtest()
+        kronos_bt = dashboard.load_kronos_backtest()
+        pairs_bt = dashboard.load_pairs_backtest()
+        pipeline_bt = dashboard.load_pipeline_backtest()
+        r = dashboard._dead_strategy_returns(pick, oos, piggy, factory_bt, hourly_bt,
+                                              kronos_bt, pairs_bt, pipeline_bt)
+        if r is None:
+            raise HTTPException(status_code=400, detail=f"unknown pick: {pick}")
+        r = r.fillna(0)
+        c = color_of.get(pick, dashboard.INK2)
+
+    eq = (1 + r).cumprod()
+    dd = eq / eq.cummax() - 1
+    chart = dashboard.drawdown_chart(dd, c)
+    return {"chart": json.loads(chart.to_json()), "max_drawdown": _finite_or_none(dd.min())}
+
+
+@app.get("/api/research/piggyback")
+def research_piggyback(sleeve: str, weight: int):
+    try:
+        full, meta, _nulls, gy = dashboard.load_backtest()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+    if not (0 <= weight <= 100):
+        raise HTTPException(status_code=400, detail="weight must be 0-100")
+
+    sleeve_names = [s for s in sleeve.split(",") if s]
+    if not sleeve_names:
+        raise HTTPException(status_code=400, detail="sleeve must name at least one strategy")
+
+    OOS = pd.Timestamp(meta["oos_start"])
+    oos = full[full.index >= OOS]
+    unknown = [s for s in sleeve_names if s not in oos.columns]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unknown strategies in sleeve: {unknown}")
+
+    result = dashboard.piggyback_blend(oos, sleeve_names, weight)
+    bench = result["bench_stats"]
+    combo = result["combo_stats"]
+    bench_growth = (1 + oos["bench_6040"].fillna(0)).cumprod()
+    show = pd.DataFrame({"60/40 + sleeve": result["combo"], "60/40 alone": bench_growth})
+    chart = dashboard.growth_chart(show, ["#2a78d6", dashboard.BENCH_C])
+
+    return {
+        "stats": {
+            "sharpe": _finite_or_none(combo["Sharpe"]),
+            "sharpe_delta": _finite_or_none(combo["Sharpe"] - bench["Sharpe"]),
+            "calmar": _finite_or_none(combo["Calmar"]),
+            "calmar_delta": _finite_or_none(combo["Calmar"] - bench["Calmar"]),
+            "maxdd": _finite_or_none(combo["MaxDD"]),
+            "maxdd_delta": _finite_or_none(combo["MaxDD"] - bench["MaxDD"]),
+        },
+        "chart": json.loads(chart.to_json()),
+    }
+
+
 def run():
     """Entry point for the `tradefabe-api` console script."""
     import uvicorn
