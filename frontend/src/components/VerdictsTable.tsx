@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
-import { fmt } from "../lib/format";
+import { fmt, dateTime } from "../lib/format";
 import { fetchJSON } from "../lib/api";
 import RingLoader from "./RingLoader";
 
 type VerdictRow = {
-  strategy: string; freq: string; oos_sharpe: number | null; oos_sortino: number | null;
-  oos_calmar: number | null; oos_maxdd: number | null; corr_bench: number | null;
-  null_p95: number | null; verdict: string;
+  strategy: string; freq: string; tested: string; oos_sharpe: number | null;
+  oos_sortino: number | null; oos_calmar: number | null; oos_maxdd: number | null;
+  corr_bench: number | null; null_p95: number | null; verdict: string;
 };
 
 const COLUMNS: { key: keyof VerdictRow; label: string }[] = [
   { key: "strategy", label: "Strategy" }, { key: "freq", label: "Freq" },
+  { key: "tested", label: "Tested" },
   { key: "oos_sharpe", label: "Sharpe" }, { key: "oos_sortino", label: "Sortino" },
   { key: "oos_calmar", label: "Calmar" }, { key: "oos_maxdd", label: "MaxDD" },
   { key: "corr_bench", label: "Corr" }, { key: "null_p95", label: "Null p95" },
@@ -20,8 +21,8 @@ const COLUMNS: { key: keyof VerdictRow; label: string }[] = [
 export default function VerdictsTable({ onSelect }: { onSelect: (name: string) => void }) {
   const [rows, setRows] = useState<VerdictRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<keyof VerdictRow>("strategy");
-  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [sortKey, setSortKey] = useState<keyof VerdictRow>("tested");
+  const [sortDir, setSortDir] = useState<1 | -1>(-1);
 
   useEffect(() => {
     fetchJSON<{ rows: VerdictRow[] }>("http://localhost:8000/api/research/verdicts")
@@ -74,6 +75,7 @@ export default function VerdictsTable({ onSelect }: { onSelect: (name: string) =
             >
               <td className="py-1 text-ink">{r.strategy}</td>
               <td className="text-ink-muted">{r.freq}</td>
+              <td className="text-ink-muted tabular-nums">{dateTime(r.tested)}</td>
               <td className="text-ink tabular-nums">{fmt(r.oos_sharpe)}</td>
               <td className="text-ink tabular-nums">{fmt(r.oos_sortino)}</td>
               <td className="text-ink tabular-nums">{fmt(r.oos_calmar)}</td>

@@ -329,13 +329,14 @@ def research_verdicts():
         raise HTTPException(status_code=503, detail="backtest artifacts not found")
 
     gy_last = dashboard.latest_verdicts(gy)
-    cols = ["freq", "oos_sharpe", "oos_sortino", "oos_calmar", "oos_maxdd",
+    cols = ["freq", "timestamp", "oos_sharpe", "oos_sortino", "oos_calmar", "oos_maxdd",
             "corr_bench", "null_p95", "verdict"]
     rows = []
     for strategy, row in gy_last[cols].iterrows():
         rows.append({
             "strategy": strategy,
             "freq": row["freq"],
+            "tested": row["timestamp"],
             "oos_sharpe": _finite_or_none(row["oos_sharpe"]),
             "oos_sortino": _finite_or_none(row["oos_sortino"]),
             "oos_calmar": _finite_or_none(row["oos_calmar"]),
