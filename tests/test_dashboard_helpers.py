@@ -99,6 +99,38 @@ def test_growth_series_all_nan_returns_all_nan():
     assert growth.isna().all()
 
 
+def test_all_candidate_returns_sorts_the_index_after_concat(monkeypatch):
+    # 2026-08-15: family L/M (hourly/kronos) trade weekends, unlike the business-day
+    # index everything else in `combined` uses. pd.concat(..., sort=False)'s union of
+    # those two index shapes appends the weekend-only dates AFTER the whole business-day
+    # range instead of merging them chronologically, leaving `combined.index`
+    # non-monotonic. Plotly's mode="lines" draws points in ARRAY order, not sorted by x,
+    # so an unsorted index made the growth chart's own line jump backward across years
+    # mid-trace -- rendered as the long straight "horizontal line" artifacts reported
+    # live on the Research Lab overview and Piggyback Lab charts.
+    business_idx = pd.date_range("2018-01-01", periods=2000, freq="B")
+    # A week in the middle of business_idx's own span, including its weekend --
+    # business_idx has no weekend dates at all, so those two days are genuinely new to
+    # the union, not already present in a different frame.
+    hourly_idx = pd.date_range("2023-06-05", periods=7, freq="D")
+
+    full = pd.DataFrame({"a": 0.001, "bench_6040": 0.0005, "spy": 0.0004}, index=business_idx)
+    meta = {"oos_start": business_idx[0].isoformat()}
+    hourly = pd.DataFrame({"b": 0.002}, index=hourly_idx)
+
+    monkeypatch.setattr(dashboard, "load_backtest", lambda: (full, meta, None, None))
+    monkeypatch.setattr(dashboard, "load_factory_backtest", lambda: None)
+    monkeypatch.setattr(dashboard, "load_pipeline_backtest", lambda: None)
+    monkeypatch.setattr(dashboard, "load_hourly_backtest", lambda: hourly)
+    monkeypatch.setattr(dashboard, "load_kronos_backtest", lambda: None)
+    monkeypatch.setattr(dashboard, "load_pairs_backtest", lambda: None)
+    dashboard._all_candidate_returns.cache_clear()
+
+    combined, _bench = dashboard._all_candidate_returns()
+    assert combined.index.is_monotonic_increasing
+    dashboard._all_candidate_returns.cache_clear()
+
+
 def test_unique_strategy_universe_excludes_stale_one_time_snapshots(monkeypatch):
     # 2026-08-14: factory_returns.csv carried columns whose data stopped dead years
     # ago (a one-time snapshot from whenever that candidate was promoted, never

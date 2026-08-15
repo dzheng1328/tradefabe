@@ -631,6 +631,13 @@ def _all_candidate_returns():
 
     combined = pd.concat(frames, axis=1, sort=False)
     combined = combined.loc[:, ~combined.columns.duplicated()]
+    # concat's union of frame indices does NOT sort chronologically when one frame has
+    # dates the others lack -- family L/M trade weekends (crypto), so those extra dates
+    # get appended after the whole business-day range rather than merged into it. Left
+    # unsorted, a growth-chart line (Plotly draws mode="lines" in array order, not by x)
+    # jumps backward across years mid-trace, rendering as the long straight horizontal
+    # segments reported 2026-08-15.
+    combined = combined.sort_index()
     return combined, bench
 
 
