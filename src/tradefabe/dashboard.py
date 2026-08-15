@@ -719,32 +719,28 @@ def growth_series(r):
 
 def growth_chart(show, colors, show_legend=True):
     """show_legend=False for the Research Lab overview's big multi-strategy chart (up
-    to ~27 lines, #28/#174-widened universe): a legend that size ate half the visible
-    chart area for information hovermode="x unified" (themed_layout's own default)
-    already gives on demand. Left True (default) for 2-line charts (piggyback's sleeve-
-    vs-bench comparison) where a legend is still the cheaper way to read it.
+    to ~22 lines post-dedup, #28/#174-widened universe): a legend that size ate half
+    the visible chart area. Left True (default) for 2-line charts (piggyback's sleeve-
+    vs-bench comparison) where a legend is still the cheapest way to read it.
 
-    show_legend=False also shrinks the unified hover box itself, on both axes that
-    made it clip past the viewport edge: hovertemplate rounds each row to 3 decimals
-    (was Plotly's full-precision default, e.g. "0.9646433") to cut box WIDTH, and
-    hoverlabel.font.size drops to 9 (from applyDarkTheme's client-side default of 11,
-    which it now MERGES rather than overrides -- see plotlyDarkTheme.ts) to cut per-row
-    HEIGHT. A 27-row box is still tall enough to clip the viewport top when hovering
-    low in the chart -- this narrows that window, it doesn't close it; there's no
-    Plotly-native way to keep a box that tall fully on-screen regardless of cursor
-    position."""
+    show_legend=False also makes Plotly's own "x unified" hover box fully transparent
+    (2026-08-14): that box is a floating overlay clipped to the chart's own SVG bounds,
+    which a 20+-row list can never reliably fit inside regardless of font size or value
+    precision -- both were tried first and only narrowed the clipping window, never
+    closed it. The frontend's GrowthValuesPanel (ResearchOverview.tsx) replaces it: a
+    normal, fixed-height, scrollable, searchable DOM panel populated by clicking a
+    point on the chart, reading the SAME per-trace points hovermode="x unified" already
+    resolves for `plotly_click` -- so hovermode stays on (it's still doing real work,
+    just invisibly) and only its rendering is hidden here."""
     fig = go.Figure()
-    # %{fullData.name} -- without it, "x unified" mode's own name+value row collapses
-    # to a bare number: a custom hovertemplate replaces Plotly's DEFAULT unified-mode
-    # row (which is what normally supplies the "name : " prefix), it doesn't add to it.
-    hovertemplate = "%{fullData.name}: %{y:.3f}<extra></extra>" if not show_legend else None
     for col, c in zip(show.columns, colors):
         fig.add_trace(go.Scatter(x=show.index, y=show[col], mode="lines", name=col,
-                                 line=dict(color=c, width=1.6),
-                                 hovertemplate=hovertemplate))
+                                 line=dict(color=c, width=1.6)))
     layout_kwargs = dict(height=340, yaxis_title="growth of $1", showlegend=show_legend)
     if not show_legend:
-        layout_kwargs["hoverlabel"] = dict(font=dict(size=9))
+        layout_kwargs["hoverlabel"] = dict(
+            bgcolor="rgba(0,0,0,0)", bordercolor="rgba(0,0,0,0)",
+            font=dict(color="rgba(0,0,0,0)"))
     fig.update_layout(**themed_layout(**layout_kwargs))
     return fig
 

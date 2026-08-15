@@ -18,13 +18,15 @@ export function applyDarkTheme(
   const font = (layout.font as Record<string, unknown>) ?? {};
   const xaxis = (layout.xaxis as Record<string, unknown>) ?? {};
   const yaxis = (layout.yaxis as Record<string, unknown>) ?? {};
-  // hoverlabel.font.size: MERGED, not overridden -- dashboard.py sets a smaller size
-  // on the overview's many-trace chart (a 27-row unified hover box is tall enough to
-  // clip past the top of the viewport at the default size; every row shaved off that
-  // size helps). A figure that doesn't set one (the 2-line piggyback chart, etc.)
-  // falls through to 11.
-  const hoverlabel = (layout.hoverlabel as Record<string, unknown>) ?? {};
-  const hoverFont = (hoverlabel.font as Record<string, unknown>) ?? {};
+  // The overview growth chart deliberately sets a fully transparent hoverlabel
+  // (dashboard.growth_chart(), 2026-08-14) so hovermode="x unified" keeps resolving
+  // points for GrowthValuesPanel's click handler without Plotly's OWN floating box
+  // rendering on top of it -- that box clipped past the chart's SVG bounds with 20+
+  // rows no matter how small its font got. Respect an explicit transparent bgcolor
+  // as-is instead of restyling it back to opaque; anything else falls through to the
+  // normal themed hoverlabel below.
+  const incomingHoverlabel = (layout.hoverlabel as Record<string, unknown>) ?? {};
+  const hidden = incomingHoverlabel.bgcolor === "rgba(0,0,0,0)";
   return {
     ...layout,
     paper_bgcolor: SURFACE,
@@ -34,15 +36,10 @@ export function applyDarkTheme(
     yaxis: { ...yaxis, gridcolor: GRID, linecolor: GRID },
     // Idea #45: the hover tooltip/crosshair gets the same mono font + accent
     // color as the rest of the shell, instead of Plotly's default light tooltip.
-    hoverlabel: {
+    hoverlabel: hidden ? incomingHoverlabel : {
       bgcolor: SURFACE,
       bordercolor: ACCENT,
-      font: { family: MONO_FONT, color: ACCENT, size: (hoverFont.size as number) ?? 11 },
-      // -1 = show the full trace name, never Plotly's default "turn_of_mont…" ellipsis
-      // truncation -- the "x unified" hover box (themed_layout's default) is the ONLY
-      // place a strategy name is readable now that the overview chart's legend is
-      // hidden (growth_chart(show_legend=False)), so it can't be the one place names
-      // get cut off.
+      font: { family: MONO_FONT, color: ACCENT, size: 11 },
       namelength: -1,
     },
   };

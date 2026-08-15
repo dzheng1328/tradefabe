@@ -1,5 +1,5 @@
 import Plot from "react-plotly.js";
-import type { Data } from "plotly.js";
+import type { Data, PlotMouseEvent } from "plotly.js";
 import { applyDarkTheme } from "../lib/plotlyDarkTheme";
 
 type PlotlyFigure = {
@@ -7,7 +7,12 @@ type PlotlyFigure = {
   layout: Record<string, unknown>;
 };
 
-export default function PlotlyChart({ figure }: { figure: PlotlyFigure | null | undefined }) {
+export default function PlotlyChart({
+  figure, onClick,
+}: {
+  figure: PlotlyFigure | null | undefined;
+  onClick?: (event: PlotMouseEvent) => void;
+}) {
   if (!figure || !figure.data) return null;
   // The figure's own `layout.height` (dashboard.py scales this per chart -- e.g. taller
   // for a bigger correlation heatmap) used to be overridden by a hardcoded 340px here,
@@ -21,6 +26,7 @@ export default function PlotlyChart({ figure }: { figure: PlotlyFigure | null | 
       style={{ width: "100%", height: `${height}px` }}
       useResizeHandler
       config={{ displayModeBar: false }}
+      onClick={onClick}
     />
   );
 }
