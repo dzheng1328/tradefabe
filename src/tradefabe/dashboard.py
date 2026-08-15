@@ -574,6 +574,18 @@ UNIQUE_STRATEGY_CORR_THRESHOLD = 0.97   # matches the threshold used to identify
                                         # same bet" bar, applied here to what gets
                                         # PLOTTED rather than what gets RETIRED.
 
+# A persisted curve is a ONE-TIME snapshot (_persist_backtest_curve()'s own docstring:
+# written once, at promotion time, never refreshed) -- factory_returns.csv still
+# carries a handful of columns (found 2026-08-14: turn_of_month_wide, tsmom_3m,
+# turn_of_month_narrow, turn_of_month_gen_1_3, tsmom_gen_424d) whose data stops dead at
+# 2019-08-08, years-old snapshots from whenever that candidate was promoted, when
+# harness.load_prices() itself only had data up to that date. A stale curve like that
+# has near-zero date overlap with anything recent, so it can't be meaningfully compared
+# to the current roster -- it just sits at whatever level it reached in 2019 forever
+# once growth_chart's cumprod holds it flat, and it can't help you compare NEW
+# strategies to each other on hover
+UNIQUE_STRATEGY_RECENCY_DAYS = 400
+
 
 @functools.cache
 def _all_candidate_returns():
@@ -640,6 +652,15 @@ def unique_strategy_universe(gy_last, corr_threshold=UNIQUE_STRATEGY_CORR_THRESH
     `combined[kept_names]` joined with bench_6040 -- directly usable as `oos` for
     piggyback_blend() or for a correlation/growth chart alongside the bench column."""
     combined, bench = _all_candidate_returns()
+
+    # Drop stale one-time snapshots (see UNIQUE_STRATEGY_RECENCY_DAYS) before anything
+    # else touches `combined` -- a column whose last real value is years old would
+    # otherwise still get correlated/ranked/plotted alongside the current roster.
+    latest = combined.apply(lambda s: s.last_valid_index())
+    cutoff = combined.index.max() - pd.Timedelta(days=UNIQUE_STRATEGY_RECENCY_DAYS)
+    stale = [n for n, d in latest.items() if d is None or d < cutoff]
+    combined = combined.drop(columns=stale)
+
     corr = combined.corr()
 
     def _sharpe(name):
@@ -677,18 +698,54 @@ def piggyback_blend(oos, sleeve, weight_pct):
     }
 
 
+def growth_series(r):
+    """Growth-of-$1 for a return series that may not cover the FULL chart index --
+    factory/pipeline curves start wherever they were persisted, kronos/hourly start
+    wherever their family's data does (2025-06+/2023+). A blind `.fillna(0).cumprod()`
+    over the whole chart index holds the series artificially FLAT before it starts and
+    after it ends (a stale one-time snapshot's last value extended flat for years was
+    exactly the 2026-08-14 "glitched" growth-chart bug -- unique_strategy_universe()'s
+    own recency filter removes truly-dead snapshots, but a legitimately short-window
+    series like kronos still needs this: it should only draw across the dates it
+    actually has). fillna(0) is still applied WITHIN [first_valid, last_valid] -- an
+    occasional missing bar inside an otherwise-active window is a real zero-return day,
+    not the series not existing yet."""
+    start, end = r.first_valid_index(), r.last_valid_index()
+    if start is None:
+        return pd.Series(index=r.index, dtype=float)
+    window = (1 + r.loc[start:end].fillna(0)).cumprod()
+    return window.reindex(r.index)
+
+
 def growth_chart(show, colors, show_legend=True):
     """show_legend=False for the Research Lab overview's big multi-strategy chart (up
     to ~27 lines, #28/#174-widened universe): a legend that size ate half the visible
     chart area for information hovermode="x unified" (themed_layout's own default)
     already gives on demand. Left True (default) for 2-line charts (piggyback's sleeve-
-    vs-bench comparison) where a legend is still the cheaper way to read it."""
+    vs-bench comparison) where a legend is still the cheaper way to read it.
+
+    show_legend=False also shrinks the unified hover box itself, on both axes that
+    made it clip past the viewport edge: hovertemplate rounds each row to 3 decimals
+    (was Plotly's full-precision default, e.g. "0.9646433") to cut box WIDTH, and
+    hoverlabel.font.size drops to 9 (from applyDarkTheme's client-side default of 11,
+    which it now MERGES rather than overrides -- see plotlyDarkTheme.ts) to cut per-row
+    HEIGHT. A 27-row box is still tall enough to clip the viewport top when hovering
+    low in the chart -- this narrows that window, it doesn't close it; there's no
+    Plotly-native way to keep a box that tall fully on-screen regardless of cursor
+    position."""
     fig = go.Figure()
+    # %{fullData.name} -- without it, "x unified" mode's own name+value row collapses
+    # to a bare number: a custom hovertemplate replaces Plotly's DEFAULT unified-mode
+    # row (which is what normally supplies the "name : " prefix), it doesn't add to it.
+    hovertemplate = "%{fullData.name}: %{y:.3f}<extra></extra>" if not show_legend else None
     for col, c in zip(show.columns, colors):
         fig.add_trace(go.Scatter(x=show.index, y=show[col], mode="lines", name=col,
-                                 line=dict(color=c, width=1.6)))
-    fig.update_layout(**themed_layout(height=340, yaxis_title="growth of $1",
-                                      showlegend=show_legend))
+                                 line=dict(color=c, width=1.6),
+                                 hovertemplate=hovertemplate))
+    layout_kwargs = dict(height=340, yaxis_title="growth of $1", showlegend=show_legend)
+    if not show_legend:
+        layout_kwargs["hoverlabel"] = dict(font=dict(size=9))
+    fig.update_layout(**themed_layout(**layout_kwargs))
     return fig
 
 

@@ -18,6 +18,13 @@ export function applyDarkTheme(
   const font = (layout.font as Record<string, unknown>) ?? {};
   const xaxis = (layout.xaxis as Record<string, unknown>) ?? {};
   const yaxis = (layout.yaxis as Record<string, unknown>) ?? {};
+  // hoverlabel.font.size: MERGED, not overridden -- dashboard.py sets a smaller size
+  // on the overview's many-trace chart (a 27-row unified hover box is tall enough to
+  // clip past the top of the viewport at the default size; every row shaved off that
+  // size helps). A figure that doesn't set one (the 2-line piggyback chart, etc.)
+  // falls through to 11.
+  const hoverlabel = (layout.hoverlabel as Record<string, unknown>) ?? {};
+  const hoverFont = (hoverlabel.font as Record<string, unknown>) ?? {};
   return {
     ...layout,
     paper_bgcolor: SURFACE,
@@ -30,7 +37,7 @@ export function applyDarkTheme(
     hoverlabel: {
       bgcolor: SURFACE,
       bordercolor: ACCENT,
-      font: { family: MONO_FONT, color: ACCENT, size: 11 },
+      font: { family: MONO_FONT, color: ACCENT, size: (hoverFont.size as number) ?? 11 },
       // -1 = show the full trace name, never Plotly's default "turn_of_mont…" ellipsis
       // truncation -- the "x unified" hover box (themed_layout's default) is the ONLY
       // place a strategy name is readable now that the overview chart's legend is

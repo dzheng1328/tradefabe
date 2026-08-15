@@ -295,12 +295,12 @@ def research_overview():
     show = pd.DataFrame(index=oos.index)
     colors = []
     for i, s in enumerate(strats):
-        show[s] = (1 + oos[s].fillna(0)).cumprod()
+        show[s] = dashboard.growth_series(oos[s])
         colors.append(dashboard.SLOTS[i % len(dashboard.SLOTS)])
-    show["60/40"] = (1 + oos["bench_6040"].fillna(0)).cumprod()
+    show["60/40"] = dashboard.growth_series(oos["bench_6040"])
     colors.append(dashboard.BENCH_C)
-    spy_oos = full[full.index >= OOS]["spy"]
-    show["SPY"] = (1 + spy_oos.reindex(oos.index).fillna(0)).cumprod()
+    spy_oos = full[full.index >= OOS]["spy"].reindex(oos.index)
+    show["SPY"] = dashboard.growth_series(spy_oos)
     colors.append(dashboard.SPY_C)
     growth = dashboard.growth_chart(show, colors, show_legend=False)
 
