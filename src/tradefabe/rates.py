@@ -84,9 +84,15 @@ def align_to_trading_days(curve, trading_index):
     """No-lookahead-safe join: each trading day gets the most recent FRED observation AT
     OR BEFORE it, never a future one. pd.merge_asof(direction="backward") enforces this
     by construction -- unlike reindex().ffill(), it cannot match a date after the trading
-    day regardless of how the two indices are anchored relative to each other."""
+    day regardless of how the two indices are anchored relative to each other.
+
+    Both sides are coerced to a common datetime64 unit before the merge: yfinance's price
+    index and FRED's CSV-parsed curve index can land on different sub-second resolutions
+    (seen in prod as datetime64[s] vs datetime64[us]) even though both are date-only, and
+    merge_asof raises MergeError on a dtype mismatch rather than silently upcasting."""
     curve_sorted = curve.sort_index()
-    left = pd.DataFrame({"date": pd.DatetimeIndex(trading_index).sort_values()})
+    left = pd.DataFrame({"date": pd.DatetimeIndex(trading_index).sort_values().as_unit("us")})
     right = curve_sorted.reset_index().rename(columns={curve_sorted.index.name or "index": "date"})
+    right["date"] = pd.DatetimeIndex(right["date"]).as_unit("us")
     merged = pd.merge_asof(left, right, on="date", direction="backward")
     return merged.set_index("date")

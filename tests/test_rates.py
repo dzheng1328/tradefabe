@@ -176,6 +176,30 @@ def test_align_to_trading_days_preserves_all_trading_days():
     assert list(aligned.index) == list(trading_days)
 
 
+def test_align_to_trading_days_handles_mismatched_datetime_resolutions():
+    """Regression guard (2026-08-15): yfinance's price index and FRED's CSV-parsed
+    curve index can land on different datetime64 sub-second resolutions (observed in
+    production as datetime64[s] vs datetime64[us]) even though both represent
+    date-only values. pandas' merge_asof refuses to join keys of different dtypes
+    outright -- pipeline_daily's curve_carry screen crashed on this in prod, silently
+    stalling every later stage (pre-registration, OOS test, graveyard.csv) for the
+    whole cycle. align_to_trading_days must normalize both sides itself rather than
+    trust its callers' upstream dtypes to already agree."""
+    curve = pd.DataFrame(
+        {"DGS10": [4.00, 4.50]},
+        index=pd.to_datetime(["2024-01-01", "2024-01-05"]).astype("datetime64[us]"),
+    )
+    trading_days = pd.to_datetime(
+        ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-05"]
+    ).astype("datetime64[s]")
+    assert curve.index.dtype != trading_days.dtype  # sanity check the setup itself
+
+    aligned = rates.align_to_trading_days(curve, trading_days)
+
+    assert aligned.loc[pd.Timestamp("2024-01-03"), "DGS10"] == 4.00
+    assert aligned.loc[pd.Timestamp("2024-01-05"), "DGS10"] == 4.50
+
+
 def test_load_and_align_compose_end_to_end(scratch_cache, monkeypatch):
     """The two halves of this module used together, the way a future primitive
     (Phase 2, curve_carry) actually will: fetch, then align to a trading calendar that
