@@ -146,6 +146,7 @@ function Row({
   trailingBadge?: import("react").ReactNode;
 }) {
   const delta = rowDelta(r, deltaMode);
+  const retired = r.retired_at !== null;
   return (
     <Link to={`/books/${r.book}`} className="block no-underline" data-book={r.book} onClick={playSelect}>
       <motion.div
@@ -157,13 +158,21 @@ function Row({
         transition={SPRING}
         className={`tf-row flex items-center gap-3 px-4 py-2 h-14 text-sm border-b border-white/5 transition-transform hover:-translate-y-px hover:shadow-[0_4px_16px_rgba(0,0,0,0.35)] ${
           isNew ? "tf-book-burst" : ""
-        } ${indented ? "pl-8" : ""}`}
+        } ${indented ? "pl-8" : ""} ${retired ? "opacity-50" : ""}`}
       >
         <span className="text-ink truncate min-w-0 flex-1 flex items-center gap-2">
           {r.book}
           {r.book === FEATURED_BOOK && (
             <span className="tf-featured-chip text-[10px] leading-none px-1.5 py-0.5 rounded-full border border-accent text-accent shrink-0">
               cleared
+            </span>
+          )}
+          {retired && (
+            <span
+              title={`Retired ${r.retired_at}`}
+              className="text-[10px] leading-none px-1.5 py-0.5 rounded-full border border-ink-muted text-ink-muted shrink-0"
+            >
+              retired
             </span>
           )}
         </span>
@@ -383,15 +392,47 @@ export default function RowList({ selectedName }: { selectedName: string | null 
         : (
             <>
               <div className="px-4 pt-2 pb-1 flex items-center justify-end">{sortControl}</div>
-              {clusterRows(data.books).map((group) => (
-                <ClusterRow
-                  key={group[0].book}
-                  group={group}
-                  selectedName={selectedName}
-                  newBooks={newBooks}
-                  deltaMode={deltaMode}
-                />
-              ))}
+              {(() => {
+                // Backend already sorts retired last regardless of sort_key (see
+                // dashboard.sort_books_flat's own "_retired" primary sort key) -- this
+                // just draws the same "Retired" divider the family view gets for free
+                // from its own trailing group, so retired books read as a distinct
+                // section here too instead of trailing off silently.
+                const active = data.books.filter((b) => b.retired_at === null);
+                const retired = data.books.filter((b) => b.retired_at !== null);
+                return (
+                  <>
+                    {clusterRows(active).map((group) => (
+                      <ClusterRow
+                        key={group[0].book}
+                        group={group}
+                        selectedName={selectedName}
+                        newBooks={newBooks}
+                        deltaMode={deltaMode}
+                      />
+                    ))}
+                    {retired.length > 0 && (
+                      <div>
+                        <div className="px-4 pt-2 pb-1">
+                          <span className="relative text-xs uppercase text-ink-muted">
+                            Retired
+                            <span className="family-underline absolute -bottom-1 left-0 h-px w-6 bg-accent origin-left animate-underline-draw" />
+                          </span>
+                        </div>
+                        {clusterRows(retired).map((group) => (
+                          <ClusterRow
+                            key={group[0].book}
+                            group={group}
+                            selectedName={selectedName}
+                            newBooks={newBooks}
+                            deltaMode={deltaMode}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
     </div>

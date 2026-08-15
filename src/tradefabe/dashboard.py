@@ -541,17 +541,144 @@ def drawdown_chart(dd, color):
     return fig
 
 
+# Above this many strategies, the per-cell "%{text}" numbers overlap into an unreadable
+# smear (28x28 was the case that prompted this) -- hover already carries the exact value,
+# so text is worth it only while a cell is still big enough to hold it legibly.
+HEATMAP_INLINE_TEXT_MAX = 14
+
+
 def correlation_heatmap(cm):
+    n = len(cm.columns)
     colorscale = [[0.0, DIV[0]], [0.5, DIV[1]], [1.0, DIV[2]]]
+    show_text = n <= HEATMAP_INLINE_TEXT_MAX
     fig = go.Figure(go.Heatmap(
         z=cm.values, x=list(cm.columns), y=list(cm.columns), zmin=-1, zmax=1,
         colorscale=colorscale, colorbar=dict(title=""),
-        text=cm.round(2).values, texttemplate="%{text}",
-        textfont=dict(size=10, color=INK),
+        **(dict(text=cm.round(2).values, texttemplate="%{text}",
+                textfont=dict(size=10, color=INK)) if show_text else {}),
         hovertemplate="%{y} vs %{x}: %{z:.2f}<extra></extra>"))
-    fig.update_layout(**themed_layout(height=440, xaxis=dict(gridcolor=GRID, tickangle=-40),
-                                      yaxis=dict(gridcolor=GRID, autorange="reversed")))
+    # Height and bottom margin grow with the asset count so tick labels (rotated -40deg)
+    # and cells stay legible instead of being squeezed into a fixed 440px regardless of
+    # whether there are 8 strategies or 28.
+    height = max(440, 18 * n + 160)
+    fig.update_layout(**themed_layout(
+        height=height, xaxis=dict(gridcolor=GRID, tickangle=-40, tickfont=dict(size=10)),
+        yaxis=dict(gridcolor=GRID, autorange="reversed", tickfont=dict(size=10)),
+        margin=dict(l=44, r=20, t=28, b=140)))
     return fig
+
+
+UNIQUE_STRATEGY_CORR_THRESHOLD = 0.97   # matches the threshold used to identify the
+                                        # near-duplicate factory-promoted clusters
+                                        # retired 2026-08-14 -- same "genuinely the
+                                        # same bet" bar, applied here to what gets
+                                        # PLOTTED rather than what gets RETIRED.
+
+# A persisted curve is a ONE-TIME snapshot (_persist_backtest_curve()'s own docstring:
+# written once, at promotion time, never refreshed) -- factory_returns.csv still
+# carries a handful of columns (found 2026-08-14: turn_of_month_wide, tsmom_3m,
+# turn_of_month_narrow, turn_of_month_gen_1_3, tsmom_gen_424d) whose data stops dead at
+# 2019-08-08, years-old snapshots from whenever that candidate was promoted, when
+# harness.load_prices() itself only had data up to that date. A stale curve like that
+# has near-zero date overlap with anything recent, so it can't be meaningfully compared
+# to the current roster -- it just sits at whatever level it reached in 2019 forever
+# once growth_chart's cumprod holds it flat, and it can't help you compare NEW
+# strategies to each other on hover
+UNIQUE_STRATEGY_RECENCY_DAYS = 400
+
+
+@functools.cache
+def _all_candidate_returns():
+    """Unions every backtest curve source that's actually been PERSISTED to disk --
+    full_returns.csv (the original hand-picked roster) plus factory/pipeline/hourly/
+    kronos/pairs (#28/#174/#86/#105/#172's own studies) -- into one returns DataFrame,
+    plus the 60/40 bench column separately (piggyback_blend() needs it attached to
+    `oos`, callers building a correlation/growth chart don't).
+
+    Deliberately excludes piggyback_returns.csv: those 4 columns are COMPOSITE blends
+    of strategies already in the union above, not raw candidates, so including them
+    would just add trivially-correlated near-duplicates of things already here.
+
+    This is NOT "every strategy ever tested" -- research/factory_run.py's own
+    _persist_backtest_curve() docstring is explicit that it only saves a curve for
+    the single candidate that wins EACH cycle's promotion, not all ~20/day tested (see
+    CLAUDE.md's graveyard.csv note: verdicts are permanent, curves are not, by design,
+    to avoid ~20x the disk cost for candidates nobody kept). So this universe is
+    bounded by "has a live or once-live paper book," not by graveyard.csv's full count.
+
+    full_returns.csv and pairs_returns.csv carry pre-OOS history (like `full` does
+    everywhere else in this module) and get sliced to OOS_START here; factory/pipeline/
+    hourly/kronos are already OOS-only at persist time (see each load_*_backtest()'s
+    own docstring), so they're used as-is.
+
+    @functools.cache for the same reason _load_generated_ledger() is: called once per
+    Research Lab overview/piggyback request, and reads+concats 6 CSVs each time
+    otherwise."""
+    full, meta, _nulls, _gy = load_backtest()
+    OOS = pd.Timestamp(meta["oos_start"])
+    full_oos = full[full.index >= OOS]
+    bench = full_oos[["bench_6040"]]
+
+    frames = [full_oos.drop(columns=["bench_6040", "spy"])]
+    for loader in (load_factory_backtest, load_pipeline_backtest,
+                  load_hourly_backtest, load_kronos_backtest):
+        bt = loader()
+        if bt is not None:
+            frames.append(bt)
+    pairs_bt = load_pairs_backtest()
+    if pairs_bt is not None:
+        frames.append(pairs_bt[pairs_bt.index >= OOS])
+
+    combined = pd.concat(frames, axis=1, sort=False)
+    combined = combined.loc[:, ~combined.columns.duplicated()]
+    return combined, bench
+
+
+def unique_strategy_universe(gy_last, corr_threshold=UNIQUE_STRATEGY_CORR_THRESHOLD):
+    """The candidate universe for the Research Lab overview and the piggyback sleeve
+    picker, deduplicated: greedily keeps one representative per near-duplicate cluster
+    instead of every raw curve, so a chart or a recommendation list isn't dominated by
+    cosmetically-different draws of the same underlying bet (the donchian_gen_108d/109d
+    problem, one level up).
+
+    Same greedy method as the 2026-08-14 factory-pool retirement: rank candidates by
+    backtest oos_sharpe descending (a candidate missing from gy_last -- a stale curve
+    whose graveyard row predates a naming fix -- sorts last, not excluded), then walk
+    the ranked list keeping a name only if it does NOT correlate above `corr_threshold`
+    with any name already kept. Deterministic and order-independent in outcome (ties
+    aside) because the ranking is fixed before the walk starts.
+
+    Returns (kept_names in sharpe-descending order, returns_df) where returns_df is
+    `combined[kept_names]` joined with bench_6040 -- directly usable as `oos` for
+    piggyback_blend() or for a correlation/growth chart alongside the bench column."""
+    combined, bench = _all_candidate_returns()
+
+    # Drop stale one-time snapshots (see UNIQUE_STRATEGY_RECENCY_DAYS) before anything
+    # else touches `combined` -- a column whose last real value is years old would
+    # otherwise still get correlated/ranked/plotted alongside the current roster.
+    latest = combined.apply(lambda s: s.last_valid_index())
+    cutoff = combined.index.max() - pd.Timedelta(days=UNIQUE_STRATEGY_RECENCY_DAYS)
+    stale = [n for n, d in latest.items() if d is None or d < cutoff]
+    combined = combined.drop(columns=stale)
+
+    corr = combined.corr()
+
+    def _sharpe(name):
+        if name in gy_last.index:
+            v = gy_last.loc[name, "oos_sharpe"]
+            if pd.notna(v):
+                return float(v)
+        return float("-inf")
+
+    ranked = sorted(combined.columns, key=lambda n: -_sharpe(n))
+    kept: list[str] = []
+    for name in ranked:
+        if any(pd.notna(corr.loc[name, k]) and corr.loc[name, k] > corr_threshold
+               for k in kept):
+            continue
+        kept.append(name)
+
+    return kept, combined[kept].join(bench)
 
 
 def piggyback_blend(oos, sleeve, weight_pct):
@@ -571,12 +698,50 @@ def piggyback_blend(oos, sleeve, weight_pct):
     }
 
 
-def growth_chart(show, colors):
+def growth_series(r):
+    """Growth-of-$1 for a return series that may not cover the FULL chart index --
+    factory/pipeline curves start wherever they were persisted, kronos/hourly start
+    wherever their family's data does (2025-06+/2023+). A blind `.fillna(0).cumprod()`
+    over the whole chart index holds the series artificially FLAT before it starts and
+    after it ends (a stale one-time snapshot's last value extended flat for years was
+    exactly the 2026-08-14 "glitched" growth-chart bug -- unique_strategy_universe()'s
+    own recency filter removes truly-dead snapshots, but a legitimately short-window
+    series like kronos still needs this: it should only draw across the dates it
+    actually has). fillna(0) is still applied WITHIN [first_valid, last_valid] -- an
+    occasional missing bar inside an otherwise-active window is a real zero-return day,
+    not the series not existing yet."""
+    start, end = r.first_valid_index(), r.last_valid_index()
+    if start is None:
+        return pd.Series(index=r.index, dtype=float)
+    window = (1 + r.loc[start:end].fillna(0)).cumprod()
+    return window.reindex(r.index)
+
+
+def growth_chart(show, colors, show_legend=True):
+    """show_legend=False for the Research Lab overview's big multi-strategy chart (up
+    to ~22 lines post-dedup, #28/#174-widened universe): a legend that size ate half
+    the visible chart area. Left True (default) for 2-line charts (piggyback's sleeve-
+    vs-bench comparison) where a legend is still the cheapest way to read it.
+
+    show_legend=False also makes Plotly's own "x unified" hover box fully transparent
+    (2026-08-14): that box is a floating overlay clipped to the chart's own SVG bounds,
+    which a 20+-row list can never reliably fit inside regardless of font size or value
+    precision -- both were tried first and only narrowed the clipping window, never
+    closed it. The frontend's GrowthValuesPanel (ResearchOverview.tsx) replaces it: a
+    normal, fixed-height, scrollable, searchable DOM panel populated by clicking a
+    point on the chart, reading the SAME per-trace points hovermode="x unified" already
+    resolves for `plotly_click` -- so hovermode stays on (it's still doing real work,
+    just invisibly) and only its rendering is hidden here."""
     fig = go.Figure()
     for col, c in zip(show.columns, colors):
         fig.add_trace(go.Scatter(x=show.index, y=show[col], mode="lines", name=col,
                                  line=dict(color=c, width=1.6)))
-    fig.update_layout(**themed_layout(height=340, yaxis_title="growth of $1"))
+    layout_kwargs = dict(height=340, yaxis_title="growth of $1", showlegend=show_legend)
+    if not show_legend:
+        layout_kwargs["hoverlabel"] = dict(
+            bgcolor="rgba(0,0,0,0)", bordercolor="rgba(0,0,0,0)",
+            font=dict(color="rgba(0,0,0,0)"))
+    fig.update_layout(**themed_layout(**layout_kwargs))
     return fig
 
 
@@ -675,6 +840,30 @@ def _load_pipeline_ledger():
     df = pd.read_csv(path)
     return {row["name"]: {"family": "O", "rationale": row["rationale"]}
             for _, row in df.iterrows()}
+
+
+# harness.is_factory_origin()/is_pipeline_origin() are the doctrine-authoritative
+# classifiers, but harness.py lives at the repo root, outside the installed `tradefabe`
+# package -- importable from a pytest run (pyproject's pythonpath=[".", ...]) or a
+# script invoked FROM the repo root, but not reliably from the `tradefabe-api` console
+# script, whose sys.path has no repo-root entry. So this mirrors the same naming
+# conventions locally (same "_gen_"/"combo"/rp_-prefix rules, fixed before any candidate
+# of either kind is drawn) rather than importing harness -- for the DASHBOARD's own
+# "how was this found" label, not for n_tested's statistical correction (that logic,
+# and its promoted-name reclassification, stays in harness.py; this is presentation
+# only, so it doesn't need promoted_names()'s "rejoins hand-picked" rule).
+def research_kind(name: str) -> str:
+    """Buckets a graveyard strategy name into how it was found, for the Research Lab UI:
+    "pipeline" (thesis-driven, from the daily research pipeline, #174), "factory"
+    (parameter tuning -- a fixed TEMPLATES entry or a live-generated `_gen_`/combo draw,
+    #28/#28b), or "hand" (everything else -- the original doctrine roster, hourly/Kronos/
+    pairs families, etc.)."""
+    if name.startswith("rp_") or name in _load_pipeline_ledger():
+        return "pipeline"
+    if ("_gen_" in name or "combo" in name.lower()
+            or name in factory.TEMPLATES or name in _load_generated_ledger()):
+        return "factory"
+    return "hand"
 
 
 def book_family(name):
@@ -783,17 +972,34 @@ def _is_monitor_only(name, gy_last):
     return gy_last is not None and name in gy_last.index and gy_last.loc[name, "verdict"] == "DEAD"
 
 
+def _row_is_retired(r) -> bool:
+    """True if a psum row (or the dict shape sort_books_flat/group_books_by_family both
+    use) carries a non-null retired_at -- summary.csv's own column, the same one
+    /api/books/summary's _row_json already surfaces to the frontend."""
+    v = r.get("retired_at") if hasattr(r, "get") else None
+    return v is not None and pd.notna(v) and v != ""
+
+
 def group_books_by_family(psum, gy_last=None, show_monitor_only=True):
     """Pure grouping logic behind render_book_status(), split out so it's testable
     without a Streamlit runtime: which family each book in `psum` belongs to (unmapped
     names fall back to family key "?", displayed as "Other"), filtered by the
     monitor-only toggle. Returns an ordered list of (family_key, family_label, rows)
     tuples, family order matching BOOK_FAMILIES (A-H) then "Other" last, and empty
-    families omitted entirely."""
+    families omitted entirely.
+
+    A retired book is pulled OUT of its normal family bucket into one universal
+    "Retired" group appended at the very end, regardless of which family it belongs to
+    -- otherwise a retired book stayed mixed into its family's rows, indistinguishable
+    at a glance from the still-live ones sitting right next to it."""
     monitor_only = {r["book"]: _is_monitor_only(r["book"], gy_last) for _, r in psum.iterrows()}
     by_family = {}
+    retired_rows = []
     for _, r in psum.iterrows():
         if not show_monitor_only and monitor_only[r["book"]]:
+            continue
+        if _row_is_retired(r):
+            retired_rows.append(r)
             continue
         by_family.setdefault(book_family(r["book"]), []).append(r)
     out = []
@@ -801,6 +1007,8 @@ def group_books_by_family(psum, gy_last=None, show_monitor_only=True):
         rows = by_family.get(family)
         if rows:
             out.append((family, BOOK_FAMILIES.get(family, "Other"), rows))
+    if retired_rows:
+        out.append(("retired", "Retired", retired_rows))
     return out
 
 
@@ -849,9 +1057,13 @@ def sort_books_flat(psum, phist, gy_last=None, show_monitor_only=True, sort_key=
     df = pd.DataFrame(rows)
     df["_introduced"] = df["book"].map(lambda n: introduced.get(n, pd.NaT))
     df["_return_today"] = df["book"].map(lambda n: return_today.get(n, float("nan")))
+    # Retired sorts last no matter which sort_key is active -- primary key, ascending
+    # (False=0 before True=1), so it wins ties over the secondary chosen-sort column
+    # without disturbing that column's own ordering within either group.
+    df["_retired"] = df.apply(_row_is_retired, axis=1)
     sort_col = {"recent": "_introduced", "return_today": "_return_today",
                 "total_return": "return"}[sort_key]
-    df = df.sort_values(sort_col, ascending=False, na_position="last")
+    df = df.sort_values(["_retired", sort_col], ascending=[True, False], na_position="last")
     return list(df.to_dict("records"))
 
 

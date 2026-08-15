@@ -61,3 +61,62 @@ def test_load_carry_risk_reads_the_persisted_report(monkeypatch, tmp_path):
         json.dump(report, fh)
     monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
     assert dashboard.load_carry_risk() == report
+
+
+def test_growth_series_leaves_nan_before_the_series_starts():
+    # 2026-08-14: a series that starts partway through the chart (a factory/pipeline
+    # curve, kronos, hourly) used to get fillna(0)'d across the WHOLE index, holding it
+    # flat at 1.0 before it existed rather than simply not drawing a line there yet.
+    idx = pd.date_range("2020-01-01", periods=5, freq="D")
+    r = pd.Series([None, None, 0.01, -0.005, 0.02], index=idx)
+    growth = dashboard.growth_series(r)
+    assert growth.iloc[:2].isna().all()
+    assert growth.iloc[2:].notna().all()
+
+
+def test_growth_series_leaves_nan_after_the_series_ends():
+    # The 2026-08-14 "glitched growth chart" bug: a stale one-time snapshot's last
+    # value was extended flat for years via fillna(0).cumprod() over the full range.
+    idx = pd.date_range("2020-01-01", periods=5, freq="D")
+    r = pd.Series([0.01, 0.02, -0.01, None, None], index=idx)
+    growth = dashboard.growth_series(r)
+    assert growth.iloc[:3].notna().all()
+    assert growth.iloc[3:].isna().all()
+
+
+def test_growth_series_fills_internal_gaps_as_zero_return():
+    idx = pd.date_range("2020-01-01", periods=5, freq="D")
+    r = pd.Series([0.01, None, 0.02, None, 0.01], index=idx)
+    growth = dashboard.growth_series(r)
+    assert growth.notna().all()
+    assert growth.iloc[1] == growth.iloc[0]   # a gap day carries the prior value forward
+
+
+def test_growth_series_all_nan_returns_all_nan():
+    idx = pd.date_range("2020-01-01", periods=3, freq="D")
+    r = pd.Series([None, None, None], index=idx)
+    growth = dashboard.growth_series(r)
+    assert growth.isna().all()
+
+
+def test_unique_strategy_universe_excludes_stale_one_time_snapshots(monkeypatch):
+    # 2026-08-14: factory_returns.csv carried columns whose data stopped dead years
+    # ago (a one-time snapshot from whenever that candidate was promoted, never
+    # refreshed) -- near-zero date overlap with anything current, so they can't be
+    # meaningfully compared/plotted alongside the live roster.
+    idx = pd.date_range("2018-01-01", periods=2200, freq="B")
+    rng = pd.Series(range(len(idx)), index=idx)
+    combined = pd.DataFrame({
+        "fresh_a": 0.0001 * (rng % 7 - 3),
+        "fresh_b": 0.0001 * (rng % 11 - 5),
+        "stale_old": pd.Series(0.0001 * (rng % 5 - 2), index=idx).where(rng < 400),
+    })
+    bench = pd.DataFrame({"bench_6040": 0.0002 * (rng % 13 - 6)}, index=idx)
+    monkeypatch.setattr(dashboard, "_all_candidate_returns", lambda: (combined, bench))
+
+    gy_last = pd.DataFrame({"oos_sharpe": [0.5, 0.6, 0.9]},
+                           index=["fresh_a", "fresh_b", "stale_old"])
+    kept, oos = dashboard.unique_strategy_universe(gy_last, corr_threshold=2.0)
+    assert "stale_old" not in kept
+    assert set(kept) == {"fresh_a", "fresh_b"}
+    assert "stale_old" not in oos.columns

@@ -281,23 +281,28 @@ def research_overview():
         raise HTTPException(status_code=503, detail="backtest artifacts not found")
 
     OOS = pd.Timestamp(meta["oos_start"])
-    oos = full[full.index >= OOS]
     gy_last = dashboard.latest_verdicts(gy)
-    strats = [c for c in full.columns if c not in ("bench_6040", "spy")]
+    # The deduplicated universe (#28/#174/#86/#105/#172 curves unioned, near-duplicate
+    # clusters collapsed to one representative each) -- not just full_returns.csv's own
+    # 9-strategy hand-picked roster, which is all this endpoint plotted before. See
+    # dashboard.unique_strategy_universe()'s own docstring for what "unique" means here
+    # and why it isn't literally every strategy ever tested.
+    strats, oos = dashboard.unique_strategy_universe(gy_last)
 
     best = gy_last["oos_sharpe"].astype(float).idxmax()
     n_alive = int((gy_last["verdict"] == "ALIVE").sum())
 
     show = pd.DataFrame(index=oos.index)
     colors = []
-    for s in strats:
-        show[s] = (1 + oos[s].fillna(0)).cumprod()
-        colors.append(dashboard.SLOTS[strats.index(s) % len(dashboard.SLOTS)])
-    show["60/40"] = (1 + oos["bench_6040"].fillna(0)).cumprod()
+    for i, s in enumerate(strats):
+        show[s] = dashboard.growth_series(oos[s])
+        colors.append(dashboard.SLOTS[i % len(dashboard.SLOTS)])
+    show["60/40"] = dashboard.growth_series(oos["bench_6040"])
     colors.append(dashboard.BENCH_C)
-    show["SPY"] = (1 + oos["spy"].fillna(0)).cumprod()
+    spy_oos = full[full.index >= OOS]["spy"].reindex(oos.index)
+    show["SPY"] = dashboard.growth_series(spy_oos)
     colors.append(dashboard.SPY_C)
-    growth = dashboard.growth_chart(show, colors)
+    growth = dashboard.growth_chart(show, colors, show_legend=False)
 
     cm = oos[strats + ["bench_6040"]].rename(columns={"bench_6040": "60/40"}).corr()
     heatmap = dashboard.correlation_heatmap(cm)
@@ -316,7 +321,15 @@ def research_overview():
             "bench_sharpe": _finite_or_none(gy_last["bench_sharpe"].iloc[0]),
         },
         "strategies": strats,
-        "growth_chart": json.loads(growth.to_json()),
+        # hide_hover_legend: a SIBLING of data/layout, not read by react-plotly.js's
+        # <Plot> at all (it only destructures data/layout/config/frames), so Plotly.js
+        # can never see or mutate it -- unlike the earlier approach of sniffing
+        # layout.hoverlabel.bgcolor for a sentinel color, which broke the moment
+        # Plotly's own color-normalization pass rewrote "rgba(0,0,0,0)" to
+        # "rgba(0, 0, 0, 0)" (spaces added) in place on the shared layout object,
+        # flipping the frontend's strict-equality check to false after the first
+        # redraw (confirmed live, 2026-08-14).
+        "growth_chart": {**json.loads(growth.to_json()), "hide_hover_legend": True},
         "correlation_heatmap": json.loads(heatmap.to_json()),
     }
 
@@ -329,13 +342,15 @@ def research_verdicts():
         raise HTTPException(status_code=503, detail="backtest artifacts not found")
 
     gy_last = dashboard.latest_verdicts(gy)
-    cols = ["freq", "oos_sharpe", "oos_sortino", "oos_calmar", "oos_maxdd",
+    cols = ["freq", "timestamp", "oos_sharpe", "oos_sortino", "oos_calmar", "oos_maxdd",
             "corr_bench", "null_p95", "verdict"]
     rows = []
     for strategy, row in gy_last[cols].iterrows():
         rows.append({
             "strategy": strategy,
             "freq": row["freq"],
+            "tested": row["timestamp"],
+            "kind": dashboard.research_kind(strategy),
             "oos_sharpe": _finite_or_none(row["oos_sharpe"]),
             "oos_sortino": _finite_or_none(row["oos_sortino"]),
             "oos_calmar": _finite_or_none(row["oos_calmar"]),
@@ -473,10 +488,20 @@ def research_drawdown(pick: str):
     return {"chart": json.loads(chart.to_json()), "max_drawdown": _finite_or_none(dd.min())}
 
 
+def _piggyback_universe():
+    """gy_last + the deduplicated (kept_names, oos) pair, shared by /piggyback and
+    /piggyback/recommend so both endpoints rank/blend against the exact same universe
+    the search bar and recommended list are drawn from."""
+    _full, _meta, _nulls, gy = dashboard.load_backtest()
+    gy_last = dashboard.latest_verdicts(gy)
+    kept, oos = dashboard.unique_strategy_universe(gy_last)
+    return gy_last, kept, oos
+
+
 @app.get("/api/research/piggyback")
 def research_piggyback(sleeve: str, weight: int):
     try:
-        full, meta, _nulls, gy = dashboard.load_backtest()
+        _gy_last, _kept, oos = _piggyback_universe()
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail="backtest artifacts not found")
     if not (0 <= weight <= 100):
@@ -486,8 +511,6 @@ def research_piggyback(sleeve: str, weight: int):
     if not sleeve_names:
         raise HTTPException(status_code=400, detail="sleeve must name at least one strategy")
 
-    OOS = pd.Timestamp(meta["oos_start"])
-    oos = full[full.index >= OOS]
     unknown = [s for s in sleeve_names if s not in oos.columns]
     if unknown:
         raise HTTPException(status_code=400, detail=f"unknown strategies in sleeve: {unknown}")
@@ -510,6 +533,57 @@ def research_piggyback(sleeve: str, weight: int):
         },
         "chart": json.loads(chart.to_json()),
     }
+
+
+@app.get("/api/research/piggyback/recommend")
+def research_piggyback_recommend(sleeve: str = "", weight: int = 30, limit: int = 8):
+    """Ranks candidates to ADD to the current sleeve, not standalone strategies -- each
+    candidate's rank comes from re-blending the FULL sleeve (existing picks + this one
+    candidate) against the 60/40 core, so the list reflects the piggybacked TOTAL, not
+    the candidate in isolation. With an empty sleeve this degenerates to ranking each
+    candidate alone against the core, which is exactly the right first list to show
+    before anything's been picked yet.
+
+    Recommends from the same deduplicated universe unique_strategy_universe() builds
+    for the overview chart (near-duplicate clusters already collapsed to one
+    representative), so this list doesn't surface two near-identical strategies as if
+    they were two different opportunities."""
+    try:
+        _gy_last, kept, oos = _piggyback_universe()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="backtest artifacts not found")
+    if not (0 <= weight <= 100):
+        raise HTTPException(status_code=400, detail="weight must be 0-100")
+
+    sleeve_names = [s for s in sleeve.split(",") if s]
+    unknown = [s for s in sleeve_names if s not in oos.columns]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unknown strategies in sleeve: {unknown}")
+
+    baseline_sharpe = (
+        dashboard.piggyback_blend(oos, sleeve_names, weight)["combo_stats"]["Sharpe"]
+        if sleeve_names else
+        dashboard.ann_stats(oos["bench_6040"].fillna(0))["Sharpe"]
+    )
+
+    candidates = [s for s in kept if s not in sleeve_names]
+    scored = []
+    for name in candidates:
+        combo = dashboard.piggyback_blend(oos, sleeve_names + [name], weight)["combo_stats"]
+        sharpe = combo["Sharpe"]
+        if pd.isna(sharpe):
+            continue
+        scored.append({
+            "strategy": name,
+            "resulting_sharpe": _finite_or_none(sharpe),
+            "resulting_calmar": _finite_or_none(combo["Calmar"]),
+            "delta_sharpe": _finite_or_none(sharpe - baseline_sharpe)
+                            if pd.notna(baseline_sharpe) else None,
+        })
+    scored.sort(key=lambda r: r["resulting_sharpe"] if r["resulting_sharpe"] is not None else -1e9,
+               reverse=True)
+
+    return {"recommendations": scored[:limit]}
 
 
 def run():

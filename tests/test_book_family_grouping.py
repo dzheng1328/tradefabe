@@ -131,6 +131,35 @@ def test_grouping_omits_empty_families():
     assert groups[0][1] == "Carry / structural"
 
 
+def _psum_with_retired(names, retired_names):
+    psum = _psum(names)
+    psum["retired_at"] = [
+        "2026-08-14T19:02" if n in retired_names else None for n in names
+    ]
+    return psum
+
+
+def test_grouping_pulls_retired_books_into_one_trailing_group():
+    # 2026-08-14: a retired book used to stay mixed into its own family's rows,
+    # indistinguishable at a glance from the still-live ones next to it.
+    names = ["tsmom_12m", "tsmom_ensemble", "turn_of_month", "carry_btc_eth"]
+    psum = _psum_with_retired(names, {"tsmom_ensemble", "turn_of_month"})
+    groups = app.group_books_by_family(psum)
+    labels_in_order = [label for _, label, _ in groups]
+    assert labels_in_order == ["Trend / momentum", "Carry / structural", "Retired"]
+    retired_rows = groups[-1][2]
+    assert sorted(r["book"] for r in retired_rows) == ["tsmom_ensemble", "turn_of_month"]
+    trend_rows = groups[0][2]
+    assert [r["book"] for r in trend_rows] == ["tsmom_12m"]
+
+
+def test_grouping_with_all_books_retired_still_omits_empty_families():
+    psum = _psum_with_retired(["tsmom_12m"], {"tsmom_12m"})
+    groups = app.group_books_by_family(psum)
+    assert len(groups) == 1
+    assert groups[0][1] == "Retired"
+
+
 def test_show_monitor_only_false_filters_out_dead_books():
     names = ["tsmom_12m", "carry_btc_eth"]
     gy = _gy_last({"tsmom_12m": "DEAD"})
@@ -208,6 +237,21 @@ def test_sort_books_flat_recent_puts_a_book_missing_from_phist_entirely_last():
     phist = _phist([("a", "2026-07-20", 100_000)])
     rows = app.sort_books_flat(psum, phist, sort_key="recent")
     assert [r["book"] for r in rows] == ["a", "never_marked"]
+
+
+def test_sort_books_flat_puts_retired_last_regardless_of_sort_key():
+    # 2026-08-14: retired books used to sort wherever their sort_key value happened to
+    # land -- a retired book introduced yesterday still outranked an active book
+    # introduced last month under "recent". Retired must always trail, in EVERY sort
+    # mode, with the chosen sort_key still ordering each of the two groups internally.
+    names = ["a", "b_retired", "c"]
+    psum = _psum_with_retired(names, {"b_retired"})
+    phist = _phist([("a", "2026-07-20", 100_000), ("b_retired", "2026-07-30", 100_000),
+                    ("c", "2026-07-25", 100_000)])
+    rows = app.sort_books_flat(psum, phist, sort_key="recent")
+    # b_retired was introduced most recently -- would rank first under "recent" alone --
+    # but still has to trail both active books.
+    assert [r["book"] for r in rows] == ["c", "a", "b_retired"]
 
 
 def test_sort_books_flat_return_today_orders_highest_first_and_nan_last():

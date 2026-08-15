@@ -17,8 +17,18 @@ const PIGGYBACK_RESPONSE = {
   chart: { data: [], layout: {} },
 };
 
+const RECOMMEND_RESPONSE = {
+  recommendations: [
+    { strategy: "tsmom_12m", resulting_sharpe: 0.51, resulting_calmar: 0.3, delta_sharpe: 0.1 },
+    { strategy: "xsec_momentum", resulting_sharpe: 0.4, resulting_calmar: 0.2, delta_sharpe: 0.05 },
+  ],
+};
+
 beforeEach(() => {
   globalThis.fetch = vi.fn((url: string) => {
+    if (url.includes("piggyback/recommend")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(RECOMMEND_RESPONSE) });
+    }
     if (url.includes("piggyback")) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(PIGGYBACK_RESPONSE) });
     }
@@ -27,18 +37,37 @@ beforeEach(() => {
 });
 
 describe("PiggybackLab", () => {
-  it("fetches the sleeve simulation once strategies are known and a sleeve is selected", async () => {
+  it("starts with an empty sleeve and shows a recommended-to-start list", async () => {
     render(<PiggybackLab />);
+    await waitFor(() => expect(screen.getByText("Recommended to start with")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText(/0\.02/)).toBeInTheDocument(), { timeout: 1000 });
+    expect(screen.getByText(/pick one from the recommended list/i)).toBeInTheDocument();
   });
 
-  it("lets the user toggle a sleeve strategy off", async () => {
+  it("adds a strategy from the recommended list and simulates the sleeve", async () => {
     render(<PiggybackLab />);
     await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
-    const checkbox = screen.getByLabelText("xsec_momentum");
-    await userEvent.click(checkbox);
-    expect(checkbox).not.toBeChecked();
+    await userEvent.click(screen.getByText("tsmom_12m"));
+    await waitFor(() => expect(screen.getByText(/0\.02/)).toBeInTheDocument(), { timeout: 1000 });
+    expect(screen.getByText("Recommended next")).toBeInTheDocument();
+  });
+
+  it("adds a strategy via the search bar", async () => {
+    render(<PiggybackLab />);
+    await waitFor(() => expect(screen.getByLabelText("Add a strategy")).toBeInTheDocument());
+    await userEvent.type(screen.getByLabelText("Add a strategy"), "xsec");
+    const match = await screen.findByRole("button", { name: "xsec_momentum" });
+    await userEvent.click(match);
+    await waitFor(() => expect(screen.getByText(/xsec_momentum ×/)).toBeInTheDocument());
+  });
+
+  it("lets the user remove a sleeve strategy", async () => {
+    render(<PiggybackLab />);
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("tsmom_12m"));
+    const chip = await screen.findByText(/tsmom_12m ×/);
+    await userEvent.click(chip);
+    await waitFor(() => expect(screen.queryByText(/tsmom_12m ×/)).not.toBeInTheDocument());
   });
 
   it("shows an error message instead of crashing when the strategy list fetch fails", async () => {
@@ -52,6 +81,9 @@ describe("PiggybackLab", () => {
 
   it("shows an error message instead of crashing when the piggyback simulation fetch fails", async () => {
     globalThis.fetch = vi.fn((url: string) => {
+      if (url.includes("piggyback/recommend")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(RECOMMEND_RESPONSE) });
+      }
       if (url.includes("piggyback")) {
         return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ detail: "boom" }) });
       }
@@ -59,6 +91,8 @@ describe("PiggybackLab", () => {
     }) as unknown as typeof fetch;
 
     render(<PiggybackLab />);
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("tsmom_12m"));
     await waitFor(() => expect(screen.getByText(/couldn't simulate this sleeve/i)).toBeInTheDocument());
   });
 });

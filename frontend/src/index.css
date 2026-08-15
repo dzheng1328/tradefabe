@@ -276,3 +276,20 @@ body {
     transform: none;
   }
 }
+
+/* Research Lab overview growth chart (2026-08-14): dashboard.growth_chart()'s
+   transparent hoverlabel (bgcolor/bordercolor/font.color all "rgba(0,0,0,0)")
+   only reaches Plotly's ".legend" <g> -- its background <rect>, border <rect>,
+   and per-row <text>. The per-row color-swatch <path> elements inside that same
+   group are drawn from each trace's own line color regardless of hoverlabel
+   styling, so they stayed fully opaque (a column of colored dashes with no text,
+   confirmed live via DOM inspection: .hoverlayer > .legend contains 2 rect / 19
+   text / 18 path). ".hoverlayer" itself can't be hidden wholesale -- it also
+   holds the crosshair spike lines (".spikeline"), which PlotlyChart.tsx's
+   click-to-populate GrowthValuesPanel depends on hovermode="x unified" to keep
+   drawing. Hiding only the ".legend" child removes the value box/swatches while
+   leaving the crosshair alone. PlotlyChart.tsx adds this class to the wrapper
+   whenever a figure's own hoverlabel signals "hidden" the same way. */
+.tf-hide-hover-legend .hoverlayer > .legend {
+  display: none;
+}

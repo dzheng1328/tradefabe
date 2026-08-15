@@ -18,6 +18,15 @@ export function applyDarkTheme(
   const font = (layout.font as Record<string, unknown>) ?? {};
   const xaxis = (layout.xaxis as Record<string, unknown>) ?? {};
   const yaxis = (layout.yaxis as Record<string, unknown>) ?? {};
+  // The overview growth chart deliberately sets a fully transparent hoverlabel
+  // (dashboard.growth_chart(), 2026-08-14) so hovermode="x unified" keeps resolving
+  // points for GrowthValuesPanel's click handler without Plotly's OWN floating box
+  // rendering on top of it -- that box clipped past the chart's SVG bounds with 20+
+  // rows no matter how small its font got. Respect an explicit transparent bgcolor
+  // as-is instead of restyling it back to opaque; anything else falls through to the
+  // normal themed hoverlabel below.
+  const incomingHoverlabel = (layout.hoverlabel as Record<string, unknown>) ?? {};
+  const hidden = incomingHoverlabel.bgcolor === "rgba(0,0,0,0)";
   return {
     ...layout,
     paper_bgcolor: SURFACE,
@@ -27,10 +36,11 @@ export function applyDarkTheme(
     yaxis: { ...yaxis, gridcolor: GRID, linecolor: GRID },
     // Idea #45: the hover tooltip/crosshair gets the same mono font + accent
     // color as the rest of the shell, instead of Plotly's default light tooltip.
-    hoverlabel: {
+    hoverlabel: hidden ? incomingHoverlabel : {
       bgcolor: SURFACE,
       bordercolor: ACCENT,
       font: { family: MONO_FONT, color: ACCENT, size: 11 },
+      namelength: -1,
     },
   };
 }

@@ -18,3 +18,13 @@ export function pct(v: number | null | undefined): string {
   const sign = v >= 0 ? "+" : "";
   return `${sign}${(v * 100).toFixed(1)}%`;
 }
+
+// ISO timestamp -> "MM-DD HH:MM", local time. Used where a table needs to sort on
+// recency (e.g. the verdicts ledger) without showing a full timestamp.
+export function dateTime(v: string | null | undefined): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
