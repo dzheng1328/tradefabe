@@ -17,16 +17,15 @@ type BookRow = {
   sparkline: (number | null)[];
 };
 
-type FamilyGroup = { family: string; label: string; books: BookRow[] };
-type SummaryResponse = { families: FamilyGroup[] } | { books: BookRow[] };
+type SummaryResponse = { books: BookRow[] };
 
 type ReviewRow = { book: string; days_live: number; verdict: string };
 
 const SORT_OPTIONS: Record<string, string> = {
-  Family: "family",
   "Recently added": "recent",
   "Return today": "return_today",
   "Total return": "total_return",
+  Sharpe: "sharpe",
 };
 
 function Sparkline({ points }: { points: (number | null)[] }) {
@@ -278,7 +277,7 @@ function ClusterRow({
 }
 
 export default function RowList({ selectedName }: { selectedName: string | null }) {
-  const [sortLabel, setSortLabel] = useState("Family");
+  const [sortLabel, setSortLabel] = useState("Total return");
   const [data, setData] = useState<SummaryResponse | null>(null);
   const [review, setReview] = useState<ReviewRow[]>([]);
   const [reviewCountPulsed, setReviewCountPulsed] = useState(false);
@@ -291,7 +290,7 @@ export default function RowList({ selectedName }: { selectedName: string | null 
       .then((res) => res.json())
       .then((body: SummaryResponse) => {
         setData(body);
-        const allBooks = "families" in body ? body.families.flatMap((f) => f.books) : body.books;
+        const allBooks = body.books;
         const seen = readSeenBooks();
         setNewBooks(new Set(allBooks.map((b) => b.book).filter((name) => !seen.has(name))));
         localStorage.setItem(SEEN_BOOKS_KEY, JSON.stringify(allBooks.map((b) => b.book)));
@@ -368,73 +367,47 @@ export default function RowList({ selectedName }: { selectedName: string | null 
         </details>
       )}
 
-      {"families" in data
-        ? data.families.map((fam, i) => (
-            <div key={fam.family}>
-              <div className="px-4 pt-2 pb-1 flex items-center justify-between gap-4">
-                <span className="relative text-xs uppercase text-ink-muted">
-                  {fam.label}
-                  <span className="family-underline absolute -bottom-1 left-0 h-px w-6 bg-accent origin-left animate-underline-draw" />
-                </span>
-                {i === 0 && sortControl}
+      <div className="px-4 pt-2 pb-1 flex items-center justify-end">{sortControl}</div>
+      {(() => {
+        // Backend already sorts retired last regardless of sort_key (see
+        // dashboard.sort_books_flat's own "_retired" primary sort key) -- this draws a
+        // "Retired" divider so retired books read as a distinct trailing section
+        // instead of trailing off silently.
+        const active = data.books.filter((b) => b.retired_at === null);
+        const retired = data.books.filter((b) => b.retired_at !== null);
+        return (
+          <>
+            {clusterRows(active).map((group) => (
+              <ClusterRow
+                key={group[0].book}
+                group={group}
+                selectedName={selectedName}
+                newBooks={newBooks}
+                deltaMode={deltaMode}
+              />
+            ))}
+            {retired.length > 0 && (
+              <div>
+                <div className="px-4 pt-2 pb-1">
+                  <span className="relative text-xs uppercase text-ink-muted">
+                    Retired
+                    <span className="family-underline absolute -bottom-1 left-0 h-px w-6 bg-accent origin-left animate-underline-draw" />
+                  </span>
+                </div>
+                {clusterRows(retired).map((group) => (
+                  <ClusterRow
+                    key={group[0].book}
+                    group={group}
+                    selectedName={selectedName}
+                    newBooks={newBooks}
+                    deltaMode={deltaMode}
+                  />
+                ))}
               </div>
-              {clusterRows(fam.books).map((group) => (
-                <ClusterRow
-                  key={group[0].book}
-                  group={group}
-                  selectedName={selectedName}
-                  newBooks={newBooks}
-                  deltaMode={deltaMode}
-                />
-              ))}
-            </div>
-          ))
-        : (
-            <>
-              <div className="px-4 pt-2 pb-1 flex items-center justify-end">{sortControl}</div>
-              {(() => {
-                // Backend already sorts retired last regardless of sort_key (see
-                // dashboard.sort_books_flat's own "_retired" primary sort key) -- this
-                // just draws the same "Retired" divider the family view gets for free
-                // from its own trailing group, so retired books read as a distinct
-                // section here too instead of trailing off silently.
-                const active = data.books.filter((b) => b.retired_at === null);
-                const retired = data.books.filter((b) => b.retired_at !== null);
-                return (
-                  <>
-                    {clusterRows(active).map((group) => (
-                      <ClusterRow
-                        key={group[0].book}
-                        group={group}
-                        selectedName={selectedName}
-                        newBooks={newBooks}
-                        deltaMode={deltaMode}
-                      />
-                    ))}
-                    {retired.length > 0 && (
-                      <div>
-                        <div className="px-4 pt-2 pb-1">
-                          <span className="relative text-xs uppercase text-ink-muted">
-                            Retired
-                            <span className="family-underline absolute -bottom-1 left-0 h-px w-6 bg-accent origin-left animate-underline-draw" />
-                          </span>
-                        </div>
-                        {clusterRows(retired).map((group) => (
-                          <ClusterRow
-                            key={group[0].book}
-                            group={group}
-                            selectedName={selectedName}
-                            newBooks={newBooks}
-                            deltaMode={deltaMode}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </>
-          )}
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }
