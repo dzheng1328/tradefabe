@@ -1051,10 +1051,13 @@ def sort_books_flat(psum, phist, gy_last=None, show_monitor_only=True, sort_key=
     group_books_by_family's rows already are: both support `r["book"]` / `r.get(...)`),
     just one list sorted descending instead of family-bucketed tuples.
 
-    sort_key: "recent" (book_introduced_dates), "return_today" (book_return_today), or
-    "total_return" (psum's own `return` column). Sorted via pandas sort_values, NOT a
-    hand-rolled sorted() -- comparing None to a Timestamp, or NaN to a float, raises under
-    plain Python sort but sort_values(na_position="last") handles both cleanly."""
+    sort_key: "recent" (book_introduced_dates), "return_today" (book_return_today),
+    "total_return" (psum's own `return` column), or "sharpe" (gy_last's own `oos_sharpe`
+    -- the pre-registered doctrine backtest number, the same one shown on each book's own
+    Verdict line; a book with no graveyard row sorts last, same as any other NaN here).
+    Sorted via pandas sort_values, NOT a hand-rolled sorted() -- comparing None to a
+    Timestamp, or NaN to a float, raises under plain Python sort but
+    sort_values(na_position="last") handles both cleanly."""
     monitor_only = {r["book"]: _is_monitor_only(r["book"], gy_last) for _, r in psum.iterrows()}
     rows = [r for _, r in psum.iterrows() if show_monitor_only or not monitor_only[r["book"]]]
     if not rows:
@@ -1064,12 +1067,17 @@ def sort_books_flat(psum, phist, gy_last=None, show_monitor_only=True, sort_key=
     df = pd.DataFrame(rows)
     df["_introduced"] = df["book"].map(lambda n: introduced.get(n, pd.NaT))
     df["_return_today"] = df["book"].map(lambda n: return_today.get(n, float("nan")))
+    df["_sharpe"] = df["book"].map(
+        lambda n: float(gy_last.loc[n, "oos_sharpe"])
+        if gy_last is not None and n in gy_last.index and pd.notna(gy_last.loc[n, "oos_sharpe"])
+        else float("nan")
+    )
     # Retired sorts last no matter which sort_key is active -- primary key, ascending
     # (False=0 before True=1), so it wins ties over the secondary chosen-sort column
     # without disturbing that column's own ordering within either group.
     df["_retired"] = df.apply(_row_is_retired, axis=1)
     sort_col = {"recent": "_introduced", "return_today": "_return_today",
-                "total_return": "return"}[sort_key]
+                "total_return": "return", "sharpe": "_sharpe"}[sort_key]
     df = df.sort_values(["_retired", sort_col], ascending=[True, False], na_position="last")
     return list(df.to_dict("records"))
 
