@@ -11,24 +11,14 @@ vi.mock("react-router-dom", async (importOriginal) => {
   return { ...actual, useNavigate: () => navigateMock };
 });
 
-const FAMILY_RESPONSE = {
-  families: [
-    {
-      family: "A", label: "Trend",
-      books: [
-        { book: "tsmom_12m", equity: 103241, return: 0.032, last_run: "2026-08-06",
-          retired_at: null, family: "A", color: "#2a78d6", introduced: "2026-01-01",
-          return_today: 0.012, monitor_only: false, sparkline: [100000, 100500, 101000] },
-      ],
-    },
-    {
-      family: "D", label: "Carry",
-      books: [
-        { book: "carry_btc_eth", equity: 112003, return: 0.12, last_run: "2026-08-06",
-          retired_at: null, family: "D", color: "#1baf7a", introduced: "2025-05-01",
-          return_today: 0.001, monitor_only: false, sparkline: [110000, 111500, 112003] },
-      ],
-    },
+const FLAT_RESPONSE = {
+  books: [
+    { book: "tsmom_12m", equity: 103241, return: 0.032, last_run: "2026-08-06",
+      retired_at: null, family: "A", color: "#2a78d6", introduced: "2026-01-01",
+      return_today: 0.012, monitor_only: false, sparkline: [100000, 100500, 101000] },
+    { book: "carry_btc_eth", equity: 112003, return: 0.12, last_run: "2026-08-06",
+      retired_at: null, family: "D", color: "#1baf7a", introduced: "2025-05-01",
+      return_today: 0.001, monitor_only: false, sparkline: [110000, 111500, 112003] },
   ],
 };
 
@@ -39,7 +29,7 @@ function mockFetchSequence() {
     if (url.includes("up_for_review")) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(UP_FOR_REVIEW_RESPONSE) });
     }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve(FAMILY_RESPONSE) });
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(FLAT_RESPONSE) });
   }) as unknown as typeof fetch;
 }
 
@@ -71,19 +61,62 @@ vi.mock("framer-motion", async (importOriginal) => {
   return { ...actual, motion: { ...actual.motion, span: Span, div: Div } };
 });
 
+function mockFetchWithBooks(books: unknown[]) {
+  return vi.fn((url: string) => {
+    if (url.includes("up_for_review")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(UP_FOR_REVIEW_RESPONSE) });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ books }) });
+  }) as unknown as typeof fetch;
+}
+
 describe("RowList", () => {
-  it("renders family-grouped rows by default", async () => {
-    render(
+  it("renders the flat book list with no family grouping", async () => {
+    const { container } = render(
       <MemoryRouter>
         <RowList selectedName={null} />
       </MemoryRouter>
     );
     await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
     expect(screen.getByText("carry_btc_eth")).toBeInTheDocument();
-    expect(screen.getByText("Trend")).toBeInTheDocument();
+    // No retired books in FLAT_RESPONSE -- no "Retired" divider, no underline at all.
+    expect(screen.queryByText("Retired")).not.toBeInTheDocument();
+    expect(container.querySelectorAll(".family-underline")).toHaveLength(0);
   });
 
-  it("refetches with the flat sort when a non-Family option is chosen", async () => {
+  it("never offers Family as a sort option", async () => {
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    const select = screen.getByLabelText(/sort by/i) as HTMLSelectElement;
+    const optionLabels = [...select.options].map((o) => o.value);
+    expect(optionLabels).not.toContain("Family");
+    expect(optionLabels).toEqual(["Recently added", "Return today", "Total return", "Sharpe"]);
+    expect(select.value).toBe("Total return");
+  });
+
+  it("draws a divider with an underline above the Retired section when a retired book is present", async () => {
+    globalThis.fetch = mockFetchWithBooks([
+      ...FLAT_RESPONSE.books,
+      { book: "old_dead_book", equity: 98000, return: -0.02, last_run: "2026-08-06",
+        retired_at: "2026-07-01T00:00:00", family: "A", color: "#eda100",
+        introduced: "2025-01-01", return_today: 0, monitor_only: false,
+        sparkline: [99000, 98500, 98000] },
+    ]);
+    const { container } = render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("old_dead_book")).toBeInTheDocument());
+    expect(screen.getByText("Retired")).toBeInTheDocument();
+    expect(container.querySelectorAll(".family-underline")).toHaveLength(1);
+  });
+
+  it("refetches with the new sort key when a different sort option is chosen", async () => {
     render(
       <MemoryRouter>
         <RowList selectedName={null} />
@@ -91,11 +124,22 @@ describe("RowList", () => {
     );
     await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
     const select = screen.getByLabelText(/sort by/i);
-    await userEvent.selectOptions(select, "Total return");
+    await userEvent.selectOptions(select, "Sharpe");
     await waitFor(() => {
       const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
-      expect(calls.some((u) => String(u).includes("sort=total_return"))).toBe(true);
+      expect(calls.some((u) => String(u).includes("sort=sharpe"))).toBe(true);
     });
+  });
+
+  it("fetches with the default total_return sort on first load", async () => {
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(calls.some((u) => String(u).includes("sort=total_return"))).toBe(true);
   });
 
   it("never sends show_monitor_only -- the monitor-only filter was removed", async () => {
@@ -110,29 +154,11 @@ describe("RowList", () => {
   });
 
   it("redirects to a still-visible book when the selected one is filtered out", async () => {
-    globalThis.fetch = vi.fn((url: string) => {
-      if (url.includes("up_for_review")) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(UP_FOR_REVIEW_RESPONSE) });
-      }
+    globalThis.fetch = mockFetchWithBooks(
       // tsmom_12m (the currently-selected book) is absent -- as if a sort/data
       // change server-side made it drop out of the list.
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            families: [
-              {
-                family: "D", label: "Carry",
-                books: [
-                  { book: "carry_btc_eth", equity: 112003, return: 0.12, last_run: "2026-08-06",
-                    retired_at: null, family: "D", color: "#1baf7a", introduced: "2025-05-01",
-                    return_today: 0.001, monitor_only: false, sparkline: [110000, 111500, 112003] },
-                ],
-              },
-            ],
-          }),
-      });
-    }) as unknown as typeof fetch;
+      [FLAT_RESPONSE.books[1]]
+    );
 
     render(
       <MemoryRouter>
@@ -154,16 +180,6 @@ describe("RowList", () => {
     expect(screen.getByText("5.1.25")).toBeInTheDocument();
   });
 
-  it("draws a per-family underline under each family header", async () => {
-    const { container } = render(
-      <MemoryRouter>
-        <RowList selectedName={null} />
-      </MemoryRouter>
-    );
-    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
-    expect(container.querySelectorAll(".family-underline")).toHaveLength(2);
-  });
-
   it("gives rows a hover-lift treatment", async () => {
     const { container } = render(
       <MemoryRouter>
@@ -180,7 +196,7 @@ describe("RowList", () => {
       if (url.includes("up_for_review")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ books: reviewBooks }) });
       }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(FAMILY_RESPONSE) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(FLAT_RESPONSE) });
     }) as unknown as typeof fetch;
   }
 
@@ -223,16 +239,16 @@ describe("RowList", () => {
   });
 
   it("re-renders rows in the server's new order after a sort switch, for FLIP to animate", async () => {
-    let sort = "family";
+    let sort = "total_return";
     globalThis.fetch = vi.fn((url: string) => {
       if (url.includes("up_for_review")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(UP_FOR_REVIEW_RESPONSE) });
       }
       sort = new URL(url).searchParams.get("sort") ?? sort;
       const books =
-        sort === "total_return"
-          ? [FAMILY_RESPONSE.families[1].books[0], FAMILY_RESPONSE.families[0].books[0]]
-          : [FAMILY_RESPONSE.families[0].books[0], FAMILY_RESPONSE.families[1].books[0]];
+        sort === "recent"
+          ? [FLAT_RESPONSE.books[1], FLAT_RESPONSE.books[0]]
+          : [FLAT_RESPONSE.books[0], FLAT_RESPONSE.books[1]];
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ books }) });
     }) as unknown as typeof fetch;
 
@@ -245,7 +261,7 @@ describe("RowList", () => {
     const namesBefore = [...container.querySelectorAll("[data-book]")].map((el) => el.getAttribute("data-book"));
     expect(namesBefore).toEqual(["tsmom_12m", "carry_btc_eth"]);
 
-    await userEvent.selectOptions(screen.getByLabelText(/sort by/i), "Total return");
+    await userEvent.selectOptions(screen.getByLabelText(/sort by/i), "Recently added");
     await waitFor(() => {
       const namesAfter = [...container.querySelectorAll("[data-book]")].map((el) => el.getAttribute("data-book"));
       expect(namesAfter).toEqual(["carry_btc_eth", "tsmom_12m"]);
@@ -363,25 +379,11 @@ describe("RowList", () => {
     sparkline: [100600, 100610, 100627.66],
   });
 
-  function mockFetchWithFamilies(families: unknown[]) {
-    return vi.fn((url: string) => {
-      if (url.includes("up_for_review")) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(UP_FOR_REVIEW_RESPONSE) });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ families }) });
-    }) as unknown as typeof fetch;
-  }
-
   it("collapses books with an identical equity/return/sparkline curve into one row with a badge", async () => {
-    globalThis.fetch = mockFetchWithFamilies([
-      {
-        family: "C", label: "Calendar / seasonality",
-        books: [
-          DUPLICATE_BOOK("turn_of_month_gen_5_7"),
-          DUPLICATE_BOOK("turn_of_month_gen_7_2"),
-          DUPLICATE_BOOK("turn_of_month_gen_1_6"),
-        ],
-      },
+    globalThis.fetch = mockFetchWithBooks([
+      DUPLICATE_BOOK("turn_of_month_gen_5_7"),
+      DUPLICATE_BOOK("turn_of_month_gen_7_2"),
+      DUPLICATE_BOOK("turn_of_month_gen_1_6"),
     ]);
     render(
       <MemoryRouter>
@@ -400,14 +402,9 @@ describe("RowList", () => {
   });
 
   it("does not cluster books whose sparklines diverge even if today's equity happens to match", async () => {
-    globalThis.fetch = mockFetchWithFamilies([
-      {
-        family: "C", label: "Calendar / seasonality",
-        books: [
-          { ...DUPLICATE_BOOK("turn_of_month_gen_5_7"), sparkline: [100600, 100610, 100627.66] },
-          { ...DUPLICATE_BOOK("turn_of_month_gen_9_9"), sparkline: [100000, 100300, 100627.66] },
-        ],
-      },
+    globalThis.fetch = mockFetchWithBooks([
+      { ...DUPLICATE_BOOK("turn_of_month_gen_5_7"), sparkline: [100600, 100610, 100627.66] },
+      { ...DUPLICATE_BOOK("turn_of_month_gen_9_9"), sparkline: [100000, 100300, 100627.66] },
     ]);
     render(
       <MemoryRouter>
@@ -419,7 +416,7 @@ describe("RowList", () => {
     expect(screen.queryByText(/identical/)).not.toBeInTheDocument();
   });
 
-  it("shows total return (not today's return) for the default Family sort", async () => {
+  it("shows total return (not today's return) for the default Total return sort", async () => {
     render(
       <MemoryRouter>
         <RowList selectedName={null} />
