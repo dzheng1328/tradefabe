@@ -64,6 +64,77 @@ def test_book_family_resolves_a_generated_name_via_the_ledger_fallback(monkeypat
     assert app.book_family("some_other_unmapped_name") == "?"   # ledger miss still falls through
 
 
+def test_book_family_uses_a_passed_in_generated_ledger_without_loading_its_own(monkeypatch):
+    """Final-review finding 1/3: book_family()'s per-name ledger fallback used to
+    re-read generated_templates.csv/pipeline_ideas.csv from disk on every call, which
+    is fine for a single lookup but a linear-in-N regression for a per-row loop now
+    that the two loaders are deliberately uncached. A caller that already has the
+    ledger loaded (group_books_by_family(), api/main.py's books_summary()) must be able
+    to pass it straight in and have book_family() skip its own load entirely."""
+    def boom():
+        raise AssertionError("book_family() should not load its own ledger when one is passed in")
+    monkeypatch.setattr(dashboard, "_load_generated_ledger", boom)
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger", boom)
+
+    assert app.book_family(
+        "tsmom_gen_147d", generated_ledger={"tsmom_gen_147d": {"family": "A", "rationale": "..."}},
+    ) == "A"
+    assert app.book_family(
+        "rp_some_idea", generated_ledger={}, pipeline_ledger={"rp_some_idea": {"family": "O", "rationale": "..."}},
+    ) == "O"
+    # a static-dict hit or combo-pattern hit never even reaches the ledger fallback, but
+    # confirm they still work fine when ledgers are passed in too.
+    assert app.book_family("tsmom_12m", generated_ledger={}, pipeline_ledger={}) == "A"
+    assert app.book_family("factory_combo_a_b", generated_ledger={}, pipeline_ledger={}) == "H"
+    # a genuine miss in the passed-in dicts still falls through to "?"
+    assert app.book_family("nowhere_at_all", generated_ledger={}, pipeline_ledger={}) == "?"
+
+
+def test_research_kind_uses_a_passed_in_ledger_without_loading_its_own(monkeypatch):
+    """Same guarantee as book_family() above, for research_kind() -- the function
+    api/main.py's research_verdicts() calls once per graveyard row (487 rows as of
+    2026-08-14, the finding the reviewer actually benchmarked)."""
+    def boom():
+        raise AssertionError("research_kind() should not load its own ledger when one is passed in")
+    monkeypatch.setattr(dashboard, "_load_generated_ledger", boom)
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger", boom)
+
+    assert dashboard.research_kind(
+        "rp_some_idea", generated_ledger={}, pipeline_ledger={"rp_some_idea": {}},
+    ) == "pipeline"
+    assert dashboard.research_kind(
+        "tsmom_gen_9d", generated_ledger={"tsmom_gen_9d": {}}, pipeline_ledger={},
+    ) == "factory"
+    assert dashboard.research_kind(
+        "some_hand_picked_thing", generated_ledger={}, pipeline_ledger={},
+    ) == "hand"
+
+
+def test_grouping_loads_each_ledger_at_most_once_regardless_of_row_count(monkeypatch):
+    """group_books_by_family() is called on every app.py page render, looping over
+    every live paper book. Confirm it hoists the (deliberately uncached)
+    _load_generated_ledger()/_load_pipeline_ledger() reads to once per call, not once
+    per row -- the same regression class as research_kind() above, just smaller N."""
+    calls = {"generated": 0, "pipeline": 0}
+
+    def counting_generated():
+        calls["generated"] += 1
+        return {}
+
+    def counting_pipeline():
+        calls["pipeline"] += 1
+        return {}
+
+    monkeypatch.setattr(dashboard, "_load_generated_ledger", counting_generated)
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger", counting_pipeline)
+
+    names = ["tsmom_12m", "carry_btc_eth", "green_line_200d", "some_unmapped_name"]
+    app.group_books_by_family(_psum(names))
+
+    assert calls["generated"] == 1
+    assert calls["pipeline"] == 1
+
+
 def test_is_monitor_only_true_for_a_dead_verdict():
     gy = _gy_last({"tsmom_12m": "DEAD"})
     assert app._is_monitor_only("tsmom_12m", gy) is True

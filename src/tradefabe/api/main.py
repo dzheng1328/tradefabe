@@ -63,7 +63,8 @@ def _sparkline(phist, name, n=20):
     return [_finite_or_none(v) for v in h.tail(n).tolist()]
 
 
-def _row_json(r, *, colors, introduced, return_today, monitor_only, phist):
+def _row_json(r, *, colors, introduced, return_today, monitor_only, phist,
+              generated_ledger, pipeline_ledger):
     name = r["book"]
     intro = introduced.get(name, pd.NaT)
     return {
@@ -72,7 +73,8 @@ def _row_json(r, *, colors, introduced, return_today, monitor_only, phist):
         "return": _finite_or_none(r["return"]),
         "last_run": r["last_run"],
         "retired_at": r.get("retired_at") if pd.notna(r.get("retired_at")) else None,
-        "family": dashboard.book_family(name),
+        "family": dashboard.book_family(name, generated_ledger=generated_ledger,
+                                        pipeline_ledger=pipeline_ledger),
         "color": colors.get(name),
         "introduced": intro.isoformat() if pd.notna(intro) else None,
         "return_today": _finite_or_none(return_today.get(name, float("nan"))),
@@ -96,10 +98,13 @@ def books_summary(sort: str = "total_return", show_monitor_only: bool = True):
     introduced = dashboard.book_introduced_dates(phist)
     return_today = dashboard.book_return_today(phist)
     monitor_only = {n: dashboard._is_monitor_only(n, gy_last) for n in names}
+    generated_ledger = dashboard._load_generated_ledger()
+    pipeline_ledger = dashboard._load_pipeline_ledger()
 
     def row_kwargs():
         return dict(colors=colors, introduced=introduced, return_today=return_today,
-                   monitor_only=monitor_only, phist=phist)
+                   monitor_only=monitor_only, phist=phist,
+                   generated_ledger=generated_ledger, pipeline_ledger=pipeline_ledger)
 
     rows = dashboard.sort_books_flat(psum, phist, gy_last, show_monitor_only, sort)
     return {"books": [_row_json(r, **row_kwargs()) for r in rows]}
@@ -336,13 +341,16 @@ def research_verdicts():
     gy_last = dashboard.latest_verdicts(gy)
     cols = ["freq", "timestamp", "oos_sharpe", "oos_sortino", "oos_calmar", "oos_maxdd",
             "corr_bench", "null_p95", "verdict"]
+    generated_ledger = dashboard._load_generated_ledger()
+    pipeline_ledger = dashboard._load_pipeline_ledger()
     rows = []
     for strategy, row in gy_last[cols].iterrows():
         rows.append({
             "strategy": strategy,
             "freq": row["freq"],
             "tested": row["timestamp"],
-            "kind": dashboard.research_kind(strategy),
+            "kind": dashboard.research_kind(strategy, generated_ledger=generated_ledger,
+                                            pipeline_ledger=pipeline_ledger),
             "oos_sharpe": _finite_or_none(row["oos_sharpe"]),
             "oos_sortino": _finite_or_none(row["oos_sortino"]),
             "oos_calmar": _finite_or_none(row["oos_calmar"]),

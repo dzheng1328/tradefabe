@@ -81,6 +81,39 @@ def test_summary_show_monitor_only_false_excludes_monitor_only_books():
             assert row["book"] not in filtered_names
 
 
+def test_summary_loads_each_ledger_at_most_once_per_request(monkeypatch):
+    """Final-review finding 1/3: books_summary()'s per-row loop used to call
+    dashboard.book_family(name) with no pre-loaded ledger, so each row re-read
+    generated_templates.csv/pipeline_ideas.csv from disk -- fine at dozens of live
+    books today, the same regression class that made research_verdicts() ~1.5s at 487
+    graveyard rows. Confirm the two (deliberately uncached) loaders are each called at
+    most once per request, regardless of how many books are in psum."""
+    psum, _phist = dashboard.load_paper_state()
+    if psum is None or psum.empty:
+        return  # no local paper state in this environment -- nothing to assert
+
+    calls = {"generated": 0, "pipeline": 0}
+    real_generated = dashboard._load_generated_ledger
+    real_pipeline = dashboard._load_pipeline_ledger
+
+    def counting_generated():
+        calls["generated"] += 1
+        return real_generated()
+
+    def counting_pipeline():
+        calls["pipeline"] += 1
+        return real_pipeline()
+
+    monkeypatch.setattr(dashboard, "_load_generated_ledger", counting_generated)
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger", counting_pipeline)
+
+    client = TestClient(app)
+    resp = client.get("/api/books/summary?sort=recent")
+    assert resp.status_code == 200
+    assert calls["generated"] <= 1
+    assert calls["pipeline"] <= 1
+
+
 def test_summary_nan_fields_become_json_null_not_nan_token():
     """A book with < 2 distinct calendar days of history has NaN return_today --
     the response body must be valid JSON (null), never the bare NaN token FastAPI's
