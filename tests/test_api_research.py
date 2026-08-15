@@ -36,6 +36,40 @@ def test_verdicts_row_count_matches_latest_verdicts():
     assert row["verdict"] in ("ALIVE", "DEAD")
 
 
+def test_verdicts_loads_each_ledger_at_most_once_per_request(monkeypatch):
+    """Final-review finding 1: research_verdicts() loops over every graveyard row
+    (487 as of 2026-08-14) calling dashboard.research_kind(strategy) per row.
+    research_kind() calls _load_pipeline_ledger() unconditionally and
+    _load_generated_ledger() on most rows -- both deliberately uncached (2026-08-15
+    removal of a stale @functools.cache), so an unhoisted per-row call re-read
+    generated_templates.csv/pipeline_ideas.csv from disk on every row, measured at
+    ~1.5s for the full graveyard. Confirm each loader is now called at most once per
+    request regardless of row count."""
+    from tradefabe import dashboard
+
+    calls = {"generated": 0, "pipeline": 0}
+    real_generated = dashboard._load_generated_ledger
+    real_pipeline = dashboard._load_pipeline_ledger
+
+    def counting_generated():
+        calls["generated"] += 1
+        return real_generated()
+
+    def counting_pipeline():
+        calls["pipeline"] += 1
+        return real_pipeline()
+
+    monkeypatch.setattr(dashboard, "_load_generated_ledger", counting_generated)
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger", counting_pipeline)
+
+    client = TestClient(app)
+    resp = client.get("/api/research/verdicts")
+    assert resp.status_code == 200
+    assert len(resp.json()["rows"]) > 0
+    assert calls["generated"] <= 1
+    assert calls["pipeline"] <= 1
+
+
 def test_strategy_detail_unknown_name_is_404():
     client = TestClient(app)
     resp = client.get("/api/research/strategy/not_a_real_strategy")

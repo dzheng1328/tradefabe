@@ -124,11 +124,9 @@ def test_all_candidate_returns_sorts_the_index_after_concat(monkeypatch):
     monkeypatch.setattr(dashboard, "load_hourly_backtest", lambda: hourly)
     monkeypatch.setattr(dashboard, "load_kronos_backtest", lambda: None)
     monkeypatch.setattr(dashboard, "load_pairs_backtest", lambda: None)
-    dashboard._all_candidate_returns.cache_clear()
 
     combined, _bench = dashboard._all_candidate_returns()
     assert combined.index.is_monotonic_increasing
-    dashboard._all_candidate_returns.cache_clear()
 
 
 def test_unique_strategy_universe_excludes_stale_one_time_snapshots(monkeypatch):
@@ -152,3 +150,24 @@ def test_unique_strategy_universe_excludes_stale_one_time_snapshots(monkeypatch)
     assert "stale_old" not in kept
     assert set(kept) == {"fresh_a", "fresh_b"}
     assert "stale_old" not in oos.columns
+
+
+def test_sort_books_flat_sharpe_sorts_descending_by_backtest_oos_sharpe():
+    psum = pd.DataFrame({
+        "book": ["low_sharpe_book", "high_sharpe_book", "no_verdict_book"],
+        "equity": [100_000.0, 100_000.0, 100_000.0],
+        "return": [0.0, 0.0, 0.0],
+        "last_run": ["2026-08-14"] * 3,
+        "retired_at": [None, None, None],
+    })
+    phist = pd.DataFrame({
+        "book": ["low_sharpe_book", "high_sharpe_book", "no_verdict_book"],
+        "date": pd.to_datetime(["2026-08-14"] * 3),
+        "equity": [100_000.0, 100_000.0, 100_000.0],
+    })
+    gy_last = pd.DataFrame(
+        {"oos_sharpe": [0.2, 1.5], "verdict": ["DEAD", "DEAD"]},
+        index=["low_sharpe_book", "high_sharpe_book"],
+    )
+    rows = dashboard.sort_books_flat(psum, phist, gy_last, sort_key="sharpe")
+    assert [r["book"] for r in rows] == ["high_sharpe_book", "low_sharpe_book", "no_verdict_book"]

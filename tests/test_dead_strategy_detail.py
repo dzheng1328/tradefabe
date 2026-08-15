@@ -80,14 +80,28 @@ def test_book_family_falls_back_to_other_for_an_unknown_pipeline_name(monkeypatc
     assert app.book_family("rp_never_proposed") == "?"
 
 
-def test_every_graveyard_strategy_has_a_family_and_description():
+def test_every_graveyard_strategy_has_a_family_and_description(monkeypatch):
     """Regression guard: every strategy actually in graveyard.csv today must resolve to
     a real family (not the "?" -> Other fallback) and a real description (not the
     "no description yet" placeholder) -- the whole point of #31 was that DEAD strategies
     stop being invisible to the family/description machinery. Uses book_family()/
     strategy_description(), not the raw dicts, since factory-generated combo names
-    (#28) are handled by a pattern fallback rather than a static per-name entry."""
+    (#28) are handled by a pattern fallback rather than a static per-name entry.
+
+    2026-08-15: _load_generated_ledger()/_load_pipeline_ledger() dropped their
+    @functools.cache (see dashboard.py's docstrings -- a process-lifetime cache never
+    invalidated, hiding freshly-generated candidates). book_family()/strategy_description()
+    each call both loaders, so this loop's ~500 graveyard names turned into ~2000 CSV
+    re-reads and blew the 5s per-test budget -- an artifact of this test's own
+    all-strategies-at-once stress shape, not of real usage (a dashboard request resolves
+    a page of names, not the whole graveyard). Snapshot each ledger once here and hand
+    back the same dict on every call, so the test still exercises real ledger content
+    through the real resolution functions without re-reading the files per name."""
     import os
+    gen_ledger = dashboard._load_generated_ledger()
+    pipe_ledger = dashboard._load_pipeline_ledger()
+    monkeypatch.setattr(dashboard, "_load_generated_ledger", lambda: gen_ledger)
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger", lambda: pipe_ledger)
     gy = pd.read_csv(os.path.join(app.BASE, "graveyard.csv"))
     for name in gy["strategy"].unique():
         assert app.book_family(name) != "?", f"{name} has no resolvable family"

@@ -3,7 +3,6 @@ the lab dashboard. app.py's render_* functions and the FastAPI layer (src/tradef
 both import from here; this module has no Streamlit calls, mirroring how harness.py
 imports engine.py rather than keeping a private copy of doctrine math.
 """
-import functools
 import json
 import os
 import numpy as np
@@ -587,7 +586,6 @@ UNIQUE_STRATEGY_CORR_THRESHOLD = 0.97   # matches the threshold used to identify
 UNIQUE_STRATEGY_RECENCY_DAYS = 400
 
 
-@functools.cache
 def _all_candidate_returns():
     """Unions every backtest curve source that's actually been PERSISTED to disk --
     full_returns.csv (the original hand-picked roster) plus factory/pipeline/hourly/
@@ -611,9 +609,13 @@ def _all_candidate_returns():
     hourly/kronos are already OOS-only at persist time (see each load_*_backtest()'s
     own docstring), so they're used as-is.
 
-    @functools.cache for the same reason _load_generated_ledger() is: called once per
-    Research Lab overview/piggyback request, and reads+concats 6 CSVs each time
-    otherwise."""
+    Deliberately UNCACHED (2026-08-15) -- this used to be @functools.cache, which never
+    invalidates. A long-lived process (the FastAPI dev server, or app.py's Streamlit
+    process) that called this once would keep serving that snapshot forever, even after
+    the daily factory/pipeline crons committed new curves -- the Research Lab overview's
+    growth chart and correlation table froze at whatever the universe looked like at
+    process start. Re-reading 6 CSVs per call costs well under a second, which a
+    human-facing dashboard's request volume doesn't come close to making a problem."""
     full, meta, _nulls, _gy = load_backtest()
     OOS = pd.Timestamp(meta["oos_start"])
     full_oos = full[full.index >= OOS]
@@ -809,9 +811,8 @@ BOOK_FAMILY = {
 }
 
 
-@functools.cache
 def _load_generated_ledger():
-    """Cached lookup of every LIVE-GENERATED candidate ever tested (#28b) -- name ->
+    """Lookup of every LIVE-GENERATED candidate ever tested (#28b) -- name ->
     {"family", "rationale"} -- so book_family()/strategy_description() can resolve a
     generated candidate's name (e.g. "tsmom_gen_147d") without a static per-name dict
     entry, which is impossible here: the parameter is drawn fresh each cycle, not fixed
@@ -819,12 +820,10 @@ def _load_generated_ledger():
     git-tracked audit ledger (every draw logged at generation time, before its verdict
     is known), so this is reading the SAME record the doctrine itself relies on.
 
-    `@functools.cache` (not `@st.cache_data`, which required Streamlit and lived here
-    before this module was extracted from app.py) -- book_family()/strategy_description()
-    call this per name, so an uncached version turns one loop over graveyard.csv's ~140
-    strategies into ~140 redundant CSV re-reads. Caught by CI (#204): a regression test
-    that resolves every graveyard name blew a 5s per-test budget on a shared runner,
-    passing locally only because local disk was fast enough to hide it."""
+    Deliberately UNCACHED (2026-08-15) -- this was `@functools.cache` (never invalidated,
+    caught alongside the identical bug in _all_candidate_returns()): a freshly-generated
+    candidate's family/rationale stayed unresolvable in a long-lived process until
+    restart. Re-reading one small CSV per call is cheap enough not to need caching."""
     path = os.path.join(BASE, "generated_templates.csv")
     if not os.path.exists(path):
         return {}
@@ -833,14 +832,14 @@ def _load_generated_ledger():
             for _, row in df.iterrows()}
 
 
-@functools.cache
 def _load_pipeline_ledger():
     """Same role as _load_generated_ledger(), for the research pipeline's rp_-prefixed
     names (#174) instead of the factory's _gen_/combo ones. pipeline_ideas.csv has no
     per-row family column (unlike generated_templates.csv) because every pipeline
     proposal -- whichever PRIMITIVES shape it used -- shares the same origin, family "O",
-    not a mechanism-specific one; see BOOK_FAMILIES's comment for why. Cached for the
-    same reason _load_generated_ledger() is -- see its docstring."""
+    not a mechanism-specific one; see BOOK_FAMILIES's comment for why. Deliberately
+    uncached, same reason and same date as _load_generated_ledger() -- see its
+    docstring."""
     path = os.path.join(BASE, "pipeline_ideas.csv")
     if not os.path.exists(path):
         return {}
@@ -859,35 +858,56 @@ def _load_pipeline_ledger():
 # "how was this found" label, not for n_tested's statistical correction (that logic,
 # and its promoted-name reclassification, stays in harness.py; this is presentation
 # only, so it doesn't need promoted_names()'s "rejoins hand-picked" rule).
-def research_kind(name: str) -> str:
+def research_kind(name: str, generated_ledger=None, pipeline_ledger=None) -> str:
     """Buckets a graveyard strategy name into how it was found, for the Research Lab UI:
     "pipeline" (thesis-driven, from the daily research pipeline, #174), "factory"
     (parameter tuning -- a fixed TEMPLATES entry or a live-generated `_gen_`/combo draw,
     #28/#28b), or "hand" (everything else -- the original doctrine roster, hourly/Kronos/
-    pairs families, etc.)."""
-    if name.startswith("rp_") or name in _load_pipeline_ledger():
+    pairs families, etc.).
+
+    `generated_ledger`/`pipeline_ledger` let a per-row-loop caller (e.g.
+    api/main.py's research_verdicts()) load _load_generated_ledger()/
+    _load_pipeline_ledger() ONCE before the loop and pass the dicts in, instead of this
+    function re-reading generated_templates.csv/pipeline_ideas.csv from disk on every
+    row -- the two ledger loaders are deliberately uncached (see their docstrings), so a
+    tight loop must hoist the read itself rather than rely on a cache to absorb it.
+    Defaults to loading fresh, unchanged for every other (single-lookup) caller."""
+    if pipeline_ledger is None:
+        pipeline_ledger = _load_pipeline_ledger()
+    if name.startswith("rp_") or name in pipeline_ledger:
         return "pipeline"
+    if generated_ledger is None:
+        generated_ledger = _load_generated_ledger()
     if ("_gen_" in name or "combo" in name.lower()
-            or name in factory.TEMPLATES or name in _load_generated_ledger()):
+            or name in factory.TEMPLATES or name in generated_ledger):
         return "factory"
     return "hand"
 
 
-def book_family(name):
+def book_family(name, generated_ledger=None, pipeline_ledger=None):
     """BOOK_FAMILY lookup with two pattern-based fallbacks: factory_run.py names every
     combo it builds `factory_combo_<leg_a>_<leg_b>` (the legs vary run to run, since
     complementary_pairs() picks whichever pair is least-correlated THIS cycle) and every
     live-generated candidate `<family-prefix>_gen_<params>` (the params are drawn fresh
     each cycle) -- neither can have a static per-name dict entry. Anything else unmapped
-    falls back to "?" (rendered as "Other")."""
+    falls back to "?" (rendered as "Other").
+
+    `generated_ledger`/`pipeline_ledger` are the same opt-in pre-loaded-dict params as
+    research_kind() above -- pass them from a per-row loop (group_books_by_family(),
+    api/main.py's books_summary()) to load each ledger once per request instead of once
+    per row. Left as None (the default), this loads fresh each call, same as before."""
     if name in BOOK_FAMILY:
         return BOOK_FAMILY[name]
     if name.startswith("factory_combo_"):
         return "H"
-    gen = _load_generated_ledger().get(name)
+    if generated_ledger is None:
+        generated_ledger = _load_generated_ledger()
+    gen = generated_ledger.get(name)
     if gen:
         return gen["family"]
-    pipe = _load_pipeline_ledger().get(name)
+    if pipeline_ledger is None:
+        pipeline_ledger = _load_pipeline_ledger()
+    pipe = pipeline_ledger.get(name)
     if pipe:
         return pipe["family"]
     return "?"
@@ -998,7 +1018,14 @@ def group_books_by_family(psum, gy_last=None, show_monitor_only=True):
     A retired book is pulled OUT of its normal family bucket into one universal
     "Retired" group appended at the very end, regardless of which family it belongs to
     -- otherwise a retired book stayed mixed into its family's rows, indistinguishable
-    at a glance from the still-live ones sitting right next to it."""
+    at a glance from the still-live ones sitting right next to it.
+
+    Loads the generated/pipeline ledgers ONCE here (app.py calls this on every page
+    render) rather than letting book_family()'s per-name fallback re-read
+    generated_templates.csv/pipeline_ideas.csv from disk per row -- these two loaders
+    are deliberately uncached, so a tight loop must hoist the read itself."""
+    generated_ledger = _load_generated_ledger()
+    pipeline_ledger = _load_pipeline_ledger()
     monitor_only = {r["book"]: _is_monitor_only(r["book"], gy_last) for _, r in psum.iterrows()}
     by_family = {}
     retired_rows = []
@@ -1008,7 +1035,8 @@ def group_books_by_family(psum, gy_last=None, show_monitor_only=True):
         if _row_is_retired(r):
             retired_rows.append(r)
             continue
-        by_family.setdefault(book_family(r["book"]), []).append(r)
+        fam = book_family(r["book"], generated_ledger=generated_ledger, pipeline_ledger=pipeline_ledger)
+        by_family.setdefault(fam, []).append(r)
     out = []
     for family in list(BOOK_FAMILIES) + ["?"]:
         rows = by_family.get(family)
@@ -1051,10 +1079,13 @@ def sort_books_flat(psum, phist, gy_last=None, show_monitor_only=True, sort_key=
     group_books_by_family's rows already are: both support `r["book"]` / `r.get(...)`),
     just one list sorted descending instead of family-bucketed tuples.
 
-    sort_key: "recent" (book_introduced_dates), "return_today" (book_return_today), or
-    "total_return" (psum's own `return` column). Sorted via pandas sort_values, NOT a
-    hand-rolled sorted() -- comparing None to a Timestamp, or NaN to a float, raises under
-    plain Python sort but sort_values(na_position="last") handles both cleanly."""
+    sort_key: "recent" (book_introduced_dates), "return_today" (book_return_today),
+    "total_return" (psum's own `return` column), or "sharpe" (gy_last's own `oos_sharpe`
+    -- the pre-registered doctrine backtest number, the same one shown on each book's own
+    Verdict line; a book with no graveyard row sorts last, same as any other NaN here).
+    Sorted via pandas sort_values, NOT a hand-rolled sorted() -- comparing None to a
+    Timestamp, or NaN to a float, raises under plain Python sort but
+    sort_values(na_position="last") handles both cleanly."""
     monitor_only = {r["book"]: _is_monitor_only(r["book"], gy_last) for _, r in psum.iterrows()}
     rows = [r for _, r in psum.iterrows() if show_monitor_only or not monitor_only[r["book"]]]
     if not rows:
@@ -1064,12 +1095,17 @@ def sort_books_flat(psum, phist, gy_last=None, show_monitor_only=True, sort_key=
     df = pd.DataFrame(rows)
     df["_introduced"] = df["book"].map(lambda n: introduced.get(n, pd.NaT))
     df["_return_today"] = df["book"].map(lambda n: return_today.get(n, float("nan")))
+    df["_sharpe"] = df["book"].map(
+        lambda n: float(gy_last.loc[n, "oos_sharpe"])
+        if gy_last is not None and n in gy_last.index and pd.notna(gy_last.loc[n, "oos_sharpe"])
+        else float("nan")
+    )
     # Retired sorts last no matter which sort_key is active -- primary key, ascending
     # (False=0 before True=1), so it wins ties over the secondary chosen-sort column
     # without disturbing that column's own ordering within either group.
     df["_retired"] = df.apply(_row_is_retired, axis=1)
     sort_col = {"recent": "_introduced", "return_today": "_return_today",
-                "total_return": "return"}[sort_key]
+                "total_return": "return", "sharpe": "_sharpe"}[sort_key]
     df = df.sort_values(["_retired", sort_col], ascending=[True, False], na_position="last")
     return list(df.to_dict("records"))
 
@@ -1167,23 +1203,32 @@ STRATEGY_DESCRIPTIONS = {
 }
 
 
-def strategy_description(name):
+def strategy_description(name, generated_ledger=None, pipeline_ledger=None):
     """STRATEGY_DESCRIPTIONS lookup with two pattern-based fallbacks, mirroring
     book_family(): factory_run.py's combo names vary run to run (whichever pair was
     least-correlated that cycle), so a static per-name entry can't cover them, and the
     leg names can't be unambiguously recovered by splitting the combo name on "_" (leg
     names themselves contain underscores) -- a generic description beats a fragile
     parse. Live-generated candidates (#28b) get their real per-candidate rationale from
-    generated_templates.csv (logged at generation time), not a generic line."""
+    generated_templates.csv (logged at generation time), not a generic line.
+
+    `generated_ledger`/`pipeline_ledger` are the same opt-in pre-loaded-dict params as
+    book_family()/research_kind() -- pass them from a per-row loop; defaults to loading
+    fresh each call, unchanged for the many single-lookup call sites (e.g. a strategy
+    detail endpoint)."""
     if name in STRATEGY_DESCRIPTIONS:
         return STRATEGY_DESCRIPTIONS[name]
     if name.startswith("factory_combo_"):
         return ("A 30% sleeve on a 70% 60/40 core, built from the least-correlated pair "
                 "of factory-tested candidates that cycle — see graveyard.csv for which two.")
-    gen = _load_generated_ledger().get(name)
+    if generated_ledger is None:
+        generated_ledger = _load_generated_ledger()
+    gen = generated_ledger.get(name)
     if gen:
         return gen["rationale"]
-    pipe = _load_pipeline_ledger().get(name)
+    if pipeline_ledger is None:
+        pipeline_ledger = _load_pipeline_ledger()
+    pipe = pipeline_ledger.get(name)
     if pipe:
         return pipe["rationale"]
     return "(no description yet — add one to STRATEGY_DESCRIPTIONS in tradefabe/dashboard.py)"
