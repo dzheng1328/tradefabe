@@ -321,7 +321,15 @@ def research_overview():
             "bench_sharpe": _finite_or_none(gy_last["bench_sharpe"].iloc[0]),
         },
         "strategies": strats,
-        "growth_chart": json.loads(growth.to_json()),
+        # hide_hover_legend: a SIBLING of data/layout, not read by react-plotly.js's
+        # <Plot> at all (it only destructures data/layout/config/frames), so Plotly.js
+        # can never see or mutate it -- unlike the earlier approach of sniffing
+        # layout.hoverlabel.bgcolor for a sentinel color, which broke the moment
+        # Plotly's own color-normalization pass rewrote "rgba(0,0,0,0)" to
+        # "rgba(0, 0, 0, 0)" (spaces added) in place on the shared layout object,
+        # flipping the frontend's strict-equality check to false after the first
+        # redraw (confirmed live, 2026-08-14).
+        "growth_chart": {**json.loads(growth.to_json()), "hide_hover_legend": True},
         "correlation_heatmap": json.loads(heatmap.to_json()),
     }
 

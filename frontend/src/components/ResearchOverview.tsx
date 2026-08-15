@@ -15,7 +15,7 @@ type OverviewResponse = {
     best_strategy: string; best_sharpe: number | null; bench_sharpe: number | null;
   };
   strategies: string[];
-  growth_chart: { data: unknown[]; layout: Record<string, unknown> };
+  growth_chart: { data: unknown[]; layout: Record<string, unknown>; hide_hover_legend?: boolean };
   correlation_heatmap: { data: unknown[]; layout: Record<string, unknown> };
 };
 
