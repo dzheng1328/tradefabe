@@ -1,36 +1,36 @@
 import math
 
-import pandas as pd
 from fastapi.testclient import TestClient
 
 from tradefabe.api.main import app
 from tradefabe import dashboard
 
 
-def test_summary_default_sort_groups_by_family():
+def test_summary_default_sort_is_total_return_and_flat():
     client = TestClient(app)
     resp = client.get("/api/books/summary")
     assert resp.status_code == 200
     body = resp.json()
-    assert "families" in body
-    psum, _phist = dashboard.load_paper_state()
-    if psum is None:
-        assert body["families"] == []
-        return
-    total_books = sum(len(f["books"]) for f in body["families"])
-    assert total_books == len(psum)
-    for fam in body["families"]:
-        assert set(fam.keys()) == {"family", "label", "books"}
+    assert "books" in body
+    assert "families" not in body
+    default_body = client.get("/api/books/summary?sort=total_return").json()
+    assert body == default_body
 
 
 def test_summary_flat_sort_modes_return_a_flat_books_list():
     client = TestClient(app)
-    for sort in ("recent", "return_today", "total_return"):
+    for sort in ("recent", "return_today", "total_return", "sharpe"):
         resp = client.get(f"/api/books/summary?sort={sort}")
         assert resp.status_code == 200
         body = resp.json()
         assert "books" in body
         assert "families" not in body
+
+
+def test_summary_family_sort_is_no_longer_accepted():
+    client = TestClient(app)
+    resp = client.get("/api/books/summary?sort=family")
+    assert resp.status_code == 400
 
 
 def test_summary_unknown_sort_is_a_400():

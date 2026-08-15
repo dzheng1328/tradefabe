@@ -82,13 +82,13 @@ def _row_json(r, *, colors, introduced, return_today, monitor_only, phist):
 
 
 @app.get("/api/books/summary")
-def books_summary(sort: str = "family", show_monitor_only: bool = True):
-    if sort not in ("family", "recent", "return_today", "total_return"):
+def books_summary(sort: str = "total_return", show_monitor_only: bool = True):
+    if sort not in ("recent", "return_today", "total_return", "sharpe"):
         raise HTTPException(status_code=400, detail=f"unknown sort: {sort}")
 
     psum, phist = dashboard.load_paper_state()
     if psum is None:
-        return {"families": []} if sort == "family" else {"books": []}
+        return {"books": []}
 
     gy_last = _load_gy_last()
     names = psum["book"].tolist()
@@ -100,14 +100,6 @@ def books_summary(sort: str = "family", show_monitor_only: bool = True):
     def row_kwargs():
         return dict(colors=colors, introduced=introduced, return_today=return_today,
                    monitor_only=monitor_only, phist=phist)
-
-    if sort == "family":
-        groups = dashboard.group_books_by_family(psum, gy_last, show_monitor_only)
-        return {"families": [
-            {"family": family, "label": label,
-             "books": [_row_json(r, **row_kwargs()) for r in rows]}
-            for family, label, rows in groups
-        ]}
 
     rows = dashboard.sort_books_flat(psum, phist, gy_last, show_monitor_only, sort)
     return {"books": [_row_json(r, **row_kwargs()) for r in rows]}
