@@ -587,7 +587,6 @@ UNIQUE_STRATEGY_CORR_THRESHOLD = 0.97   # matches the threshold used to identify
 UNIQUE_STRATEGY_RECENCY_DAYS = 400
 
 
-@functools.cache
 def _all_candidate_returns():
     """Unions every backtest curve source that's actually been PERSISTED to disk --
     full_returns.csv (the original hand-picked roster) plus factory/pipeline/hourly/
@@ -611,9 +610,13 @@ def _all_candidate_returns():
     hourly/kronos are already OOS-only at persist time (see each load_*_backtest()'s
     own docstring), so they're used as-is.
 
-    @functools.cache for the same reason _load_generated_ledger() is: called once per
-    Research Lab overview/piggyback request, and reads+concats 6 CSVs each time
-    otherwise."""
+    Deliberately UNCACHED (2026-08-15) -- this used to be @functools.cache, which never
+    invalidates. A long-lived process (the FastAPI dev server, or app.py's Streamlit
+    process) that called this once would keep serving that snapshot forever, even after
+    the daily factory/pipeline crons committed new curves -- the Research Lab overview's
+    growth chart and correlation table froze at whatever the universe looked like at
+    process start. Re-reading 6 CSVs per call costs well under a second, which a
+    human-facing dashboard's request volume doesn't come close to making a problem."""
     full, meta, _nulls, _gy = load_backtest()
     OOS = pd.Timestamp(meta["oos_start"])
     full_oos = full[full.index >= OOS]
@@ -809,9 +812,8 @@ BOOK_FAMILY = {
 }
 
 
-@functools.cache
 def _load_generated_ledger():
-    """Cached lookup of every LIVE-GENERATED candidate ever tested (#28b) -- name ->
+    """Lookup of every LIVE-GENERATED candidate ever tested (#28b) -- name ->
     {"family", "rationale"} -- so book_family()/strategy_description() can resolve a
     generated candidate's name (e.g. "tsmom_gen_147d") without a static per-name dict
     entry, which is impossible here: the parameter is drawn fresh each cycle, not fixed
@@ -819,12 +821,10 @@ def _load_generated_ledger():
     git-tracked audit ledger (every draw logged at generation time, before its verdict
     is known), so this is reading the SAME record the doctrine itself relies on.
 
-    `@functools.cache` (not `@st.cache_data`, which required Streamlit and lived here
-    before this module was extracted from app.py) -- book_family()/strategy_description()
-    call this per name, so an uncached version turns one loop over graveyard.csv's ~140
-    strategies into ~140 redundant CSV re-reads. Caught by CI (#204): a regression test
-    that resolves every graveyard name blew a 5s per-test budget on a shared runner,
-    passing locally only because local disk was fast enough to hide it."""
+    Deliberately UNCACHED (2026-08-15) -- this was `@functools.cache` (never invalidated,
+    caught alongside the identical bug in _all_candidate_returns()): a freshly-generated
+    candidate's family/rationale stayed unresolvable in a long-lived process until
+    restart. Re-reading one small CSV per call is cheap enough not to need caching."""
     path = os.path.join(BASE, "generated_templates.csv")
     if not os.path.exists(path):
         return {}
@@ -833,14 +833,14 @@ def _load_generated_ledger():
             for _, row in df.iterrows()}
 
 
-@functools.cache
 def _load_pipeline_ledger():
     """Same role as _load_generated_ledger(), for the research pipeline's rp_-prefixed
     names (#174) instead of the factory's _gen_/combo ones. pipeline_ideas.csv has no
     per-row family column (unlike generated_templates.csv) because every pipeline
     proposal -- whichever PRIMITIVES shape it used -- shares the same origin, family "O",
-    not a mechanism-specific one; see BOOK_FAMILIES's comment for why. Cached for the
-    same reason _load_generated_ledger() is -- see its docstring."""
+    not a mechanism-specific one; see BOOK_FAMILIES's comment for why. Deliberately
+    uncached, same reason and same date as _load_generated_ledger() -- see its
+    docstring."""
     path = os.path.join(BASE, "pipeline_ideas.csv")
     if not os.path.exists(path):
         return {}

@@ -57,3 +57,58 @@ def test_books_summary_has_no_hardcoded_book_names():
     body = resp.json()
     names_in_response = {b["book"] for b in body["books"]}
     assert names_in_response == names_in_state
+
+
+def test_all_candidate_returns_is_not_cached_across_calls(monkeypatch):
+    """2026-08-15: _all_candidate_returns() was wrapped in @functools.cache with no
+    invalidation -- once a long-lived process (the FastAPI dev server, or app.py's
+    Streamlit process) called it once, a newly-committed factory/pipeline curve stayed
+    invisible on the Research Lab overview growth chart/correlation table until the
+    process restarted. This proves a SECOND call sees data that changed after the
+    FIRST call."""
+    idx = pd.date_range("2018-01-01", periods=5, freq="D")
+    full = pd.DataFrame(
+        {"a": [0.001] * 5, "bench_6040": [0.0005] * 5, "spy": [0.0004] * 5}, index=idx
+    )
+    meta = {"oos_start": idx[0].isoformat()}
+    monkeypatch.setattr(dashboard, "load_backtest", lambda: (full, meta, None, None))
+    monkeypatch.setattr(dashboard, "load_pipeline_backtest", lambda: None)
+    monkeypatch.setattr(dashboard, "load_hourly_backtest", lambda: None)
+    monkeypatch.setattr(dashboard, "load_kronos_backtest", lambda: None)
+    monkeypatch.setattr(dashboard, "load_pairs_backtest", lambda: None)
+
+    monkeypatch.setattr(dashboard, "load_factory_backtest", lambda: None)
+    combined_before, _bench = dashboard._all_candidate_returns()
+    assert "brand_new_factory_candidate" not in combined_before.columns
+
+    new_curve = pd.DataFrame({"brand_new_factory_candidate": [0.002] * 5}, index=idx)
+    monkeypatch.setattr(dashboard, "load_factory_backtest", lambda: new_curve)
+    combined_after, _bench = dashboard._all_candidate_returns()
+    assert "brand_new_factory_candidate" in combined_after.columns
+
+
+def test_load_generated_ledger_is_not_cached_across_calls(tmp_path, monkeypatch):
+    """Same bug, same fix, for the factory's own name/family/rationale ledger -- a
+    freshly-generated candidate's family/rationale must resolve without a restart."""
+    monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
+    ledger_before = dashboard._load_generated_ledger()
+    assert "tsmom_gen_999d" not in ledger_before
+
+    pd.DataFrame([{"name": "tsmom_gen_999d", "family": "A", "rationale": "..."}]).to_csv(
+        tmp_path / "generated_templates.csv", index=False
+    )
+    ledger_after = dashboard._load_generated_ledger()
+    assert "tsmom_gen_999d" in ledger_after
+
+
+def test_load_pipeline_ledger_is_not_cached_across_calls(tmp_path, monkeypatch):
+    """Same bug, same fix, for the research pipeline's own rp_-prefixed ledger."""
+    monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
+    ledger_before = dashboard._load_pipeline_ledger()
+    assert "rp_new_idea_999" not in ledger_before
+
+    pd.DataFrame([{"name": "rp_new_idea_999", "rationale": "..."}]).to_csv(
+        tmp_path / "pipeline_ideas.csv", index=False
+    )
+    ledger_after = dashboard._load_pipeline_ledger()
+    assert "rp_new_idea_999" in ledger_after

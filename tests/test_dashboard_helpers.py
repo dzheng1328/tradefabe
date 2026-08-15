@@ -124,11 +124,9 @@ def test_all_candidate_returns_sorts_the_index_after_concat(monkeypatch):
     monkeypatch.setattr(dashboard, "load_hourly_backtest", lambda: hourly)
     monkeypatch.setattr(dashboard, "load_kronos_backtest", lambda: None)
     monkeypatch.setattr(dashboard, "load_pairs_backtest", lambda: None)
-    dashboard._all_candidate_returns.cache_clear()
 
     combined, _bench = dashboard._all_candidate_returns()
     assert combined.index.is_monotonic_increasing
-    dashboard._all_candidate_returns.cache_clear()
 
 
 def test_unique_strategy_universe_excludes_stale_one_time_snapshots(monkeypatch):
