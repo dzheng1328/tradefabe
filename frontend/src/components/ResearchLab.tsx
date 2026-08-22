@@ -4,6 +4,8 @@ import VerdictsTable from "./VerdictsTable";
 import StrategyDetail from "./StrategyDetail";
 import Diagnostics from "./Diagnostics";
 import PiggybackLab from "./PiggybackLab";
+import { playSelect } from "../lib/sound";
+import { useScrollSound } from "../lib/useScrollSound";
 
 const TABS = ["Overview", "Verdicts", "Strategy Detail", "Diagnostics", "Piggyback Lab"] as const;
 type Tab = (typeof TABS)[number];
@@ -17,8 +19,10 @@ export default function ResearchLab() {
   // Instead: mount a tab's component the first time it's activated, then keep it mounted
   // forever and just show/hide it with CSS.
   const [activatedTabs, setActivatedTabs] = useState<Set<Tab>>(new Set(["Overview"]));
+  const scrollRef = useScrollSound<HTMLDivElement>();
 
   function activate(tab: Tab) {
+    playSelect();
     setActiveTab(tab);
     setActivatedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
   }
@@ -29,7 +33,7 @@ export default function ResearchLab() {
   }
 
   return (
-    <div className="p-10 overflow-y-auto h-full">
+    <div ref={scrollRef} className="p-10 overflow-y-auto h-full">
       <div className="flex gap-4 border-b border-white/5 pb-2 mb-6 text-sm font-mono uppercase">
         {TABS.map((tab) => (
           <button
