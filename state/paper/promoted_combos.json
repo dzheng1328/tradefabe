@@ -424,5 +424,25 @@
     }
    }
   ]
+ },
+ {
+  "name": "factory_combo_low_vol_xsec_gen_113d_tsmom_gen_30d",
+  "freq": "M",
+  "legs": [
+   {
+    "name": "low_vol_xsec_gen_113d",
+    "family": "D",
+    "params": {
+     "vol_window": 113
+    }
+   },
+   {
+    "name": "tsmom_gen_30d",
+    "family": "A",
+    "params": {
+     "lookback_days": 30
+    }
+   }
+  ]
  }
 ]
