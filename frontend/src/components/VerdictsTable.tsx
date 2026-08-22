@@ -35,7 +35,7 @@ export default function VerdictsTable({ onSelect }: { onSelect: (name: string) =
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
 
   useEffect(() => {
-    fetchJSON<{ rows: VerdictRow[] }>("http://localhost:8000/api/research/verdicts")
+    fetchJSON<{ rows: VerdictRow[] }>("http://127.0.0.1:8000/api/research/verdicts")
       .then((body) => setRows(body.rows))
       .catch(() => setError("Couldn't load the verdicts table."));
   }, []);

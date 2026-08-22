@@ -9,10 +9,13 @@ from tradefabe import dashboard, risk_register
 
 app = FastAPI(title="tradefabe dashboard API")
 
-# Vite's dev server -- the only origin that ever calls this locally.
+# Vite's dev server -- the only origins that ever call this locally. Both host forms
+# are needed: `npm run dev` in a browser resolves to localhost, but the desktop app's
+# WKWebView doesn't reliably fall back from localhost's IPv6 (::1) to the IPv4-only
+# server here, so vite.config.ts pins the dev server to the 127.0.0.1 form instead.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_methods=["GET"],
     allow_headers=["*"],
 )

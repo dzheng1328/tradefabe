@@ -33,7 +33,7 @@ export default function PiggybackLab() {
   const [recommendError, setRecommendError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchJSON<{ strategies: string[] }>("http://localhost:8000/api/research/overview")
+    fetchJSON<{ strategies: string[] }>("http://127.0.0.1:8000/api/research/overview")
       .then((body) => setStrategies(body.strategies))
       .catch(() => setStrategiesError("Couldn't load the strategy list."));
   }, []);
@@ -44,7 +44,7 @@ export default function PiggybackLab() {
     setResultError(null);
     const id = setTimeout(() => {
       fetchJSON<PiggybackResponse>(
-        `http://localhost:8000/api/research/piggyback?sleeve=${sleeve.join(",")}&weight=${weight}`
+        `http://127.0.0.1:8000/api/research/piggyback?sleeve=${sleeve.join(",")}&weight=${weight}`
       )
         .then(setResult)
         .catch(() => { setResult(null); setResultError("Couldn't simulate this sleeve."); });
@@ -59,7 +59,7 @@ export default function PiggybackLab() {
     setRecommendError(null);
     const id = setTimeout(() => {
       fetchJSON<{ recommendations: RecommendRow[] }>(
-        `http://localhost:8000/api/research/piggyback/recommend?sleeve=${sleeve.join(",")}&weight=${weight}&limit=${RECOMMEND_LIMIT}`
+        `http://127.0.0.1:8000/api/research/piggyback/recommend?sleeve=${sleeve.join(",")}&weight=${weight}&limit=${RECOMMEND_LIMIT}`
       )
         .then((body) => setRecommendations(body.recommendations))
         .catch(() => { setRecommendations(null); setRecommendError("Couldn't load recommendations."); });

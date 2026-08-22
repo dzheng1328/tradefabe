@@ -20,7 +20,7 @@ export default function Diagnostics({ selected }: { selected: string | null }) {
   useEffect(() => {
     if (!selected) { setLuckFloor(null); setLuckFloorError(null); return; }
     setLuckFloorError(null);
-    fetch(`http://localhost:8000/api/research/luck_floor?strategy=${selected}`)
+    fetch(`http://127.0.0.1:8000/api/research/luck_floor?strategy=${selected}`)
       .then((res) => {
         if (!res.ok) {
           setLuckFloor(null);
@@ -35,7 +35,7 @@ export default function Diagnostics({ selected }: { selected: string | null }) {
   useEffect(() => {
     if (!drawdownPick) { setDrawdown(null); setDrawdownError(null); return; }
     setDrawdownError(null);
-    fetch(`http://localhost:8000/api/research/drawdown?pick=${encodeURIComponent(drawdownPick)}`)
+    fetch(`http://127.0.0.1:8000/api/research/drawdown?pick=${encodeURIComponent(drawdownPick)}`)
       .then((res) => {
         if (!res.ok) {
           setDrawdown(null);

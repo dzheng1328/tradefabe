@@ -286,7 +286,7 @@ export default function RowList({ selectedName }: { selectedName: string | null 
 
   useEffect(() => {
     const sort = SORT_OPTIONS[sortLabel];
-    fetch(`http://localhost:8000/api/books/summary?sort=${sort}`)
+    fetch(`http://127.0.0.1:8000/api/books/summary?sort=${sort}`)
       .then((res) => res.json())
       .then((body: SummaryResponse) => {
         setData(body);
@@ -303,7 +303,7 @@ export default function RowList({ selectedName }: { selectedName: string | null 
   }, [sortLabel, selectedName, navigate]);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/books/up_for_review")
+    fetch("http://127.0.0.1:8000/api/books/up_for_review")
       .then((res) => res.json())
       .then((body: { books: ReviewRow[] }) => {
         setReview(body.books);

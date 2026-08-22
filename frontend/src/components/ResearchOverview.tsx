@@ -26,7 +26,7 @@ export default function ResearchOverview() {
   const [clickedRows, setClickedRows] = useState<GrowthValueRow[] | null>(null);
 
   useEffect(() => {
-    fetchJSON<OverviewResponse>("http://localhost:8000/api/research/overview")
+    fetchJSON<OverviewResponse>("http://127.0.0.1:8000/api/research/overview")
       .then(setData)
       .catch(() => setError("Couldn't load the research overview."));
   }, []);

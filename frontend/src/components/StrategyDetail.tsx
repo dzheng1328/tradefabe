@@ -20,7 +20,7 @@ export default function StrategyDetail({ selected }: { selected: string | null }
   useEffect(() => {
     if (!selected) { setData(null); setError(null); return; }
     setError(null);
-    fetchJSON<StrategyResponse>(`http://localhost:8000/api/research/strategy/${selected}`)
+    fetchJSON<StrategyResponse>(`http://127.0.0.1:8000/api/research/strategy/${selected}`)
       .then(setData)
       .catch(() => setError("Couldn't load this strategy's detail."));
   }, [selected]);
