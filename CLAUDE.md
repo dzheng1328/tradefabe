@@ -68,16 +68,19 @@ doctrine — no lower bar because "this one feels different" or "a machine found
   the signals and the live monitor books, so a study and its book call one function rather
   than two drifting copies. **`kronos.py`'s torch imports are lazy** — importing it proves
   nothing; call `kronos.is_available()`.
-- **`app.py`** — Streamlit, port 8501. Plotly only. **No emoji**: Material Symbols
-  (`icon=":material/..."`) or the `.tf-badge` component.
-- **Dashboard rebuild in progress, one sub-project at a time — #1 merged 2026-08-06
-  (#203/#204).** Moving off Streamlit to React/FastAPI. **`app.py` is still the only live
-  UI** (desktop app + localhost:8501 both point at it, unchanged) — nothing below is
-  wired in yet. `src/tradefabe/dashboard.py` is the Streamlit-free data/chart layer
-  `app.py` and the new API both import from. `src/tradefabe/api/` is a thin FastAPI read
-  layer over it. `frontend/` (Vite/React/TS/Tailwind/Framer Motion) is one placeholder
-  screen so far, not a real page. Spec/plan in
-  `docs/superpowers/{specs,plans}/*dashboard-foundation*`.
+- **Dashboard rebuild — all 4 sub-projects shipped (#203/#204, #209-212, #215, #222,
+  #224, 2026-08-22).** `app.py`/Streamlit is retired and deleted; the live UI is
+  `frontend/` (Vite/React/TS/Tailwind/Framer Motion) over `src/tradefabe/api/`
+  (FastAPI), both fed by `src/tradefabe/dashboard.py` — the Streamlit-free data/chart
+  layer that's the single source of truth for dashboard logic, same pattern as
+  `engine.py`. Plotly only. **No emoji**: Material Symbols or the `.tf-badge` component.
+  **The desktop app is one process, not two**: `desktop.py` starts only `tradefabe-api`;
+  `ops/build_app.sh` runs `npm run build` first and `api/main.py` mounts
+  `frontend/dist/` directly, so the packaged app never spawns a live `npm run dev`. The
+  `npm run dev` browser workflow at localhost:5173 is unchanged and talks to the API
+  cross-origin (CORS pinned to both `localhost:5173` and `127.0.0.1:5173` — the WKWebView
+  and `desktop.py`'s own port check both target the IPv4 form, Vite/`localhost` default
+  to IPv6). Spec/plan history in `docs/superpowers/{specs,plans}/*dashboard-*`.
 - **`tests/`** — pyproject's `pythonpath = [".", "research"]` is what makes `import harness` /
   `import factory_run` resolve under pytest.
 - **`graveyard.csv`** — the verdict ledger, every strategy ever evaluated. **Tracked in git**;
@@ -91,24 +94,20 @@ doctrine — no lower bar because "this one feels different" or "a machine found
 ## Commands
 ```sh
 ops/setup_venv.sh                   # rebuild the venv (refuses to build inside a synced tree)
-.venv/bin/pip install -e ".[dev,desktop]"   # BOTH extras — see the pywebview trap below
+.venv/bin/pip install -e ".[dev,desktop,api]"   # all three — see the pywebview trap below
 .venv/bin/tradefabe run             # one daily cycle: rebalance due books, carry, risk monitor
 .venv/bin/tradefabe mark            # mark to current price, no rebalance
 .venv/bin/tradefabe status          # current book equities
 .venv/bin/tradefabe reset           # wipe paper state, restart at $100k/book
 .venv/bin/tradefabe retire <book> --reason "..."   # freeze a book; DAVE ONLY, see Doctrine
 .venv/bin/tradefabe unretire <book>
-.venv/bin/streamlit run app.py      # dashboard at localhost:8501
+.venv/bin/tradefabe-api             # FastAPI dev server, localhost:8000
+cd frontend && npm run dev          # Vite dev server, localhost:5173 -- the live dashboard
 .venv/bin/python harness.py         # re-run doctrine evaluation, APPENDS graveyard.csv
 .venv/bin/pytest tests/             # parallel by default (worksteal, ~3-4s); also runs in CI
 .venv/bin/pytest tests/ -n0         # serial — for readable tracebacks / --pdb / -x
 PYTHONPATH="$(pwd)/src:$(pwd):$(pwd)/research" \
   .venv/bin/python research/factory_run.py --n 20   # one factory cycle by hand
-
-# Dashboard rebuild (see Layout) -- optional, only needed for that work:
-.venv/bin/pip install -e ".[dev,desktop,api]"   # adds the api extra to the line above
-.venv/bin/tradefabe-api             # FastAPI dev server, localhost:8000
-cd frontend && npm run dev          # Vite dev server, localhost:5173 -- placeholder screen only
 ```
 `PYTHONPATH` is needed only for the factory-run line (`factory_run.py` imports the repo-root
 `harness` and `research/piggyback_backtest`, which only pytest resolves for you).
@@ -225,8 +224,9 @@ the same DSR/CPCV gate.
   can rebuild both signals; rebalance freq is the FINER of the two legs'.
 - **Capped at `MAX_FACTORY_PROMOTED` (#147).** At/over the cap a cycle still evaluates and
   logs its full batch, it just stops promoting. Not a retirement path — freeing a slot is
-  still only `tradefabe retire <book>`; `app.py`'s "Up for review" list is a read-only nudge
-  toward that, never an action of its own (DOCTRINE v1.6 unchanged).
+  still only `tradefabe retire <book>`; the frontend's "Up for review" list
+  (`GET /api/books/up_for_review`) is a read-only nudge toward that, never an action of
+  its own (DOCTRINE v1.6 unchanged).
 
 ## Live gotchas — check these before assuming something's broken
 - **yfinance returns a PARTIAL trailing bar** for the current, still-open or non-trading day:
@@ -238,15 +238,16 @@ the same DSR/CPCV gate.
   Tests: `test_nan_marks.py`, `test_kronos_live.py`.
 - **The price cache expires after 12h** (`TRADEFABE_CACHE_HOURS`). Offline, a stale cache
   beats synthetic — real-but-old over invented.
-- **Install BOTH extras: `pip install -e ".[dev,desktop]"`.** `desktop.py` imports `webview`
+- **Install all three extras: `pip install -e ".[dev,desktop,api]"`.** `desktop.py` imports `webview`
   *lazily inside main()*, so omitting `[desktop]` leaves the import succeeding and the app
   dead on launch. A module-import check will not catch it; `setup_venv.sh` and
   `build_app.sh` import `webview` explicitly for this reason. Same shape as `kronos.py`.
   `broker.py` (#5, Alpaca paper connectivity) is the same shape again: optional `[alpaca]`
   extra, lazy import, `is_available()` is the real check. Not wired into `runner.py` yet —
   connectivity only, credentials in a repo-root `.env` (gitignored, never committed).
-- **Any live paper book needs a persisted backtest curve, or `app.py` dies on a bare
-  `KeyError`.** `book_panel_data()` resolves `piggyback_returns.csv` → `factory_returns.csv`
+- **Any live paper book needs a persisted backtest curve, or `api/main.py`'s
+  `book_detail()` dies on a bare `KeyError`.** `book_panel_data()` resolves
+  `piggyback_returns.csv` → `factory_returns.csv`
   → `hourly_returns.csv` → `kronos_returns.csv` → `full_returns.csv`. **A new source that can
   become a live book needs its own persisted-curve story, wired into the Paper Books lookup
   AND the Research Lab's `_dead_strategy_returns()`** — doing one only is the actual

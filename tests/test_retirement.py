@@ -245,17 +245,17 @@ def test_cli_retire_without_a_book_name_is_a_usage_error(monkeypatch, tmp_path, 
 
 # ------------------------------------------------------------------ dashboard surface
 def test_dashboard_renders_the_retirement_reason_from_the_ledger():
-    import app
-    note = app.retirement_note({"retired": {"at": "2026-07-29T12:00", "reason": "bleeding"}})
+    import tradefabe.dashboard as dashboard
+    note = dashboard.retirement_note({"retired": {"at": "2026-07-29T12:00", "reason": "bleeding"}})
     assert note == {"at": "2026-07-29T12:00", "reason": "bleeding"}
-    assert app.retirement_note({}) is None
-    assert app.retirement_note(None) is None
+    assert dashboard.retirement_note({}) is None
+    assert dashboard.retirement_note(None) is None
 
 
 def test_dashboard_tolerates_a_retirement_block_with_no_reason():
     """An older or hand-edited ledger must not crash the panel."""
-    import app
-    note = app.retirement_note({"retired": {"at": "2026-07-29T12:00"}})
+    import tradefabe.dashboard as dashboard
+    note = dashboard.retirement_note({"retired": {"at": "2026-07-29T12:00"}})
     assert note["reason"] == "(no reason recorded)"
 
 

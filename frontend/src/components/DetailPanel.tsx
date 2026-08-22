@@ -240,7 +240,7 @@ export default function DetailPanel({ name }: { name: string }) {
   }
 
   useEffect(() => {
-    fetch(`http://localhost:8000/api/books/${name}/detail?window=${window}`)
+    fetch(`http://127.0.0.1:8000/api/books/${name}/detail?window=${window}`)
       .then((res) => res.json())
       .then((body: DetailResponse) => {
         setData(body);

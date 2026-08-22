@@ -1,7 +1,7 @@
 // frontend/src/components/PiggybackLab.test.tsx
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import PiggybackLab from "./PiggybackLab";
 
 const OVERVIEW_RESPONSE = {

@@ -65,7 +65,7 @@ describe("ResearchLab", () => {
     await userEvent.click(screen.getByRole("button", { name: "Verdicts" }));
 
     const verdictsCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([url]: [string]) => url.includes("verdicts")
+      ([url]: string[]) => url.includes("verdicts")
     );
     expect(verdictsCalls.length).toBe(1);
   });

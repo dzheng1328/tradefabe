@@ -8,12 +8,11 @@ Two real dashboard bugs, pinned here:
      fill), which squashed a $100k book's real sub-percent moves into a flat line.
      padded_range() scales to the visible high/low with 30% headroom instead.
 
-Requires pyproject.toml's [tool.pytest.ini_options] pythonpath=["."] so `import app`
-resolves the repo-root script, not an installed package."""
+"""
 import pandas as pd
 import pytest
 
-import app
+import tradefabe.dashboard as dashboard
 from tradefabe.dashboard import RANGE_WINDOWS
 
 
@@ -36,16 +35,16 @@ def test_5h_window_on_a_daily_marked_book_widens_instead_of_returning_one_point(
     naive = hist[hist.index >= hist.index[-1] - RANGE_WINDOWS["5H"]]
     assert len(naive) == 1, "precondition: the naive slice is the single-dot case"
 
-    win, widened = app.window_slice(hist, "5H")
+    win, widened = dashboard.window_slice(hist, "5H")
 
     assert widened is True
-    assert len(win) == app.MIN_CHART_POINTS
+    assert len(win) == dashboard.MIN_CHART_POINTS
     assert list(win.values) == list(hist.tail(2).values)
 
 
 def test_5h_window_is_honored_exactly_when_it_already_has_enough_points():
     hist = _half_hourly(n=24)                     # 12h of 30min marks
-    win, widened = app.window_slice(hist, "5H")
+    win, widened = dashboard.window_slice(hist, "5H")
 
     assert widened is False
     assert len(win) == 11                         # 5h back inclusive of the endpoint
@@ -55,7 +54,7 @@ def test_5h_window_is_honored_exactly_when_it_already_has_enough_points():
 
 def test_all_returns_the_untouched_series():
     hist = _daily()
-    win, widened = app.window_slice(hist, "ALL")
+    win, widened = dashboard.window_slice(hist, "ALL")
 
     assert widened is False
     assert len(win) == len(hist)
@@ -65,7 +64,7 @@ def test_a_single_mark_book_cannot_be_widened_and_is_not_flagged_as_such():
     # a book opened this cycle genuinely has one point -- there is nothing to widen TO,
     # and claiming otherwise in the caption would be a lie.
     hist = _daily(n=1)
-    win, widened = app.window_slice(hist, "5H")
+    win, widened = dashboard.window_slice(hist, "5H")
 
     assert widened is False
     assert len(win) == 1
@@ -73,7 +72,7 @@ def test_a_single_mark_book_cannot_be_widened_and_is_not_flagged_as_such():
 
 # ------------------------------------------------------------------ padded_range
 def test_padded_range_pads_30pct_of_span_on_each_end():
-    lo, hi = app.padded_range([100.0, 200.0])
+    lo, hi = dashboard.padded_range([100.0, 200.0])
     assert lo == pytest.approx(100.0 - 30.0)
     assert hi == pytest.approx(200.0 + 30.0)
 
@@ -81,30 +80,30 @@ def test_padded_range_pads_30pct_of_span_on_each_end():
 def test_padded_range_does_not_anchor_a_100k_book_at_zero():
     # the "everything looks flat" bug: a $100k book moving $400 must not be plotted
     # against a $0 baseline.
-    lo, hi = app.padded_range([99_664.45, 100_067.99])
+    lo, hi = dashboard.padded_range([99_664.45, 100_067.99])
     assert lo > 90_000, "y-axis must open near the data, not at zero"
     assert lo < 99_664.45 < 100_067.99 < hi
 
 
 def test_padded_range_gives_a_flat_series_a_non_degenerate_band():
-    lo, hi = app.padded_range([99_955.25, 99_955.25, 99_955.25])
+    lo, hi = dashboard.padded_range([99_955.25, 99_955.25, 99_955.25])
     assert hi > lo, "a dead-flat book still needs a drawable axis"
     assert lo < 99_955.25 < hi
 
 
 def test_padded_range_is_none_for_an_empty_series():
-    assert app.padded_range([]) is None
+    assert dashboard.padded_range([]) is None
 
 
 # ------------------------------------------------------------------ the figure itself
 def test_live_equity_chart_never_plots_a_lone_point_for_a_daily_book():
-    fig = app.live_equity_chart(_daily(), "#86b6ef", "5H")
-    assert len(fig.data[0].x) >= app.MIN_CHART_POINTS
+    fig = dashboard.live_equity_chart(_daily(), "#86b6ef", "5H")
+    assert len(fig.data[0].x) >= dashboard.MIN_CHART_POINTS
 
 
 def test_live_equity_chart_sets_an_explicit_non_zero_based_y_range():
     hist = _daily(equity=100_000.0, step=25.0)
-    fig = app.live_equity_chart(hist, "#86b6ef", "ALL")
+    fig = dashboard.live_equity_chart(hist, "#86b6ef", "ALL")
     lo, hi = fig.layout.yaxis.range
 
     assert lo > 0, "regression: the axis used to start at $0 because of the tozeroy fill"

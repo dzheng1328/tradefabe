@@ -10,7 +10,7 @@ The load-bearing tests:
   - the live book and the STUDY consume the same function (no drifting second copy);
   - a missing [kronos] extra advances no ledger and raises nothing;
   - the wick book is NOT vol-targeted, because its frozen spec says so;
-  - every family M book that can go live has a persisted backtest curve, or app.py dies
+  - every family M book that can go live has a persisted backtest curve, or dashboard.py dies
     with a bare KeyError (the failure family L already caused once).
 """
 import os
@@ -259,7 +259,7 @@ def test_the_live_snapshot_is_the_SAME_file_the_study_uses():
 
 # ------------------------------------------------------------------ dashboard contract
 def test_every_live_family_M_book_has_a_persisted_backtest_curve():
-    """THE regression guard for this PR. app.py's book_panel_data() falls through to a bare
+    """THE regression guard for this PR. dashboard.py's book_panel_data() falls through to a bare
     `full[name]` and raises KeyError, taking the whole dashboard down -- exactly what adding
     family L to the Research Lab lookup but not this one did on 2026-07-26. A new source that
     can become a live book needs its own persisted-curve story."""
@@ -280,8 +280,8 @@ def test_the_persisted_curve_starts_at_the_pretraining_cutoff_not_2018():
 
 
 def test_book_panel_data_resolves_a_family_M_book_from_its_own_artifact():
-    import app
-    curves = app.load_kronos_backtest()
+    import tradefabe.dashboard as dashboard
+    curves = dashboard.load_kronos_backtest()
     assert curves is not None
     for name in kronos_live.LIVE_BOOKS:
         assert name in curves.columns
@@ -292,14 +292,14 @@ def test_book_panel_data_renders_end_to_end_for_each_live_family_M_book(name):
     """The actual failure mode, reproduced rather than approximated: book_panel_data() is what
     raises the bare KeyError that takes the whole dashboard down. Checking that the curve file
     has a column is necessary but not sufficient -- the lookup chain has to reach it."""
-    import app
-    curves = app.load_kronos_backtest()
+    import tradefabe.dashboard as dashboard
+    curves = dashboard.load_kronos_backtest()
     idx = pd.to_datetime(["2026-07-29T22:00", "2026-07-29T23:00"])
     phist = pd.DataFrame({"date": idx, "book": name, "equity": [100_000.0, 100_010.0]})
     gy = pd.read_csv(os.path.join(kronos.ARTIFACT_DIR, os.pardir, "graveyard.csv"))
     gy_last = gy.drop_duplicates("strategy", keep="last").set_index("strategy")
 
-    data = app.book_panel_data(
+    data = dashboard.book_panel_data(
         name, phist, full=pd.DataFrame(index=curves.index), meta={"oos_start": "2018-01-01"},
         gy_last=gy_last, price_now=None, price_date=None, piggy=None, factory_bt=None,
         hourly_bt=None, kronos_bt=curves)
@@ -313,18 +313,18 @@ def test_book_panel_data_renders_end_to_end_for_each_live_family_M_book(name):
 def test_dead_strategy_detail_resolves_family_M_too():
     """The Research Lab has its own lookup chain. Family L was added to one and not the
     other; that asymmetry is what broke the dashboard, so both are asserted."""
-    import app
-    curves = app.load_kronos_backtest()
+    import tradefabe.dashboard as dashboard
+    curves = dashboard.load_kronos_backtest()
     empty = pd.DataFrame(index=curves.index)
-    r = app._dead_strategy_returns("kronos_wick_agg", empty, None, None, None, curves)
+    r = dashboard._dead_strategy_returns("kronos_wick_agg", empty, None, None, None, curves)
     assert r is not None and len(r)
 
 
 def test_family_M_books_resolve_a_family_and_a_description():
-    import app
+    import tradefabe.dashboard as dashboard
     for name in ("kronos_dir_daily", "kronos_wick_agg", "carry_kronos_vol"):
-        assert app.book_family(name) == "M"
-        assert not app.strategy_description(name).startswith("(no description yet")
+        assert dashboard.book_family(name) == "M"
+        assert not dashboard.strategy_description(name).startswith("(no description yet")
 
 
 # ------------------------------------------------------------------ cycle placement

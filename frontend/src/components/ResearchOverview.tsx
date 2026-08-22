@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import type { PlotMouseEvent } from "plotly.js";
+import type { Data, PlotMouseEvent } from "plotly.js";
 import StatTile from "./StatTile";
 import RingLoader from "./RingLoader";
 import GrowthValuesPanel, { type GrowthValueRow } from "./GrowthValuesPanel";
@@ -15,8 +15,8 @@ type OverviewResponse = {
     best_strategy: string; best_sharpe: number | null; bench_sharpe: number | null;
   };
   strategies: string[];
-  growth_chart: { data: unknown[]; layout: Record<string, unknown>; hide_hover_legend?: boolean };
-  correlation_heatmap: { data: unknown[]; layout: Record<string, unknown> };
+  growth_chart: { data: Data[]; layout: Record<string, unknown>; hide_hover_legend?: boolean };
+  correlation_heatmap: { data: Data[]; layout: Record<string, unknown> };
 };
 
 export default function ResearchOverview() {
@@ -26,7 +26,7 @@ export default function ResearchOverview() {
   const [clickedRows, setClickedRows] = useState<GrowthValueRow[] | null>(null);
 
   useEffect(() => {
-    fetchJSON<OverviewResponse>("http://localhost:8000/api/research/overview")
+    fetchJSON<OverviewResponse>("http://127.0.0.1:8000/api/research/overview")
       .then(setData)
       .catch(() => setError("Couldn't load the research overview."));
   }, []);

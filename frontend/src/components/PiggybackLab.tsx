@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import type { Data } from "plotly.js";
 import StatTile from "./StatTile";
 import RingLoader from "./RingLoader";
 import { fmt } from "../lib/format";
@@ -13,7 +14,7 @@ const SEARCH_RESULTS_LIMIT = 8;
 type PiggybackResponse = {
   stats: { sharpe: number | null; sharpe_delta: number | null; calmar: number | null;
            calmar_delta: number | null; maxdd: number | null; maxdd_delta: number | null };
-  chart: { data: unknown[]; layout: Record<string, unknown> };
+  chart: { data: Data[]; layout: Record<string, unknown> };
 };
 
 type RecommendRow = {
@@ -33,7 +34,7 @@ export default function PiggybackLab() {
   const [recommendError, setRecommendError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchJSON<{ strategies: string[] }>("http://localhost:8000/api/research/overview")
+    fetchJSON<{ strategies: string[] }>("http://127.0.0.1:8000/api/research/overview")
       .then((body) => setStrategies(body.strategies))
       .catch(() => setStrategiesError("Couldn't load the strategy list."));
   }, []);
@@ -44,7 +45,7 @@ export default function PiggybackLab() {
     setResultError(null);
     const id = setTimeout(() => {
       fetchJSON<PiggybackResponse>(
-        `http://localhost:8000/api/research/piggyback?sleeve=${sleeve.join(",")}&weight=${weight}`
+        `http://127.0.0.1:8000/api/research/piggyback?sleeve=${sleeve.join(",")}&weight=${weight}`
       )
         .then(setResult)
         .catch(() => { setResult(null); setResultError("Couldn't simulate this sleeve."); });
@@ -59,7 +60,7 @@ export default function PiggybackLab() {
     setRecommendError(null);
     const id = setTimeout(() => {
       fetchJSON<{ recommendations: RecommendRow[] }>(
-        `http://localhost:8000/api/research/piggyback/recommend?sleeve=${sleeve.join(",")}&weight=${weight}&limit=${RECOMMEND_LIMIT}`
+        `http://127.0.0.1:8000/api/research/piggyback/recommend?sleeve=${sleeve.join(",")}&weight=${weight}&limit=${RECOMMEND_LIMIT}`
       )
         .then((body) => setRecommendations(body.recommendations))
         .catch(() => { setRecommendations(null); setRecommendError("Couldn't load recommendations."); });
