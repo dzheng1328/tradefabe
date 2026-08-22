@@ -22,7 +22,7 @@ describe("Nav", () => {
       </MemoryRouter>
     );
     expect(screen.getByText("tradefabe")).toBeInTheDocument();
-    expect(container.querySelector("svg")).not.toBeNull();
+    expect(container.querySelector("img[src='/favicon.svg']")).not.toBeNull();
   });
 
   it("toggles the persisted sound setting when clicked", async () => {

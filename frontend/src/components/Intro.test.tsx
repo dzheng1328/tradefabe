@@ -45,20 +45,22 @@ describe("Intro", () => {
     expect(sessionStorage.getItem(STORAGE_KEY)).toBe("1");
   });
 
-  it("reveals the headline only after the configured delay", async () => {
+  it("adds the settling class once the hold phase ends, before it unmounts", async () => {
     render(<Intro />);
-    expect(document.querySelector(".intro-headline")).toBeNull();
+    expect(document.querySelector(".intro-overlay--settling")).toBeNull();
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      // bloomStart(950) + bloomGrow(1500) + hold(1100) = 3550ms
+      vi.advanceTimersByTime(3550);
     });
-    expect(document.querySelector(".intro-headline")?.textContent).toBe("tradefabe");
+    expect(document.querySelector(".intro-overlay--settling")).not.toBeNull();
   });
 
   it("removes itself, marks the session, and plays the settle sting once the sequence completes", async () => {
     const { playIntroSettle } = await import("../lib/sound");
     render(<Intro />);
     await act(async () => {
-      vi.advanceTimersByTime(1000 + 1100 + 600);
+      // bloomStart(950) + bloomGrow(1500) + hold(1100) + fade(650) = 4200ms
+      vi.advanceTimersByTime(4200);
     });
     expect(document.querySelector(".intro-overlay")).toBeNull();
     expect(sessionStorage.getItem(STORAGE_KEY)).toBe("1");

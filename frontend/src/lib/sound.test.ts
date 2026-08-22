@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { generateNoiseSamples, isSoundEnabled, onSoundPlayed, playSelect, setSoundEnabled } from "./sound";
+import {
+  advanceScrollTicks,
+  generateNoiseSamples,
+  initScrollTickState,
+  isSoundEnabled,
+  onSoundPlayed,
+  playSelect,
+  SCROLL_MAX_TICKS_PER_EVENT,
+  SCROLL_TICK_DISTANCE_PX,
+  setSoundEnabled,
+} from "./sound";
 
 describe("sound mute toggle", () => {
   beforeEach(() => {
@@ -66,6 +76,49 @@ describe("generateNoiseSamples", () => {
   });
 });
 
+describe("advanceScrollTicks", () => {
+  it("fires no tick for a small scroll under SCROLL_TICK_DISTANCE_PX", () => {
+    const result = advanceScrollTicks(initScrollTickState(), 5);
+    expect(result.ticks).toBe(0);
+    expect(result.state.distanceSincePrevTick).toBe(5);
+  });
+
+  it("fires exactly one tick once accumulated distance crosses SCROLL_TICK_DISTANCE_PX", () => {
+    const result = advanceScrollTicks(initScrollTickState(), SCROLL_TICK_DISTANCE_PX);
+    expect(result.ticks).toBe(1);
+    expect(result.state.distanceSincePrevTick).toBe(0);
+  });
+
+  it("treats direction symmetrically -- distance is unsigned", () => {
+    const down = advanceScrollTicks(initScrollTickState(), SCROLL_TICK_DISTANCE_PX);
+    const up = advanceScrollTicks(initScrollTickState(), -SCROLL_TICK_DISTANCE_PX);
+    expect(up.ticks).toBe(down.ticks);
+  });
+
+  it("carries leftover distance forward instead of losing it -- a slow trickle still accumulates", () => {
+    const first = advanceScrollTicks(initScrollTickState(), 15); // well under the threshold
+    expect(first.ticks).toBe(0);
+    const second = advanceScrollTicks(first.state, 15); // 15+15=30, still under 40
+    expect(second.ticks).toBe(0);
+    const third = advanceScrollTicks(second.state, 15); // 30+15=45 -> crosses one
+    expect(third.ticks).toBe(1);
+    expect(third.state.distanceSincePrevTick).toBe(45 - SCROLL_TICK_DISTANCE_PX);
+  });
+
+  it("fires more ticks for a bigger single jump -- rate tracks distance, not time", () => {
+    const small = advanceScrollTicks(initScrollTickState(), SCROLL_TICK_DISTANCE_PX);
+    const big = advanceScrollTicks(initScrollTickState(), SCROLL_TICK_DISTANCE_PX * 3);
+    expect(big.ticks).toBeGreaterThan(small.ticks);
+    expect(big.ticks).toBe(3);
+  });
+
+  it("caps ticks per event at SCROLL_MAX_TICKS_PER_EVENT even on a huge jump", () => {
+    const hugeJump = SCROLL_TICK_DISTANCE_PX * 100; // e.g. a scrollbar-track click
+    const result = advanceScrollTicks(initScrollTickState(), hugeJump);
+    expect(result.ticks).toBe(SCROLL_MAX_TICKS_PER_EVENT);
+  });
+});
+
 // Web Audio isn't implemented in jsdom, so these node-graph assertions run against
 // a hand-rolled mock AudioContext, mirroring the shape of the real API surface
 // sound.ts touches (oscillator/gain/filter/buffer-source nodes with AudioParams).
@@ -89,6 +142,7 @@ class MockGainNode {
 class MockBiquadFilterNode {
   type = "lowpass";
   frequency = new MockAudioParam();
+  Q = new MockAudioParam();
   connect = vi.fn();
 }
 class MockAudioBuffer {
@@ -112,6 +166,14 @@ class MockBufferSourceNode {
   start = vi.fn();
   stop = vi.fn();
 }
+class MockDynamicsCompressorNode {
+  threshold = new MockAudioParam();
+  knee = new MockAudioParam();
+  ratio = new MockAudioParam();
+  attack = new MockAudioParam();
+  release = new MockAudioParam();
+  connect = vi.fn();
+}
 class MockAudioContext {
   currentTime = 0;
   sampleRate = 44100;
@@ -120,6 +182,7 @@ class MockAudioContext {
   createGain = vi.fn(() => new MockGainNode());
   createBiquadFilter = vi.fn(() => new MockBiquadFilterNode());
   createBufferSource = vi.fn(() => new MockBufferSourceNode());
+  createDynamicsCompressor = vi.fn(() => new MockDynamicsCompressorNode());
   createBuffer = vi.fn(
     (channels: number, length: number, sampleRate: number) =>
       new MockAudioBuffer(channels, length, sampleRate),
@@ -194,5 +257,84 @@ describe("layered sound design", () => {
     const { playIntroSettle } = await import("./sound");
     playIntroSettle();
     expect(mockCtx.createOscillator).not.toHaveBeenCalled();
+  });
+
+  it("playScrollTick plays a two-partial metallic tick plus a brief noise transient once the distance threshold is crossed", async () => {
+    const { playScrollTick } = await import("./sound");
+    playScrollTick(SCROLL_TICK_DISTANCE_PX);
+    expect(mockCtx.createOscillator).toHaveBeenCalledTimes(2); // the two sine partials
+    expect(mockCtx.createBufferSource).toHaveBeenCalledTimes(1); // the noise transient
+    expect(mockCtx.createBiquadFilter).toHaveBeenCalledTimes(2); // shared lowpass + noise highpass
+  });
+
+  it("plays an identical tick regardless of scroll direction", async () => {
+    const { playScrollTick, resetScrollSoundState } = await import("./sound");
+    resetScrollSoundState();
+    playScrollTick(SCROLL_TICK_DISTANCE_PX);
+    const downOsc = mockCtx.createOscillator.mock.results[0]!.value as MockOscillatorNode;
+
+    resetScrollSoundState();
+    playScrollTick(-SCROLL_TICK_DISTANCE_PX);
+    const upOsc = mockCtx.createOscillator.mock.results[2]!.value as MockOscillatorNode;
+
+    expect(upOsc.frequency.value).toBe(downOsc.frequency.value);
+  });
+
+  it("playScrollTick does nothing until accumulated distance crosses the threshold -- a slow scroll stays quiet", async () => {
+    const { playScrollTick } = await import("./sound");
+    playScrollTick(5); // well under SCROLL_TICK_DISTANCE_PX
+    expect(mockCtx.createOscillator).not.toHaveBeenCalled();
+  });
+
+  it("playScrollTick does nothing for a zero delta", async () => {
+    const { playScrollTick } = await import("./sound");
+    playScrollTick(0);
+    expect(mockCtx.createOscillator).not.toHaveBeenCalled();
+  });
+
+  it("playScrollTick stays silent when sound is muted", async () => {
+    setSoundEnabled(false);
+    const { playScrollTick } = await import("./sound");
+    playScrollTick(SCROLL_TICK_DISTANCE_PX);
+    expect(mockCtx.createOscillator).not.toHaveBeenCalled();
+  });
+
+  it("tick count tracks total distance covered, not how many events it took to cover it", async () => {
+    const { playScrollTick, resetScrollSoundState } = await import("./sound");
+
+    resetScrollSoundState();
+    playScrollTick(SCROLL_TICK_DISTANCE_PX * 4); // one big jump
+    const bigJumpTicks = mockCtx.createOscillator.mock.calls.length / 2;
+
+    resetScrollSoundState();
+    mockCtx.createOscillator.mockClear();
+    for (let i = 0; i < 8; i++) playScrollTick(SCROLL_TICK_DISTANCE_PX / 2); // same total, many small steps
+    const trickleTicks = mockCtx.createOscillator.mock.calls.length / 2;
+
+    expect(trickleTicks).toBe(bigJumpTicks); // same total distance -> same tick count
+  });
+
+  it("a smaller total scroll produces fewer ticks than a larger one", async () => {
+    const { playScrollTick, resetScrollSoundState } = await import("./sound");
+
+    resetScrollSoundState();
+    playScrollTick(SCROLL_TICK_DISTANCE_PX); // small scroll
+    const smallScrollTicks = mockCtx.createOscillator.mock.calls.length / 2;
+
+    resetScrollSoundState();
+    mockCtx.createOscillator.mockClear();
+    playScrollTick(SCROLL_TICK_DISTANCE_PX * 4); // large scroll
+    const largeScrollTicks = mockCtx.createOscillator.mock.calls.length / 2;
+
+    expect(smallScrollTicks).toBeLessThan(largeScrollTicks);
+  });
+
+  it("does not clip: every sound routes through a shared compressor bus, not raw destination", async () => {
+    const { playSelect, playScrollTick } = await import("./sound");
+    playSelect();
+    playScrollTick(SCROLL_TICK_DISTANCE_PX);
+    // createDynamicsCompressor is only ever called once (the shared bus is built
+    // lazily on first use and reused), regardless of how many sounds have played.
+    expect(mockCtx.createDynamicsCompressor).toHaveBeenCalledTimes(1);
   });
 });

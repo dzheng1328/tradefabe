@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useScrollSound } from "../lib/useScrollSound";
 
 export type GrowthValueRow = { name: string; value: number; color: string };
 
@@ -17,6 +18,7 @@ export default function GrowthValuesPanel({
   rows: GrowthValueRow[] | null;
 }) {
   const [query, setQuery] = useState("");
+  const scrollRef = useScrollSound<HTMLDivElement>();
 
   const filtered = useMemo(() => {
     if (!rows) return [];
@@ -43,7 +45,7 @@ export default function GrowthValuesPanel({
           className="w-full mt-1.5 px-2 py-1 text-xs bg-transparent border border-white/10 rounded text-ink placeholder:text-ink-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent disabled:opacity-40"
         />
       </div>
-      <div className="flex-1 overflow-y-auto px-1 py-1">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 py-1">
         {!rows ? (
           <p className="text-ink-muted text-xs px-2 py-3">
             Click a point on the chart to see every strategy's value there.
