@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import type { Data } from "plotly.js";
 import RingLoader from "./RingLoader";
 
 const PlotlyChart = lazy(() => import("./PlotlyChart"));
 
-type ChartResponse = { chart: { data: unknown[]; layout: Record<string, unknown> } };
+type ChartResponse = { chart: { data: Data[]; layout: Record<string, unknown> } };
 type LuckFloorShape = "per_strategy" | "per_frequency";
 
 export default function Diagnostics({ selected }: { selected: string | null }) {

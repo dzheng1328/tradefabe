@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import app
 import tradefabe.dashboard as dashboard
 
 
@@ -14,7 +13,7 @@ def test_dead_strategy_returns_from_bare_strategy_columns():
     idx = pd.bdate_range("2018-01-02", periods=10)
     oos = pd.DataFrame({"tsmom_12m": np.linspace(0.001, 0.01, 10),
                         "bench_6040": np.zeros(10)}, index=idx)
-    r = app._dead_strategy_returns("tsmom_12m", oos, piggy=None)
+    r = dashboard._dead_strategy_returns("tsmom_12m", oos, piggy=None)
     pd.testing.assert_series_equal(r, oos["tsmom_12m"].fillna(0), check_names=False)
 
 
@@ -22,7 +21,7 @@ def test_dead_strategy_returns_from_piggyback_columns():
     idx = pd.bdate_range("2018-01-02", periods=10)
     oos = pd.DataFrame({"tsmom_12m": np.zeros(10)}, index=idx)
     piggy = pd.DataFrame({"piggyback_2b": np.linspace(-0.001, 0.001, 10)}, index=idx)
-    r = app._dead_strategy_returns("piggyback_2b", oos, piggy)
+    r = dashboard._dead_strategy_returns("piggyback_2b", oos, piggy)
     pd.testing.assert_series_equal(r, piggy["piggyback_2b"].dropna(), check_names=False)
 
 
@@ -30,54 +29,54 @@ def test_dead_strategy_returns_none_when_not_in_either_source():
     idx = pd.bdate_range("2018-01-02", periods=10)
     oos = pd.DataFrame({"tsmom_12m": np.zeros(10)}, index=idx)
     piggy = pd.DataFrame({"piggyback_2b": np.zeros(10)}, index=idx)
-    assert app._dead_strategy_returns("insider_buying_21d", oos, piggy) is None
+    assert dashboard._dead_strategy_returns("insider_buying_21d", oos, piggy) is None
 
 
 def test_dead_strategy_returns_none_when_piggy_is_none_and_not_in_oos():
     idx = pd.bdate_range("2018-01-02", periods=10)
     oos = pd.DataFrame({"tsmom_12m": np.zeros(10)}, index=idx)
-    assert app._dead_strategy_returns("piggyback_2b", oos, piggy=None) is None
+    assert dashboard._dead_strategy_returns("piggyback_2b", oos, piggy=None) is None
 
 
 def test_strategy_description_resolves_known_names_from_the_static_dict():
-    assert "trailing 12-month" in app.strategy_description("tsmom_12m")
+    assert "trailing 12-month" in dashboard.strategy_description("tsmom_12m")
 
 
 def test_strategy_description_synthesizes_a_generic_line_for_any_combo_name():
-    d = app.strategy_description("factory_combo_tsmom_3m_donchian_55d")
+    d = dashboard.strategy_description("factory_combo_tsmom_3m_donchian_55d")
     assert "sleeve" in d and "60/40" in d
     assert not d.startswith("(no description yet")
 
 
 def test_strategy_description_falls_back_to_the_placeholder_for_anything_else():
-    assert app.strategy_description("some_totally_new_strategy").startswith("(no description yet")
+    assert dashboard.strategy_description("some_totally_new_strategy").startswith("(no description yet")
 
 
 def test_strategy_description_resolves_a_generated_name_via_the_ledger_fallback(monkeypatch):
     monkeypatch.setattr(dashboard, "_load_generated_ledger",
                         lambda: {"tsmom_gen_147d": {"family": "A",
                                                     "rationale": "Trend (generated): sign of the trailing 147-day return."}})
-    assert app.strategy_description("tsmom_gen_147d") == "Trend (generated): sign of the trailing 147-day return."
+    assert dashboard.strategy_description("tsmom_gen_147d") == "Trend (generated): sign of the trailing 147-day return."
 
 
 def test_book_family_resolves_a_pipeline_name_via_the_ledger_fallback(monkeypatch):
     monkeypatch.setattr(dashboard, "_load_pipeline_ledger",
                         lambda: {"rp_pair_zscore_GLD_SLV_60_2p0_4p0": {"family": "O",
                                                                        "rationale": "..."}})
-    assert app.book_family("rp_pair_zscore_GLD_SLV_60_2p0_4p0") == "O"
+    assert dashboard.book_family("rp_pair_zscore_GLD_SLV_60_2p0_4p0") == "O"
 
 
 def test_strategy_description_resolves_a_pipeline_name_via_the_ledger_fallback(monkeypatch):
     monkeypatch.setattr(dashboard, "_load_pipeline_ledger",
                         lambda: {"rp_pair_zscore_GLD_SLV_60_2p0_4p0": {
                             "family": "O", "rationale": "Gold/silver ratio mean-reversion."}})
-    assert app.strategy_description("rp_pair_zscore_GLD_SLV_60_2p0_4p0") == \
+    assert dashboard.strategy_description("rp_pair_zscore_GLD_SLV_60_2p0_4p0") == \
         "Gold/silver ratio mean-reversion."
 
 
 def test_book_family_falls_back_to_other_for_an_unknown_pipeline_name(monkeypatch):
     monkeypatch.setattr(dashboard, "_load_pipeline_ledger", lambda: {})
-    assert app.book_family("rp_never_proposed") == "?"
+    assert dashboard.book_family("rp_never_proposed") == "?"
 
 
 def test_every_graveyard_strategy_has_a_family_and_description(monkeypatch):
@@ -102,10 +101,10 @@ def test_every_graveyard_strategy_has_a_family_and_description(monkeypatch):
     pipe_ledger = dashboard._load_pipeline_ledger()
     monkeypatch.setattr(dashboard, "_load_generated_ledger", lambda: gen_ledger)
     monkeypatch.setattr(dashboard, "_load_pipeline_ledger", lambda: pipe_ledger)
-    gy = pd.read_csv(os.path.join(app.BASE, "graveyard.csv"))
+    gy = pd.read_csv(os.path.join(dashboard.BASE, "graveyard.csv"))
     for name in gy["strategy"].unique():
-        assert app.book_family(name) != "?", f"{name} has no resolvable family"
-        assert not app.strategy_description(name).startswith("(no description yet"), \
+        assert dashboard.book_family(name) != "?", f"{name} has no resolvable family"
+        assert not dashboard.strategy_description(name).startswith("(no description yet"), \
             f"{name} has no resolvable description"
 
 
@@ -118,15 +117,15 @@ def test_family_l_hourly_strategies_resolve_a_backtest_curve():
     import os
     # load_hourly_backtest moved to dashboard.py undecorated (2a Task 1, same precedent
     # as load_carry_backtest in sub-project 1) -- no more @st.cache_data wrapper to unwrap.
-    hourly = app.load_hourly_backtest()
+    hourly = dashboard.load_hourly_backtest()
     if hourly is None:
         pytest.skip("hourly study not run here")
     empty = pd.DataFrame()
     for name in ("funding_timing_1h", "crypto_reversal_1h", "equity_tsmom_1h"):
-        r = app._dead_strategy_returns(name, empty, None, None, hourly)
+        r = dashboard._dead_strategy_returns(name, empty, None, None, hourly)
         assert r is not None, f"{name} has no resolvable backtest curve"
         assert len(r) > 100, f"{name} curve is suspiciously short: {len(r)}"
 
 
 def test_dead_strategy_returns_still_falls_back_to_none_for_an_unknown_name():
-    assert app._dead_strategy_returns("not_a_strategy", pd.DataFrame(), None, None, None) is None
+    assert dashboard._dead_strategy_returns("not_a_strategy", pd.DataFrame(), None, None, None) is None

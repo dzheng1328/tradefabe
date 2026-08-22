@@ -4,8 +4,10 @@ import math
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from tradefabe import dashboard, risk_register
+from tradefabe.paths import REPO_ROOT
 
 app = FastAPI(title="tradefabe dashboard API")
 
@@ -587,6 +589,18 @@ def research_piggyback_recommend(sleeve: str = "", weight: int = 30, limit: int 
                reverse=True)
 
     return {"recommendations": scored[:limit]}
+
+
+# Packaged desktop app (sub-project 4): ops/build_app.sh runs `npm run build` before
+# bundling, so the .app ships frontend/dist/ and desktop.py points the webview straight
+# at this API instead of also spawning a live `npm run dev`. Mounted last and at "/" so
+# every explicit @app.get route above still wins; only paths none of them match fall
+# through to the built assets. A `npm run dev` browser session never has dist/ built and
+# keeps talking to this API cross-origin via the CORS block above -- this mount is a
+# no-op for that workflow.
+_frontend_dist = REPO_ROOT / "frontend" / "dist"
+if (_frontend_dist / "index.html").exists():
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
 
 
 def run():

@@ -2,13 +2,11 @@
 coverage for a real bug hit while building the strategy factory: a promoted book with
 no entry in EITHER full_returns.csv or piggyback_returns.csv crashed with a KeyError
 trying to look up a backtest curve that was never persisted anywhere for factory/
-generated candidates. factory_returns.csv (loaded as `factory_bt`) is the fix. Requires
-pyproject.toml's [tool.pytest.ini_options] pythonpath=["."] so `import app` resolves."""
+generated candidates. factory_returns.csv (loaded as `factory_bt`) is the fix."""
 import numpy as np
 import pandas as pd
 import pytest
 
-import app
 import tradefabe.dashboard as dashboard
 
 
@@ -36,7 +34,7 @@ def test_book_panel_data_uses_piggyback_source_when_present():
     piggy = _returns_frame(name)
     full = pd.DataFrame({"unrelated": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
     dates = pd.bdate_range("2026-01-01", periods=3)
-    data = app.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_050]),
+    data = dashboard.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_050]),
                                full, _meta(), _gy_last_row(name), None, None, piggy=piggy)
     assert data["kind"] == "equity"
     assert len(data["bt_curve"]) > 0
@@ -50,7 +48,7 @@ def test_book_panel_data_uses_factory_bt_source_when_no_piggyback_entry():
     full = pd.DataFrame({"unrelated": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
     piggy = pd.DataFrame({"other_piggy": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
     dates = pd.bdate_range("2026-01-01", periods=3)
-    data = app.book_panel_data(name, _phist(name, dates, [100_000, 99_950, 99_900]),
+    data = dashboard.book_panel_data(name, _phist(name, dates, [100_000, 99_950, 99_900]),
                                full, _meta(), _gy_last_row(name), None, None,
                                piggy=piggy, factory_bt=factory_bt)
     assert data["kind"] == "equity"
@@ -61,7 +59,7 @@ def test_book_panel_data_falls_back_to_full_when_neither_piggy_nor_factory_bt_ha
     name = "tsmom_12m"
     full = _returns_frame(name)
     dates = pd.bdate_range("2026-01-01", periods=3)
-    data = app.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_050]),
+    data = dashboard.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_050]),
                                full, _meta(), _gy_last_row(name), None, None,
                                piggy=None, factory_bt=None)
     assert data["kind"] == "equity"
@@ -76,7 +74,7 @@ def test_book_panel_data_raises_a_clear_keyerror_when_no_source_has_the_name():
     full = pd.DataFrame({"unrelated": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
     dates = pd.bdate_range("2026-01-01", periods=3)
     with pytest.raises(KeyError):
-        app.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_050]),
+        dashboard.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_050]),
                             full, _meta(), _gy_last_row(name), None, None)
 
 
@@ -90,7 +88,7 @@ def test_book_panel_data_uses_hourly_source_for_family_l():
     hourly = _returns_frame(name)
     full = pd.DataFrame({"unrelated": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
     dates = pd.bdate_range("2026-01-01", periods=3)
-    data = app.book_panel_data(name, _phist(name, dates, [100_000, 99_950, 99_900]),
+    data = dashboard.book_panel_data(name, _phist(name, dates, [100_000, 99_950, 99_900]),
                                full, _meta(), _gy_last_row(name), None, None,
                                piggy=None, factory_bt=None, hourly_bt=hourly)
     assert data["kind"] == "equity"
@@ -106,7 +104,7 @@ def test_book_panel_data_uses_pipeline_bt_source_for_a_promoted_pipeline_candida
     pipeline_bt = _returns_frame(name)
     full = pd.DataFrame({"unrelated": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
     dates = pd.bdate_range("2026-01-01", periods=3)
-    data = app.book_panel_data(name, _phist(name, dates, [100_000, 100_050, 100_100]),
+    data = dashboard.book_panel_data(name, _phist(name, dates, [100_000, 100_050, 100_100]),
                                full, _meta(), _gy_last_row(name), None, None,
                                piggy=None, factory_bt=None, hourly_bt=None, kronos_bt=None,
                                pipeline_bt=pipeline_bt)
@@ -132,7 +130,7 @@ def test_book_panel_data_skips_broken_deployment_math_for_an_accrual_only_book(m
     kronos_bt = pd.DataFrame({name: rng.normal(0.0005, 0.01, len(kronos_idx))}, index=kronos_idx)
     full = pd.DataFrame({"unrelated": [0.0] * 5}, index=pd.bdate_range("2018-01-02", periods=5))
     dates = pd.bdate_range("2026-01-01", periods=3)
-    data = app.book_panel_data(name, _phist(name, dates, [100_000, 100_005, 100_009.43]),
+    data = dashboard.book_panel_data(name, _phist(name, dates, [100_000, 100_005, 100_009.43]),
                                full, _meta(), _gy_last_row(name), None, None,
                                kronos_bt=kronos_bt)
 
@@ -151,7 +149,7 @@ def test_book_panel_data_still_computes_deployment_for_a_normal_equity_book(monk
 
     full = _returns_frame(name)
     dates = pd.bdate_range("2026-01-01", periods=3)
-    data = app.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_200]),
+    data = dashboard.book_panel_data(name, _phist(name, dates, [100_000, 100_100, 100_200]),
                                full, _meta(), _gy_last_row(name), None, None)
 
     assert data["deployment"] is not None
@@ -164,7 +162,7 @@ def test_book_panel_data_skips_positions_when_compute_positions_is_false():
     name = "some_book"
     full = pd.DataFrame({name: [0.001] * 40}, index=pd.bdate_range("2018-01-02", periods=40))
     dates = pd.bdate_range("2026-01-01", periods=3)
-    data = app.book_panel_data(
+    data = dashboard.book_panel_data(
         name, _phist(name, dates, [100_000, 100_100, 100_050]),
         full, _meta(), _gy_last_row(name, verdict="ALIVE"), None, None,
         compute_positions=False,
@@ -180,7 +178,7 @@ def test_book_panel_data_still_computes_positions_by_default():
     name = "some_book"
     full = pd.DataFrame({name: [0.001] * 40}, index=pd.bdate_range("2018-01-02", periods=40))
     dates = pd.bdate_range("2026-01-01", periods=3)
-    data = app.book_panel_data(
+    data = dashboard.book_panel_data(
         name, _phist(name, dates, [100_000, 100_100, 100_050]),
         full, _meta(), _gy_last_row(name, verdict="ALIVE"), None, None,
     )
@@ -200,10 +198,10 @@ def test_every_live_book_on_disk_resolves_a_curve(name):
         pytest.skip(f"{name} not opened in this checkout")
     # These loaders moved to dashboard.py undecorated (2a Task 1, same precedent as
     # load_carry_backtest in sub-project 1) -- no more @st.cache_data wrapper to unwrap.
-    hourly = app.load_hourly_backtest()
-    piggy = app.load_piggyback_backtest()
-    factory_bt = app.load_factory_backtest()
-    full = pd.read_csv(os.path.join(app.ART, "full_returns.csv"), index_col=0, parse_dates=True)
+    hourly = dashboard.load_hourly_backtest()
+    piggy = dashboard.load_piggyback_backtest()
+    factory_bt = dashboard.load_factory_backtest()
+    full = pd.read_csv(os.path.join(dashboard.ART, "full_returns.csv"), index_col=0, parse_dates=True)
     sources = [d for d in (piggy, factory_bt, hourly) if d is not None]
     assert any(name in d.columns for d in sources) or name in full.columns, \
         f"{name} is a live book with no persisted backtest curve in ANY source"
@@ -211,27 +209,29 @@ def test_every_live_book_on_disk_resolves_a_curve(name):
 
 def test_the_call_site_supplies_every_source_book_panel_data_accepts():
     """The crash had TWO halves: book_panel_data() didn't accept the hourly source, AND
-    render_paper_books() didn't pass it. A test that only exercises the function would
-    have gone green while the dashboard still died on the missing argument.
+    its caller didn't pass it. A test that only exercises the function would have gone
+    green while the dashboard still died on the missing argument.
 
-    So assert the structural invariant directly: render_paper_books' call to
-    book_panel_data must supply EVERY parameter the function declares. Adding a fifth
-    curve source then fails here until the call site is updated too.
+    So assert the structural invariant directly: the live call site (api/main.py's
+    book_detail, the desktop-cutover-era replacement for app.py's render_paper_books)
+    must supply EVERY parameter book_panel_data declares. Adding a fifth curve source
+    then fails here until the call site is updated too.
 
     compute_positions (2a Task 1) is exempt: it's a behavior flag, not a curve source,
     and its whole contract is a default that preserves every existing caller's behavior
     with zero changes -- the opposite of what this invariant guards against."""
     import ast, inspect
+    from tradefabe.api.main import book_detail
 
-    params = inspect.signature(app.book_panel_data).parameters
+    params = inspect.signature(dashboard.book_panel_data).parameters
     n_params = len([p for p in params if p != "compute_positions"])
-    tree = ast.parse(inspect.getsource(app.render_paper_books).lstrip())
+    tree = ast.parse(inspect.getsource(book_detail).lstrip())
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call)
              and getattr(n.func, "id", getattr(n.func, "attr", None)) == "book_panel_data"]
-    assert calls, "render_paper_books no longer calls book_panel_data -- update this test"
+    assert calls, "book_detail no longer calls book_panel_data -- update this test"
     for c in calls:
-        supplied = len(c.args) + len(c.keywords)
+        supplied = len(c.args) + len([kw for kw in c.keywords if kw.arg != "compute_positions"])
         assert supplied == n_params, (
             f"book_panel_data accepts {n_params} params but the Paper Books call site "
             f"supplies {supplied}; a live book from the unpassed source crashes the "

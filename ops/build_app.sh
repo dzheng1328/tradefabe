@@ -30,6 +30,16 @@ VENV_BIN="$REPO/.venv/bin"
   exit 1
 }
 
+# The packaged app serves this build directly (api/main.py mounts it when present) --
+# desktop.py no longer spawns a live `npm run dev`, so a stale or missing dist/ now
+# fails LOUD here at build time instead of silently opening a blank window later.
+echo "==> building frontend (npm run build)"
+( cd "$REPO/frontend" && npm run build )
+[ -f "$REPO/frontend/dist/index.html" ] || {
+  echo "error: $REPO/frontend/dist/index.html missing after npm run build." >&2
+  exit 1
+}
+
 echo "==> building $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

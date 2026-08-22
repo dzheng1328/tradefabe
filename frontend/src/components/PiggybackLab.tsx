@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import type { Data } from "plotly.js";
 import StatTile from "./StatTile";
 import RingLoader from "./RingLoader";
 import { fmt } from "../lib/format";
@@ -13,7 +14,7 @@ const SEARCH_RESULTS_LIMIT = 8;
 type PiggybackResponse = {
   stats: { sharpe: number | null; sharpe_delta: number | null; calmar: number | null;
            calmar_delta: number | null; maxdd: number | null; maxdd_delta: number | null };
-  chart: { data: unknown[]; layout: Record<string, unknown> };
+  chart: { data: Data[]; layout: Record<string, unknown> };
 };
 
 type RecommendRow = {

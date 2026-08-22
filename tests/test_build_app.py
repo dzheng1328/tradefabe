@@ -67,3 +67,30 @@ def test_rebuild_is_idempotent(bundle):
     subprocess.run(["bash", str(SCRIPT), "--dest", str(bundle.parent)],
                    capture_output=True, text=True, check=True)
     assert (bundle / "Contents" / "MacOS" / "tradefabe").read_text() == before
+
+
+def test_a_broken_frontend_build_fails_loudly_instead_of_shipping_a_blank_app(tmp_path):
+    """The packaged app serves frontend/dist/ directly (api/main.py mounts it when
+    present, #224) instead of desktop.py also spawning a live `npm run dev` -- a stale
+    or missing build must fail HERE, at build time, not silently open a blank webview
+    window later. Uses --repo with a scratch tree so this never touches the real
+    frontend/dist/."""
+    scratch = tmp_path / "scratch_repo"
+    (scratch / ".venv" / "bin").mkdir(parents=True)
+    fake_app = scratch / ".venv" / "bin" / "tradefabe-app"
+    fake_app.write_text("#!/bin/sh\n")
+    fake_app.chmod(0o755)
+    frontend = scratch / "frontend"
+    frontend.mkdir()
+    # a "build" that succeeds but never produces dist/index.html -- the exact shape of
+    # a broken build, not a crashing one, since a crash would already be loud
+    (frontend / "package.json").write_text(
+        '{"name": "fake", "scripts": '
+        '{"build": "mkdir -p dist && echo not-index > dist/other.txt"}}')
+
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "--repo", str(scratch), "--dest", str(tmp_path / "apps")],
+        capture_output=True, text=True)
+
+    assert r.returncode != 0
+    assert "dist/index.html" in r.stderr

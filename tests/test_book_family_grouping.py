@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import app
 import tradefabe.dashboard as dashboard
 
 
@@ -34,25 +33,25 @@ def _phist(rows):
 
 
 def _gy_last(verdicts):
-    """verdicts: dict of strategy -> 'ALIVE'/'DEAD', shaped like app.py's gy_last
+    """verdicts: dict of strategy -> 'ALIVE'/'DEAD', shaped like dashboard.py's gy_last
     (drop_duplicates('strategy').set_index('strategy'))."""
     return pd.DataFrame({"verdict": list(verdicts.values())}, index=list(verdicts.keys()))
 
 
 def test_book_family_resolves_known_names_from_the_static_dict():
-    assert app.book_family("tsmom_12m") == "A"
-    assert app.book_family("carry_btc_eth") == "E"
+    assert dashboard.book_family("tsmom_12m") == "A"
+    assert dashboard.book_family("carry_btc_eth") == "E"
 
 
 def test_book_family_resolves_any_factory_combo_name_via_pattern_fallback():
     # combo names vary run to run (whichever pair factory_run.py picked that cycle) --
     # a static dict entry can never cover them all, so this must be pattern-based.
-    assert app.book_family("factory_combo_tsmom_3m_donchian_55d") == "H"
-    assert app.book_family("factory_combo_anything_at_all") == "H"
+    assert dashboard.book_family("factory_combo_tsmom_3m_donchian_55d") == "H"
+    assert dashboard.book_family("factory_combo_anything_at_all") == "H"
 
 
 def test_book_family_falls_back_to_unmapped_marker_for_anything_else():
-    assert app.book_family("some_totally_new_strategy") == "?"
+    assert dashboard.book_family("some_totally_new_strategy") == "?"
 
 
 def test_book_family_resolves_a_generated_name_via_the_ledger_fallback(monkeypatch):
@@ -60,8 +59,8 @@ def test_book_family_resolves_a_generated_name_via_the_ledger_fallback(monkeypat
     # parameter is drawn fresh each cycle) -- must resolve via generated_templates.csv.
     monkeypatch.setattr(dashboard, "_load_generated_ledger",
                         lambda: {"tsmom_gen_147d": {"family": "A", "rationale": "..."}})
-    assert app.book_family("tsmom_gen_147d") == "A"
-    assert app.book_family("some_other_unmapped_name") == "?"   # ledger miss still falls through
+    assert dashboard.book_family("tsmom_gen_147d") == "A"
+    assert dashboard.book_family("some_other_unmapped_name") == "?"   # ledger miss still falls through
 
 
 def test_book_family_uses_a_passed_in_generated_ledger_without_loading_its_own(monkeypatch):
@@ -76,18 +75,18 @@ def test_book_family_uses_a_passed_in_generated_ledger_without_loading_its_own(m
     monkeypatch.setattr(dashboard, "_load_generated_ledger", boom)
     monkeypatch.setattr(dashboard, "_load_pipeline_ledger", boom)
 
-    assert app.book_family(
+    assert dashboard.book_family(
         "tsmom_gen_147d", generated_ledger={"tsmom_gen_147d": {"family": "A", "rationale": "..."}},
     ) == "A"
-    assert app.book_family(
+    assert dashboard.book_family(
         "rp_some_idea", generated_ledger={}, pipeline_ledger={"rp_some_idea": {"family": "O", "rationale": "..."}},
     ) == "O"
     # a static-dict hit or combo-pattern hit never even reaches the ledger fallback, but
     # confirm they still work fine when ledgers are passed in too.
-    assert app.book_family("tsmom_12m", generated_ledger={}, pipeline_ledger={}) == "A"
-    assert app.book_family("factory_combo_a_b", generated_ledger={}, pipeline_ledger={}) == "H"
+    assert dashboard.book_family("tsmom_12m", generated_ledger={}, pipeline_ledger={}) == "A"
+    assert dashboard.book_family("factory_combo_a_b", generated_ledger={}, pipeline_ledger={}) == "H"
     # a genuine miss in the passed-in dicts still falls through to "?"
-    assert app.book_family("nowhere_at_all", generated_ledger={}, pipeline_ledger={}) == "?"
+    assert dashboard.book_family("nowhere_at_all", generated_ledger={}, pipeline_ledger={}) == "?"
 
 
 def test_research_kind_uses_a_passed_in_ledger_without_loading_its_own(monkeypatch):
@@ -111,7 +110,7 @@ def test_research_kind_uses_a_passed_in_ledger_without_loading_its_own(monkeypat
 
 
 def test_grouping_loads_each_ledger_at_most_once_regardless_of_row_count(monkeypatch):
-    """group_books_by_family() is called on every app.py page render, looping over
+    """group_books_by_family() is called on every dashboard.py page render, looping over
     every live paper book. Confirm it hoists the (deliberately uncached)
     _load_generated_ledger()/_load_pipeline_ledger() reads to once per call, not once
     per row -- the same regression class as research_kind() above, just smaller N."""
@@ -129,7 +128,7 @@ def test_grouping_loads_each_ledger_at_most_once_regardless_of_row_count(monkeyp
     monkeypatch.setattr(dashboard, "_load_pipeline_ledger", counting_pipeline)
 
     names = ["tsmom_12m", "carry_btc_eth", "green_line_200d", "some_unmapped_name"]
-    app.group_books_by_family(_psum(names))
+    dashboard.group_books_by_family(_psum(names))
 
     assert calls["generated"] == 1
     assert calls["pipeline"] == 1
@@ -137,29 +136,29 @@ def test_grouping_loads_each_ledger_at_most_once_regardless_of_row_count(monkeyp
 
 def test_is_monitor_only_true_for_a_dead_verdict():
     gy = _gy_last({"tsmom_12m": "DEAD"})
-    assert app._is_monitor_only("tsmom_12m", gy) is True
+    assert dashboard._is_monitor_only("tsmom_12m", gy) is True
 
 
 def test_is_monitor_only_false_for_an_alive_verdict():
     gy = _gy_last({"some_winner": "ALIVE"})
-    assert app._is_monitor_only("some_winner", gy) is False
+    assert dashboard._is_monitor_only("some_winner", gy) is False
 
 
 def test_is_monitor_only_false_when_no_graveyard_row_at_all():
     # carry_btc_eth's real situation -- never run through the bare-strategy gate,
     # so it must NOT be flagged monitor-only just for being absent from the ledger.
     gy = _gy_last({"tsmom_12m": "DEAD"})
-    assert app._is_monitor_only("carry_btc_eth", gy) is False
+    assert dashboard._is_monitor_only("carry_btc_eth", gy) is False
 
 
 def test_is_monitor_only_false_when_gy_last_is_none():
-    assert app._is_monitor_only("anything", None) is False
+    assert dashboard._is_monitor_only("anything", None) is False
 
 
 def test_grouping_matches_current_live_roster_families():
     names = ["tsmom_12m", "tsmom_ensemble", "green_line_200d", "turn_of_month",
              "piggyback_2a", "piggyback_3", "piggyback_4", "carry_btc_eth"]
-    groups = app.group_books_by_family(_psum(names))
+    groups = dashboard.group_books_by_family(_psum(names))
     got = {label: sorted(r["book"] for r in rows) for _, label, rows in groups}
     assert got == {
         "Trend / momentum": ["green_line_200d", "tsmom_12m", "tsmom_ensemble"],
@@ -174,7 +173,7 @@ def test_grouping_includes_family_m_learned_forecaster_books():
     # carry_kronos_vol/kronos_wick_agg to "M" but group_books_by_family() silently dropped
     # them: it only ever emits families that are keys of BOOK_FAMILIES.
     names = ["tsmom_12m", "carry_kronos_vol", "kronos_wick_agg"]
-    groups = app.group_books_by_family(_psum(names))
+    groups = dashboard.group_books_by_family(_psum(names))
     got = {label: sorted(r["book"] for r in rows) for _, label, rows in groups}
     assert got["Learned forecaster"] == ["carry_kronos_vol", "kronos_wick_agg"]
 
@@ -182,7 +181,7 @@ def test_grouping_includes_family_m_learned_forecaster_books():
 def test_grouping_preserves_family_letter_order_not_input_order():
     # input order is H, A, C, E -- output should come back A, C, E, H (BOOK_FAMILIES order)
     names = ["piggyback_2a", "tsmom_12m", "turn_of_month", "carry_btc_eth"]
-    groups = app.group_books_by_family(_psum(names))
+    groups = dashboard.group_books_by_family(_psum(names))
     labels_in_order = [label for _, label, _ in groups]
     assert labels_in_order == ["Trend / momentum", "Calendar / seasonality",
                                "Carry / structural", "Piggyback / combined"]
@@ -190,14 +189,14 @@ def test_grouping_preserves_family_letter_order_not_input_order():
 
 def test_grouping_puts_unmapped_books_in_an_other_group_last():
     names = ["tsmom_12m", "some_brand_new_factory_strategy"]
-    groups = app.group_books_by_family(_psum(names))
+    groups = dashboard.group_books_by_family(_psum(names))
     assert [label for _, label, _ in groups] == ["Trend / momentum", "Other"]
     other_rows = groups[-1][2]
     assert [r["book"] for r in other_rows] == ["some_brand_new_factory_strategy"]
 
 
 def test_grouping_omits_empty_families():
-    groups = app.group_books_by_family(_psum(["carry_btc_eth"]))
+    groups = dashboard.group_books_by_family(_psum(["carry_btc_eth"]))
     assert len(groups) == 1
     assert groups[0][1] == "Carry / structural"
 
@@ -215,7 +214,7 @@ def test_grouping_pulls_retired_books_into_one_trailing_group():
     # indistinguishable at a glance from the still-live ones next to it.
     names = ["tsmom_12m", "tsmom_ensemble", "turn_of_month", "carry_btc_eth"]
     psum = _psum_with_retired(names, {"tsmom_ensemble", "turn_of_month"})
-    groups = app.group_books_by_family(psum)
+    groups = dashboard.group_books_by_family(psum)
     labels_in_order = [label for _, label, _ in groups]
     assert labels_in_order == ["Trend / momentum", "Carry / structural", "Retired"]
     retired_rows = groups[-1][2]
@@ -226,7 +225,7 @@ def test_grouping_pulls_retired_books_into_one_trailing_group():
 
 def test_grouping_with_all_books_retired_still_omits_empty_families():
     psum = _psum_with_retired(["tsmom_12m"], {"tsmom_12m"})
-    groups = app.group_books_by_family(psum)
+    groups = dashboard.group_books_by_family(psum)
     assert len(groups) == 1
     assert groups[0][1] == "Retired"
 
@@ -234,7 +233,7 @@ def test_grouping_with_all_books_retired_still_omits_empty_families():
 def test_show_monitor_only_false_filters_out_dead_books():
     names = ["tsmom_12m", "carry_btc_eth"]
     gy = _gy_last({"tsmom_12m": "DEAD"})
-    groups = app.group_books_by_family(_psum(names), gy, show_monitor_only=False)
+    groups = dashboard.group_books_by_family(_psum(names), gy, show_monitor_only=False)
     all_books = [r["book"] for _, _, rows in groups for r in rows]
     assert all_books == ["carry_btc_eth"]     # tsmom_12m (monitor-only DEAD) filtered out
 
@@ -242,7 +241,7 @@ def test_show_monitor_only_false_filters_out_dead_books():
 def test_show_monitor_only_true_keeps_everything_default_behavior():
     names = ["tsmom_12m", "carry_btc_eth"]
     gy = _gy_last({"tsmom_12m": "DEAD"})
-    groups = app.group_books_by_family(_psum(names), gy, show_monitor_only=True)
+    groups = dashboard.group_books_by_family(_psum(names), gy, show_monitor_only=True)
     all_books = sorted(r["book"] for _, _, rows in groups for r in rows)
     assert all_books == ["carry_btc_eth", "tsmom_12m"]
 
@@ -251,7 +250,7 @@ def test_grouping_with_no_gy_last_never_filters():
     # gy_last=None (e.g. the backtest_ok=False fallback path) -- can't compute
     # monitor-only, so nothing is ever hidden regardless of show_monitor_only.
     names = ["tsmom_12m", "carry_btc_eth"]
-    groups = app.group_books_by_family(_psum(names), gy_last=None, show_monitor_only=False)
+    groups = dashboard.group_books_by_family(_psum(names), gy_last=None, show_monitor_only=False)
     all_books = sorted(r["book"] for _, _, rows in groups for r in rows)
     assert all_books == ["carry_btc_eth", "tsmom_12m"]
 
@@ -262,14 +261,14 @@ def test_book_introduced_dates_is_the_earliest_mark_per_book():
         ("a", "2026-07-20", 100_000), ("a", "2026-07-22", 101_000),
         ("b", "2026-07-25", 100_000),
     ])
-    dates = app.book_introduced_dates(phist)
+    dates = dashboard.book_introduced_dates(phist)
     assert dates["a"] == pd.Timestamp("2026-07-20")
     assert dates["b"] == pd.Timestamp("2026-07-25")
 
 
 def test_book_introduced_dates_empty_for_no_history():
-    assert app.book_introduced_dates(pd.DataFrame(columns=["book", "date", "equity"])) == {}
-    assert app.book_introduced_dates(None) == {}
+    assert dashboard.book_introduced_dates(pd.DataFrame(columns=["book", "date", "equity"])) == {}
+    assert dashboard.book_introduced_dates(None) == {}
 
 
 def test_book_return_today_compares_to_the_previous_calendar_days_close():
@@ -278,27 +277,27 @@ def test_book_return_today_compares_to_the_previous_calendar_days_close():
         ("a", "2026-07-29T10:00", 100_500),
         ("a", "2026-07-29T15:00", 101_000),   # today's latest
     ])
-    rt = app.book_return_today(phist)
+    rt = dashboard.book_return_today(phist)
     assert rt["a"] == pytest.approx(101_000 / 100_000 - 1)
 
 
 def test_book_return_today_is_nan_for_a_book_with_only_one_calendar_day():
     # just opened today -- there IS no "previous close" yet.
     phist = _phist([("a", "2026-07-29T10:00", 100_000), ("a", "2026-07-29T15:00", 100_500)])
-    rt = app.book_return_today(phist)
+    rt = dashboard.book_return_today(phist)
     assert np.isnan(rt["a"])
 
 
 def test_book_return_today_empty_for_no_history():
-    assert app.book_return_today(pd.DataFrame(columns=["book", "date", "equity"])) == {}
-    assert app.book_return_today(None) == {}
+    assert dashboard.book_return_today(pd.DataFrame(columns=["book", "date", "equity"])) == {}
+    assert dashboard.book_return_today(None) == {}
 
 
 def test_sort_books_flat_recent_orders_newest_first():
     psum = _psum(["a", "b", "c"])
     phist = _phist([("a", "2026-07-20", 100_000), ("b", "2026-07-25", 100_000),
                     ("c", "2026-07-22", 100_000)])
-    rows = app.sort_books_flat(psum, phist, sort_key="recent")
+    rows = dashboard.sort_books_flat(psum, phist, sort_key="recent")
     assert [r["book"] for r in rows] == ["b", "c", "a"]
 
 
@@ -306,7 +305,7 @@ def test_sort_books_flat_recent_puts_a_book_missing_from_phist_entirely_last():
     # no crash, no None-vs-Timestamp comparison error -- NaT sorts last.
     psum = _psum(["a", "never_marked"])
     phist = _phist([("a", "2026-07-20", 100_000)])
-    rows = app.sort_books_flat(psum, phist, sort_key="recent")
+    rows = dashboard.sort_books_flat(psum, phist, sort_key="recent")
     assert [r["book"] for r in rows] == ["a", "never_marked"]
 
 
@@ -319,7 +318,7 @@ def test_sort_books_flat_puts_retired_last_regardless_of_sort_key():
     psum = _psum_with_retired(names, {"b_retired"})
     phist = _phist([("a", "2026-07-20", 100_000), ("b_retired", "2026-07-30", 100_000),
                     ("c", "2026-07-25", 100_000)])
-    rows = app.sort_books_flat(psum, phist, sort_key="recent")
+    rows = dashboard.sort_books_flat(psum, phist, sort_key="recent")
     # b_retired was introduced most recently -- would rank first under "recent" alone --
     # but still has to trail both active books.
     assert [r["book"] for r in rows] == ["c", "a", "b_retired"]
@@ -332,21 +331,21 @@ def test_sort_books_flat_return_today_orders_highest_first_and_nan_last():
         ("b", "2026-07-28", 100_000), ("b", "2026-07-29", 102_000),   # +2.0%
         ("c", "2026-07-29T10:00", 100_000), ("c", "2026-07-29T15:00", 100_100),  # NaN, 1 day only
     ])
-    rows = app.sort_books_flat(psum, phist, sort_key="return_today")
+    rows = dashboard.sort_books_flat(psum, phist, sort_key="return_today")
     assert [r["book"] for r in rows] == ["b", "a", "c"]
 
 
 def test_sort_books_flat_total_return_matches_psums_own_return_column():
     # _psum()'s return column is 0.01*i for names in input order -- c > b > a here.
     psum = _psum(["a", "b", "c"])
-    rows = app.sort_books_flat(psum, phist=None, sort_key="total_return")
+    rows = dashboard.sort_books_flat(psum, phist=None, sort_key="total_return")
     assert [r["book"] for r in rows] == ["c", "b", "a"]
 
 
 def test_sort_books_flat_respects_the_monitor_only_filter():
     names = ["tsmom_12m", "carry_btc_eth"]
     gy = _gy_last({"tsmom_12m": "DEAD"})
-    rows = app.sort_books_flat(_psum(names), phist=None, gy_last=gy,
+    rows = dashboard.sort_books_flat(_psum(names), phist=None, gy_last=gy,
                                show_monitor_only=False, sort_key="total_return")
     assert [r["book"] for r in rows] == ["carry_btc_eth"]
 
@@ -357,25 +356,25 @@ def test_accrual_only_books_names_the_three_funding_accrual_books():
     # accrual (kronos_live.run_carry_kronos, hourly.run_funding_timing, carry_live.run_carry)
     # and never call books.rebalance_to()/log_trades(), so they can NEVER populate `trades`
     # -- the trade-log caption must special-case exactly this set, not a superset or subset.
-    assert app.ACCRUAL_ONLY_BOOKS == {"carry_btc_eth", "carry_kronos_vol", "funding_timing_1h"}
+    assert dashboard.ACCRUAL_ONLY_BOOKS == {"carry_btc_eth", "carry_kronos_vol", "funding_timing_1h"}
 
 
 def test_accrual_only_books_excludes_a_normal_rebalancing_book():
     # kronos_wick_agg DOES call books.rebalance_to() -- it just may have zero target
     # weights on a given day. It must keep the generic "no fills yet" caption, which is
     # still accurate for it (a fill may still show up next cycle).
-    assert "kronos_wick_agg" not in app.ACCRUAL_ONLY_BOOKS
+    assert "kronos_wick_agg" not in dashboard.ACCRUAL_ONLY_BOOKS
 
 
 # ---------------------------------------------------------------- promotion cap / up for review (#147)
 @pytest.fixture
 def scratch_promotions(monkeypatch, tmp_path):
-    """Points app.factory's promotion-registry paths at a scratch dir, same technique
+    """Points dashboard.factory's promotion-registry paths at a scratch dir, same technique
     tests/test_factory_run.py's scratch_graveyard fixture uses -- so factory_owned_names()
     reads test data instead of the real (git-tracked) state/paper/ registries."""
-    monkeypatch.setattr(app.factory, "PROMOTED_PATH", tmp_path / "promoted.json")
-    monkeypatch.setattr(app.factory, "PROMOTED_GENERATED_PATH", tmp_path / "promoted_generated.json")
-    monkeypatch.setattr(app.factory, "PROMOTED_COMBOS_PATH", tmp_path / "promoted_combos.json")
+    monkeypatch.setattr(dashboard.factory, "PROMOTED_PATH", tmp_path / "promoted.json")
+    monkeypatch.setattr(dashboard.factory, "PROMOTED_GENERATED_PATH", tmp_path / "promoted_generated.json")
+    monkeypatch.setattr(dashboard.factory, "PROMOTED_COMBOS_PATH", tmp_path / "promoted_combos.json")
     (tmp_path / "promoted.json").write_text(json.dumps([]))
     (tmp_path / "promoted_generated.json").write_text(json.dumps([]))
     (tmp_path / "promoted_combos.json").write_text(json.dumps([]))
@@ -388,11 +387,11 @@ def test_factory_owned_names_unions_all_three_registries(scratch_promotions):
         json.dumps([{"name": "turn_of_month_gen_5_5", "family": "C", "freq": "D", "params": {}}]))
     (scratch_promotions / "promoted_combos.json").write_text(
         json.dumps([{"name": "factory_combo_a_b", "freq": "D", "legs": []}]))
-    assert app.factory_owned_names() == {"tsmom_3m", "turn_of_month_gen_5_5", "factory_combo_a_b"}
+    assert dashboard.factory_owned_names() == {"tsmom_3m", "turn_of_month_gen_5_5", "factory_combo_a_b"}
 
 
 def test_factory_owned_names_empty_when_nothing_promoted(scratch_promotions):
-    assert app.factory_owned_names() == set()
+    assert dashboard.factory_owned_names() == set()
 
 
 def _days_ago(n):
@@ -406,7 +405,7 @@ def test_books_up_for_review_surfaces_an_old_factory_owned_book(scratch_promotio
     psum = _psum(["tsmom_3m", "carry_btc_eth"])
     phist = _phist([("tsmom_3m", _days_ago(90), 100_000), ("carry_btc_eth", _days_ago(90), 100_000)])
 
-    rows = app.books_up_for_review(psum, phist)
+    rows = dashboard.books_up_for_review(psum, phist)
     assert [r["book"] for r in rows] == ["tsmom_3m"]
     assert rows[0]["days_live"] >= 90
 
@@ -415,7 +414,7 @@ def test_books_up_for_review_excludes_a_book_under_the_age_threshold(scratch_pro
     (scratch_promotions / "promoted.json").write_text(json.dumps(["tsmom_3m"]))
     psum = _psum(["tsmom_3m"])
     phist = _phist([("tsmom_3m", _days_ago(5), 100_000)])
-    assert app.books_up_for_review(psum, phist) == []
+    assert dashboard.books_up_for_review(psum, phist) == []
 
 
 def test_books_up_for_review_excludes_an_already_retired_book(scratch_promotions):
@@ -425,12 +424,12 @@ def test_books_up_for_review_excludes_an_already_retired_book(scratch_promotions
     psum = _psum(["tsmom_3m"])
     psum["retired_at"] = ["2026-07-01"]
     phist = _phist([("tsmom_3m", _days_ago(90), 100_000)])
-    assert app.books_up_for_review(psum, phist) == []
+    assert dashboard.books_up_for_review(psum, phist) == []
 
 
 def test_books_up_for_review_sorts_oldest_first(scratch_promotions):
     (scratch_promotions / "promoted.json").write_text(json.dumps(["tsmom_3m", "tsmom_6m"]))
     psum = _psum(["tsmom_3m", "tsmom_6m"])
     phist = _phist([("tsmom_3m", _days_ago(65), 100_000), ("tsmom_6m", _days_ago(120), 100_000)])
-    rows = app.books_up_for_review(psum, phist)
+    rows = dashboard.books_up_for_review(psum, phist)
     assert [r["book"] for r in rows] == ["tsmom_6m", "tsmom_3m"]

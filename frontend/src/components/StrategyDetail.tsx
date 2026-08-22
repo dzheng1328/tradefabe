@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import type { Data } from "plotly.js";
 import StatTile from "./StatTile";
 import RingLoader from "./RingLoader";
 import { fmt } from "../lib/format";
@@ -10,7 +11,7 @@ type StrategyResponse = {
   name: string; blurb: string; verdict: string; freq: string;
   corr_bench: number | null; null_p95: number | null; has_returns: boolean;
   stats: Record<string, number | null>;
-  chart: { data: unknown[]; layout: Record<string, unknown> } | null;
+  chart: { data: Data[]; layout: Record<string, unknown> } | null;
 };
 
 export default function StrategyDetail({ selected }: { selected: string | null }) {

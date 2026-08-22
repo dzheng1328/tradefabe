@@ -27,21 +27,18 @@ src/tradefabe/     the installable engine. engine.py is the data/sizing/returns 
                    hourly.py (family L) and kronos.py + kronos_live.py (family M) each hold
                    both the signals AND the live monitor books, so a study and its book
                    share one function instead of two copies that drift.
-app.py             Streamlit dashboard, still the only LIVE UI (desktop app + localhost:8501
-                   both point here). Two sidebar views: Paper Books (live books grouped by
-                   family, click-to-select cards, per-strategy panel with trade log) and
-                   Research Lab (verdicts, luck floor, correlation, piggyback lab, and a
-                   detail view for strategies that never reached a live book). Plotly.
 src/tradefabe/
-  dashboard.py     Streamlit-free data/chart layer app.py imports from -- single source of
-                   truth for the dashboard-rebuild work below, same pattern as engine.py.
-  api/             thin FastAPI read layer over dashboard.py (`GET /api/books/summary`,
-                   `GET /api/books/up_for_review`, `GET /api/books/{name}/detail` so
-                   far). Not wired into the desktop app yet.
-frontend/          Vite/React/TS/Tailwind/Framer Motion -- the dashboard rebuild's new UI.
-                   Dark/lime/26px-radius theme landed; currently one placeholder screen,
-                   not a real page yet. Sub-project 1 of 4 (see CLAUDE.md's Layout section
-                   and docs/superpowers/specs|plans/*dashboard-foundation* for the rest).
+  dashboard.py     Streamlit-free data/chart layer -- single source of truth for
+                   dashboard logic, same pattern as engine.py. `api/` imports from it.
+  api/             FastAPI read layer over dashboard.py, the only live dashboard backend
+                   now that app.py is retired. Also serves frontend/dist/'s built static
+                   assets when present, so the packaged desktop app is one process.
+frontend/          Vite/React/TS/Tailwind/Framer Motion -- the dashboard: Paper Books
+                   (row list, per-strategy detail panel with trade log) and Research Lab
+                   (verdicts, luck floor, correlation, piggyback lab, strategy detail).
+                   `npm run dev` at localhost:5173 for local dev; `npm run build` for the
+                   packaged desktop app. Spec history in
+                   docs/superpowers/specs|plans/*dashboard-*.
 harness.py         research evaluator: doctrine gates (Deflated Sharpe Ratio + Combinatorial
                    Purged CV as of v1.4), noise floors, graveyard writer.
 research/          one-off studies (insider, congressional, carry, thematic, day-trading),
@@ -64,7 +61,8 @@ state/paper/       paper-book ledgers, carry_risk.json, promotion registries. TR
 .venv/bin/tradefabe run       # one daily paper cycle: rebalance due books, carry, risk monitor
 .venv/bin/tradefabe mark      # mark all books to current price (finer chart resolution)
 .venv/bin/tradefabe status    # current book equities
-.venv/bin/streamlit run app.py  # dashboard at localhost:8501
+.venv/bin/tradefabe-api         # FastAPI dev server, localhost:8000
+cd frontend && npm run dev      # Vite dev server, localhost:5173 -- the live dashboard
 
 .venv/bin/python harness.py   # re-run the research evaluation (appends graveyard.csv)
 .venv/bin/pytest tests/       # run the test suite
@@ -128,9 +126,10 @@ repo-deletion denied, since the rule here is branch-and-PR).
 
 ## Desktop app
 `~/Applications/tradefabe.app` opens the dashboard in a native window with its own Dock icon
-(auto-starts the Streamlit server if needed; closing the window stops a server it started).
-Entry point: `tradefabe-app` (pywebview). The bundle is not tracked in git, but its build
-script is — rebuild with [`ops/build_app.sh`](ops/build_app.sh).
+(auto-starts the FastAPI server if needed, serving the frontend's built static assets
+directly; closing the window stops it if this process started it). `ops/build_app.sh` runs
+`npm run build` before bundling. Entry point: `tradefabe-app` (pywebview). The bundle is not
+tracked in git, but its build script is — rebuild with [`ops/build_app.sh`](ops/build_app.sh).
 
 > **Repo location matters.** This repo lived in `~/Documents` until 2026-07-26, where iCloud
 > corrupted the venv and wrote conflict copies of tracked files: iCloud flags files in that
