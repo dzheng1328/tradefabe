@@ -257,7 +257,11 @@ export default function LiquidMetalField() {
       return;
     }
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Capped at 1x (was 2x) -- this shader samples fbm() up to 6 times per pixel
+    // (flow() twice for height, twice more each for the hx/hy slope taps), so 2x
+    // device pixel ratio was quadrupling the per-frame fragment cost on any
+    // Retina/HiDPI display for a background element nobody looks at up close.
+    const dpr = Math.min(window.devicePixelRatio || 1, 1);
     let height = window.innerHeight;
     const reducedMotion = prefersReducedMotion();
 
@@ -329,7 +333,19 @@ export default function LiquidMetalField() {
     let lastConsumed: { x: number; y: number; t: number } | null = null;
     let frameId: number;
     const start = performance.now();
+
+    // This is a purely decorative background, not something anyone reads frame-by-frame
+    // -- there's no reason to pay a GPU-bound draw call at the display's full refresh
+    // rate (60/120/144Hz) for it. Still schedule a rAF every real frame (cheap, CPU-only)
+    // so ripple/resize timing stays smooth, but only issue the expensive draw call
+    // (flow() samples fbm() up to 6x per pixel) at TARGET_FPS.
+    const TARGET_FPS = 30;
+    const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+    let lastDrawMs = -Infinity; // so the very first frame always draws
     function loop(now: number) {
+      frameId = requestAnimationFrame(loop);
+      if (now - lastDrawMs < FRAME_INTERVAL_MS) return;
+      lastDrawMs = now;
       if (pendingPoint) {
         const t = performance.now();
         const { dirX, dirY } = lastConsumed
@@ -341,14 +357,27 @@ export default function LiquidMetalField() {
       }
       const count = buildRippleUniforms(now);
       drawFrame((now - start) / 1000, count);
-      frameId = requestAnimationFrame(loop);
     }
     frameId = requestAnimationFrame(loop);
+
+    // A backgrounded/minimized window still fires rAF in most browsers (throttled, not
+    // stopped), and the WKWebView/pywebview desktop shell may not throttle it at all --
+    // stop drawing entirely rather than rely on that, so an unfocused tab/window costs
+    // zero GPU instead of a throttled-but-nonzero amount.
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        cancelAnimationFrame(frameId);
+      } else {
+        frameId = requestAnimationFrame(loop);
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelAnimationFrame(frameId);
       window.removeEventListener("resize", resize);
       window.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [useFallback]);
 

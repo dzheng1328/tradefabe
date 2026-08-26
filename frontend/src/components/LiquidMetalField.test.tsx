@@ -136,9 +136,14 @@ describe("LiquidMetalField", () => {
     render(<LiquidMetalField />);
     expect(rafCallback).not.toBeNull();
 
+    // Draws are now throttled to TARGET_FPS (30, i.e. ~33.3ms apart) -- space these
+    // synthetic timestamps well past that interval so each call actually draws
+    // instead of being skipped as "too soon since the last draw".
+    const FRAME_GAP_MS = 40;
+
     // Consume the initial frame queued at mount so the buffer below reflects
     // only the pointermove events fired after this point.
-    rafCallback!(performance.now());
+    rafCallback!(0);
 
     const uniform1i = gl.uniform1i as unknown as ReturnType<typeof vi.fn>;
     uniform1i.mockClear();
@@ -154,7 +159,7 @@ describe("LiquidMetalField", () => {
     expect(uniform1i).not.toHaveBeenCalled();
 
     // Now let exactly one animation frame run.
-    rafCallback!(performance.now());
+    rafCallback!(FRAME_GAP_MS);
 
     // u_rippleCount (set via uniform1i) must reflect exactly one new ripple
     // added for this frame, not 20 -- proving the 20 raw events collapsed to
@@ -162,5 +167,66 @@ describe("LiquidMetalField", () => {
     // starting-empty state (0 -> 1), not (0 -> 20 then clamped).
     expect(uniform1i).toHaveBeenCalledTimes(1);
     expect(uniform1i).toHaveBeenCalledWith(expect.anything(), 1);
+  });
+
+  it("skips the draw call when the next frame arrives before the FPS-throttle interval", () => {
+    mockMatchMedia(false);
+    const gl = mockWebGL2Context();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(gl);
+
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      rafCallback = cb;
+      return 1;
+    });
+
+    render(<LiquidMetalField />);
+    rafCallback!(0); // initial draw, establishes lastDrawMs = 0
+
+    const drawArrays = gl.drawArrays as unknown as ReturnType<typeof vi.fn>;
+    const callsAfterFirstDraw = drawArrays.mock.calls.length;
+    expect(callsAfterFirstDraw).toBeGreaterThan(0);
+
+    rafCallback!(5); // 5ms later -- well under the ~33.3ms (30fps) interval
+    expect(drawArrays.mock.calls.length).toBe(callsAfterFirstDraw);
+
+    rafCallback!(40); // 40ms after the last draw -- past the interval, must draw
+    expect(drawArrays.mock.calls.length).toBeGreaterThan(callsAfterFirstDraw);
+  });
+
+  it("stops drawing while the document is hidden and resumes when it's visible again", () => {
+    mockMatchMedia(false);
+    const gl = mockWebGL2Context();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(gl);
+    const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(1);
+    const cancelSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+
+    render(<LiquidMetalField />);
+    const callsAtMount = rafSpy.mock.calls.length;
+
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(cancelSpy).toHaveBeenCalled();
+
+    const cancelCallsWhenHidden = cancelSpy.mock.calls.length;
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    // Resuming schedules a new frame without cancelling again.
+    expect(rafSpy.mock.calls.length).toBeGreaterThan(callsAtMount);
+    expect(cancelSpy.mock.calls.length).toBe(cancelCallsWhenHidden);
+  });
+
+  it("caps the canvas resolution to 1x device pixel ratio even on a HiDPI display", () => {
+    mockMatchMedia(false);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(mockWebGL2Context());
+    vi.spyOn(window, "requestAnimationFrame").mockReturnValue(1);
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 3 });
+
+    const { container } = render(<LiquidMetalField />);
+    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
+
+    expect(canvas.width).toBe(window.innerWidth);
+    expect(canvas.height).toBe(window.innerHeight);
   });
 });
