@@ -1,9 +1,9 @@
 {
  "name": "crypto_reversal_1h",
- "cash": -0.016071372523229478,
+ "cash": 170282.35391798342,
  "positions": {
-  "BTC-USD": 0.541824406235639,
-  "ETH-USD": 17.263838518348777
+  "BTC-USD": -0.5429255314181851,
+  "ETH-USD": -17.228889538010346
  },
  "history": [
   [
@@ -5141,32 +5141,30 @@
   [
    "2026-08-26T16:18",
    84571.04
+  ],
+  [
+   "2026-08-26T17:00",
+   84986.06
+  ],
+  [
+   "2026-08-26T18:00",
+   85212.55
+  ],
+  [
+   "2026-08-26T19:00",
+   85183.77
+  ],
+  [
+   "2026-08-26T19:05",
+   85098.59
   ]
  ],
- "last_run": "2026-08-26T16:18:54",
- "last_rebalance": "2026-08-26T16:18",
+ "last_run": "2026-08-26T19:05:02",
+ "last_rebalance": "2026-08-26T19:05",
  "last_price_bar": "2026-08-26",
- "equity": 84571.04,
- "last_backfill_bar": "2026-08-26T16:00",
+ "equity": 85098.59,
+ "last_backfill_bar": "2026-08-26T19:00",
  "trades": [
-  {
-   "ts": "2026-08-15T23:21",
-   "ticker": "BTC-USD",
-   "side": "COVER",
-   "shares": 0.000106,
-   "price": 63063.621094,
-   "notional": 6.7,
-   "position_after": -0.797091
-  },
-  {
-   "ts": "2026-08-15T23:21",
-   "ticker": "ETH-USD",
-   "side": "BUY",
-   "shares": 0.013476,
-   "price": 1881.449951,
-   "notional": 25.35,
-   "position_after": 26.717402
-  },
   {
    "ts": "2026-08-16T01:22",
    "ticker": "BTC-USD",
@@ -9648,11 +9646,29 @@
    "price": 2449.370117,
    "notional": 16.08,
    "position_after": 17.263839
+  },
+  {
+   "ts": "2026-08-26T19:05",
+   "ticker": "BTC-USD",
+   "side": "SHORT",
+   "shares": -1.08475,
+   "price": 78448.851562,
+   "notional": 85097.39,
+   "position_after": -0.542926
+  },
+  {
+   "ts": "2026-08-26T19:05",
+   "ticker": "ETH-USD",
+   "side": "SHORT",
+   "shares": -34.492728,
+   "price": 2472.120117,
+   "notional": 85270.17,
+   "position_after": -17.22889
   }
  ],
  "last_prices": {
-  "BTC-USD": 78042.867188,
-  "ETH-USD": 2449.370117
+  "BTC-USD": 78448.851562,
+  "ETH-USD": 2472.120117
  },
- "last_prices_at": "2026-08-26T16:18"
+ "last_prices_at": "2026-08-26T19:05"
 }
