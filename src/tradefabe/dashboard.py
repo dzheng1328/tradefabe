@@ -41,12 +41,13 @@ BENCH_C, SPY_C = "#52514e", "#898781"
 DIV = ["#2a78d6", "#f0efec", "#e34948"]          # diverging blue <-> red, gray midpoint
 
 
-def _repo_csv(relpath, **kwargs):
+def _repo_csv(relpath, ttl=remote.CACHE_SECONDS, **kwargs):
     """pd.read_csv sourced through remote.read_bytes -- GitHub main with a local-disk
     fallback (see remote.py), so every git-tracked ledger the cloud automations write
     (graveyard.csv, state/paper/*, artifacts/*) reads current even if this checkout's
-    own `git pull` has lapsed."""
-    return pd.read_csv(io.BytesIO(remote.read_bytes(relpath)), **kwargs)
+    own `git pull` has lapsed. ttl=0 bypasses remote.py's cache, for a caller that must
+    see a just-written row on the very next call."""
+    return pd.read_csv(io.BytesIO(remote.read_bytes(relpath, ttl=ttl)), **kwargs)
 
 
 def load_carry_backtest():
@@ -821,9 +822,9 @@ def _load_generated_ledger():
     caught alongside the identical bug in _all_candidate_returns()): a freshly-generated
     candidate's family/rationale stayed unresolvable in a long-lived process until
     restart. Re-reading one small CSV per call is cheap enough not to need caching."""
-    if not remote.exists("generated_templates.csv"):
+    if not remote.exists("generated_templates.csv", ttl=0):
         return {}
-    df = _repo_csv("generated_templates.csv")
+    df = _repo_csv("generated_templates.csv", ttl=0)
     return {row["name"]: {"family": row["family"], "rationale": row["rationale"]}
             for _, row in df.iterrows()}
 
@@ -836,9 +837,9 @@ def _load_pipeline_ledger():
     not a mechanism-specific one; see BOOK_FAMILIES's comment for why. Deliberately
     uncached, same reason and same date as _load_generated_ledger() -- see its
     docstring."""
-    if not remote.exists("pipeline_ideas.csv"):
+    if not remote.exists("pipeline_ideas.csv", ttl=0):
         return {}
-    df = _repo_csv("pipeline_ideas.csv")
+    df = _repo_csv("pipeline_ideas.csv", ttl=0)
     return {row["name"]: {"family": "O", "rationale": row["rationale"]}
             for _, row in df.iterrows()}
 

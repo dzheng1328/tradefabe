@@ -52,6 +52,9 @@ def _no_real_network(monkeypatch):
         raise OSError(f"real network access blocked in tests: {url}")
 
     monkeypatch.setattr(remote, "_get", _blocked)
+    remote._cache.clear()
+    yield
+    remote._cache.clear()
 
 
 def pytest_sessionstart(session):
