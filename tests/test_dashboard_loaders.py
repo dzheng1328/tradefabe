@@ -2,12 +2,13 @@ import os
 
 import pandas as pd
 
-from tradefabe import dashboard
+from tradefabe import dashboard, remote
 from tradefabe.dashboard import piggyback_blend
 
 
 def test_load_pairs_backtest_returns_none_when_artifact_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(dashboard, "ART", str(tmp_path))
+    monkeypatch.setattr(remote, "REPO_ROOT", tmp_path)
     assert dashboard.load_pairs_backtest() is None
 
 

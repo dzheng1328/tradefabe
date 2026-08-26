@@ -3,12 +3,13 @@ the lab dashboard. app.py's render_* functions and the FastAPI layer (src/tradef
 both import from here; this module has no Streamlit calls, mirroring how harness.py
 imports engine.py rather than keeping a private copy of doctrine math.
 """
+import io
 import json
 import os
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from tradefabe import factory
+from tradefabe import factory, remote
 # Constant only -- kronos.py imports torch LAZILY (inside predictor()), so this costs the
 # dashboard nothing and does not require the [kronos] extra to be installed.
 from tradefabe.kronos import KRONOS_OOS_START
@@ -40,13 +41,20 @@ BENCH_C, SPY_C = "#52514e", "#898781"
 DIV = ["#2a78d6", "#f0efec", "#e34948"]          # diverging blue <-> red, gray midpoint
 
 
+def _repo_csv(relpath, **kwargs):
+    """pd.read_csv sourced through remote.read_bytes -- GitHub main with a local-disk
+    fallback (see remote.py), so every git-tracked ledger the cloud automations write
+    (graveyard.csv, state/paper/*, artifacts/*) reads current even if this checkout's
+    own `git pull` has lapsed."""
+    return pd.read_csv(io.BytesIO(remote.read_bytes(relpath)), **kwargs)
+
+
 def load_carry_backtest():
     """The carry book's backtest lives outside harness.py's artifacts (separate study,
     research/carry_hl.py) — different universe, different date range (since 2023-05, not
     2018 OOS), different stat shape (yield-based, not Sharpe-framed)."""
-    curve = pd.read_csv(os.path.join(ART, "carry_hl_curve.csv"), index_col=0, parse_dates=True)
-    with open(os.path.join(ART, "carry_hl_meta.json")) as fh:
-        meta = json.load(fh)
+    curve = _repo_csv("artifacts/carry_hl_curve.csv", index_col=0, parse_dates=True)
+    meta = remote.read_json("artifacts/carry_hl_meta.json")
     return curve.iloc[:, 0].rename("carry_net"), meta
 
 
@@ -54,19 +62,14 @@ def load_carry_risk():
     """Deliberately uncached, same reasoning as load_paper_state() -- this is the
     report check_carry_risk() writes once per `tradefabe run` cycle, never fetched live
     from the dashboard itself."""
-    path = os.path.join(BASE, "state", "paper", "carry_risk.json")
-    if not os.path.exists(path):
-        return None
-    with open(path) as fh:
-        return json.load(fh)
+    return remote.read_json("state/paper/carry_risk.json")
 
 
 def load_backtest():
-    full = pd.read_csv(os.path.join(ART, "full_returns.csv"), index_col=0, parse_dates=True)
-    with open(os.path.join(ART, "meta.json")) as fh:
-        meta = json.load(fh)
-    nulls = {k: v for k, v in np.load(os.path.join(ART, "nulls.npz")).items()}
-    gy = pd.read_csv(os.path.join(BASE, "graveyard.csv"))
+    full = _repo_csv("artifacts/full_returns.csv", index_col=0, parse_dates=True)
+    meta = remote.read_json("artifacts/meta.json")
+    nulls = dict(np.load(io.BytesIO(remote.read_bytes("artifacts/nulls.npz"))).items())
+    gy = _repo_csv("graveyard.csv")
     return full, meta, nulls, gy
 
 
@@ -74,10 +77,10 @@ def load_piggyback_backtest():
     """Backtest OOS returns for the 4 piggyback constructions (research/piggyback_backtest.py),
     same shape as full_returns.csv's columns but kept separate since it's a different study
     (constructions, not bare strategies) that can be rerun independently. None if not yet run."""
-    path = os.path.join(ART, "piggyback_returns.csv")
-    if not os.path.exists(path):
+    relpath = "artifacts/piggyback_returns.csv"
+    if not remote.exists(relpath):
         return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
+    return _repo_csv(relpath, index_col=0, parse_dates=True)
 
 
 def load_factory_backtest():
@@ -88,10 +91,10 @@ def load_factory_backtest():
     only for those). A live book with no entry in full_returns.csv OR piggyback_returns.csv
     needs this to have a backtest curve at all -- see book_panel_data(). None if no
     factory candidate has ever been promoted yet."""
-    path = os.path.join(ART, "factory_returns.csv")
-    if not os.path.exists(path):
+    relpath = "artifacts/factory_returns.csv"
+    if not remote.exists(relpath):
         return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
+    return _repo_csv(relpath, index_col=0, parse_dates=True)
 
 
 def load_pipeline_backtest():
@@ -101,10 +104,10 @@ def load_pipeline_backtest():
     the pipeline's own cap), not every pre-registered candidate it ever OOS-tests. A live
     pipeline book with no entry here has no backtest curve at all -- see
     book_panel_data(). None if no pipeline candidate has ever been promoted yet."""
-    path = os.path.join(ART, "pipeline_returns.csv")
-    if not os.path.exists(path):
+    relpath = "artifacts/pipeline_returns.csv"
+    if not remote.exists(relpath):
         return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
+    return _repo_csv(relpath, index_col=0, parse_dates=True)
 
 
 def load_hourly_backtest():
@@ -114,10 +117,10 @@ def load_hourly_backtest():
     the 60/40 benchmark stay comparable), and they live in their own artifact because the
     study fetches its own snapshotted hourly bars rather than harness.py's daily cache.
     None if the study hasn't been run."""
-    path = os.path.join(ART, "hourly_returns.csv")
-    if not os.path.exists(path):
+    relpath = "artifacts/hourly_returns.csv"
+    if not remote.exists(relpath):
         return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
+    return _repo_csv(relpath, index_col=0, parse_dates=True)
 
 
 def load_pairs_backtest():
@@ -126,10 +129,10 @@ def load_pairs_backtest():
     as hourly: the study builds its own signal over a ticker subset (only pairs that
     cleared the cointegration filter), not harness.py's full-universe daily cache. None if
     the study hasn't been run."""
-    path = os.path.join(ART, "pairs_returns.csv")
-    if not os.path.exists(path):
+    relpath = "artifacts/pairs_returns.csv"
+    if not remote.exists(relpath):
         return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
+    return _repo_csv(relpath, index_col=0, parse_dates=True)
 
 
 def load_kronos_backtest():
@@ -142,10 +145,10 @@ def load_kronos_backtest():
     be stored in a 2018-based file without putting contaminated bars on a chart labelled
     "backtest", which is the one place they could quietly become evidence. The stored curve is
     sliced at the cutoff by the study itself. None if the study hasn't been run."""
-    path = os.path.join(ART, "kronos_returns.csv")
-    if not os.path.exists(path):
+    relpath = "artifacts/kronos_returns.csv"
+    if not remote.exists(relpath):
         return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
+    return _repo_csv(relpath, index_col=0, parse_dates=True)
 
 
 def load_price_snapshot():
@@ -161,13 +164,11 @@ def load_price_snapshot():
 def load_paper_state():
     """Deliberately uncached (small files, changes daily) so a page refresh always shows
     the latest `tradefabe run` cycle."""
-    p = os.path.join(BASE, "state", "paper")
-    summ = os.path.join(p, "summary.csv")
-    hist = os.path.join(p, "history.csv")
-    if not (os.path.exists(summ) and os.path.exists(hist)):
+    summ, hist = "state/paper/summary.csv", "state/paper/history.csv"
+    if not (remote.exists(summ) and remote.exists(hist)):
         return None, None
-    psum = pd.read_csv(summ)
-    phist = pd.read_csv(hist)
+    psum = _repo_csv(summ)
+    phist = _repo_csv(hist)
     # history.csv mixes bare-date rows (tradefabe run) with full-timestamp rows
     # (tradefabe mark, every 30min) -- read_csv's own parse_dates can't infer a single
     # format across that mix, so parse explicitly with format="mixed" instead.
@@ -187,11 +188,7 @@ def load_paper_state():
 
 
 def load_book_json(name):
-    path = os.path.join(BASE, "state", "paper", f"{name}.json")
-    if not os.path.exists(path):
-        return None
-    with open(path) as fh:
-        return json.load(fh)
+    return remote.read_json(f"state/paper/{name}.json")
 
 
 # ==================================================================== stats
@@ -824,10 +821,9 @@ def _load_generated_ledger():
     caught alongside the identical bug in _all_candidate_returns()): a freshly-generated
     candidate's family/rationale stayed unresolvable in a long-lived process until
     restart. Re-reading one small CSV per call is cheap enough not to need caching."""
-    path = os.path.join(BASE, "generated_templates.csv")
-    if not os.path.exists(path):
+    if not remote.exists("generated_templates.csv"):
         return {}
-    df = pd.read_csv(path)
+    df = _repo_csv("generated_templates.csv")
     return {row["name"]: {"family": row["family"], "rationale": row["rationale"]}
             for _, row in df.iterrows()}
 
@@ -840,10 +836,9 @@ def _load_pipeline_ledger():
     not a mechanism-specific one; see BOOK_FAMILIES's comment for why. Deliberately
     uncached, same reason and same date as _load_generated_ledger() -- see its
     docstring."""
-    path = os.path.join(BASE, "pipeline_ideas.csv")
-    if not os.path.exists(path):
+    if not remote.exists("pipeline_ideas.csv"):
         return {}
-    df = pd.read_csv(path)
+    df = _repo_csv("pipeline_ideas.csv")
     return {row["name"]: {"family": "O", "rationale": row["rationale"]}
             for _, row in df.iterrows()}
 
