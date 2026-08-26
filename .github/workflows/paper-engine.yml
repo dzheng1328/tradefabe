@@ -59,7 +59,7 @@ on:
         required: true
         default: mark
         type: choice
-        options: [mark, run, factory]
+        options: [mark, run, factory, repair_history]
 
 permissions:
   contents: write
@@ -127,9 +127,10 @@ jobs:
       - name: run cycle
         run: |
           case "${{ steps.pick.outputs.cycle }}" in
-            factory) PYTHONPATH="$PWD/src:$PWD:$PWD/research" python research/factory_run.py --n 20 ;;
-            run)     tradefabe run ;;
-            *)       tradefabe mark ;;
+            factory)        PYTHONPATH="$PWD/src:$PWD:$PWD/research" python research/factory_run.py --n 20 ;;
+            run)            tradefabe run ;;
+            repair_history) python ops/repair_fabricated_history.py ;;
+            *)              tradefabe mark ;;
           esac
 
       - name: commit ledger
