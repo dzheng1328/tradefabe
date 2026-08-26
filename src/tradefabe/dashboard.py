@@ -1199,6 +1199,19 @@ STRATEGY_DESCRIPTIONS = {
 }
 
 
+def _short_blurb(text, limit=220):
+    """Truncate at the last word boundary within `limit` chars, not the first sentence --
+    pipeline_ideas.csv's rationale text is dense with decimals, dates, and citations
+    ("2026-07-30", "0.79%", "e.g."), so a naive "first '. '" split cuts mid-thought as
+    often as it finds a real sentence end. A character budget is dumb but reliable: it
+    always lands on a real word, and 220 chars comfortably covers STRATEGY_DESCRIPTIONS'
+    own hand-written range (43-347 chars, avg ~147) without needing sentence detection at
+    all. No-op for anything already under the limit (i.e. every existing description)."""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "…"
+
+
 def strategy_description(name, generated_ledger=None, pipeline_ledger=None):
     """STRATEGY_DESCRIPTIONS lookup with two pattern-based fallbacks, mirroring
     book_family(): factory_run.py's combo names vary run to run (whichever pair was
@@ -1221,12 +1234,12 @@ def strategy_description(name, generated_ledger=None, pipeline_ledger=None):
         generated_ledger = _load_generated_ledger()
     gen = generated_ledger.get(name)
     if gen:
-        return gen["rationale"]
+        return _short_blurb(gen["rationale"])
     if pipeline_ledger is None:
         pipeline_ledger = _load_pipeline_ledger()
     pipe = pipeline_ledger.get(name)
     if pipe:
-        return pipe["rationale"]
+        return _short_blurb(pipe["rationale"])
     return "(no description yet — add one to STRATEGY_DESCRIPTIONS in tradefabe/dashboard.py)"
 
 

@@ -95,9 +95,20 @@ function latestEquity(chart: DetailResponse["live_equity_chart"]): number | null
   return null;
 }
 
-// Idea #16: the blurb reveals word-by-word rather than popping in whole.
+// Idea #16: the blurb reveals word-by-word rather than popping in whole. Capped so the
+// LAST word never lands more than MAX_REVEAL_MS after the first, regardless of length --
+// an uncapped per-word delay made a pipeline candidate's full research rationale (500+
+// words, straight from pipeline_ideas.csv's audit-trail text, not a UI-sized blurb) take
+// 15+ seconds to finish animating in (#239).
+const MAX_REVEAL_MS = 600;
+
+export function revealStepSeconds(wordCount: number): number {
+  return wordCount > 1 ? Math.min(0.03, MAX_REVEAL_MS / 1000 / (wordCount - 1)) : 0;
+}
+
 function BlurbReveal({ text }: { text: string }) {
   const words = text.split(" ");
+  const step = revealStepSeconds(words.length);
   return (
     <p className="text-ink-muted mt-1">
       {words.map((word, i) => (
@@ -106,7 +117,7 @@ function BlurbReveal({ text }: { text: string }) {
             className="tf-word inline-block"
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ ...SPRING, delay: prefersReducedMotion() ? 0 : i * 0.03 }}
+            transition={{ ...SPRING, delay: prefersReducedMotion() ? 0 : i * step }}
           >
             {word}
           </motion.span>

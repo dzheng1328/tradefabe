@@ -145,6 +145,23 @@ describe("DetailPanel", () => {
     expect(words.length).toBe(DETAIL_RESPONSE.blurb.split(" ").length);
   });
 
+  it("caps the total word-reveal time regardless of blurb length (#239)", async () => {
+    // A pipeline candidate's raw research rationale can run 500+ words -- at a flat
+    // 30ms/word that took 15+ seconds to finish animating in. revealStepSeconds() must
+    // shrink the per-word delay so the LAST word never lands more than MAX_REVEAL_MS
+    // (600ms) after the first, whatever the word count.
+    const { revealStepSeconds } = await import("./DetailPanel");
+    const wordCount = 520;
+    const step = revealStepSeconds(wordCount);
+    const lastWordDelayMs = step * (wordCount - 1) * 1000;
+    expect(lastWordDelayMs).toBeLessThanOrEqual(600);
+  });
+
+  it("keeps the original 30ms/word pace for a short blurb", async () => {
+    const { revealStepSeconds } = await import("./DetailPanel");
+    expect(revealStepSeconds(5)).toBe(0.03);
+  });
+
   it("stamps the verdict badge with a one-time animation on first render this session", async () => {
     sessionStorage.clear();
     render(<DetailPanel name="tsmom_12m" />);

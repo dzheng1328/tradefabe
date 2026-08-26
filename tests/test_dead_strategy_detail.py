@@ -74,6 +74,26 @@ def test_strategy_description_resolves_a_pipeline_name_via_the_ledger_fallback(m
         "Gold/silver ratio mean-reversion."
 
 
+def test_strategy_description_truncates_a_long_pipeline_rationale(monkeypatch):
+    """pipeline_ideas.csv's rationale is audit-trail text (300+ words, citation-dense),
+    not a UI-sized blurb -- a real one ran 342 words and made DetailPanel's word-by-word
+    reveal take 15+ seconds (#239). Must truncate at a word boundary, never mid-word, and
+    never return the untruncated original."""
+    long_rationale = "word " * 100  # 500 chars, well past _short_blurb's 220-char budget
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger",
+                        lambda: {"rp_long_one": {"family": "O", "rationale": long_rationale}})
+    d = dashboard.strategy_description("rp_long_one")
+    assert len(d) <= 221  # 220 chars + the "…" appended on truncation
+    assert d != long_rationale
+    assert not d.endswith("wor…"), "must cut at a word boundary, not mid-word"
+
+
+def test_strategy_description_leaves_a_short_pipeline_rationale_untouched(monkeypatch):
+    monkeypatch.setattr(dashboard, "_load_pipeline_ledger",
+                        lambda: {"rp_short_one": {"family": "O", "rationale": "Short and sweet."}})
+    assert dashboard.strategy_description("rp_short_one") == "Short and sweet."
+
+
 def test_book_family_falls_back_to_other_for_an_unknown_pipeline_name(monkeypatch):
     monkeypatch.setattr(dashboard, "_load_pipeline_ledger", lambda: {})
     assert dashboard.book_family("rp_never_proposed") == "?"

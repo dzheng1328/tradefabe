@@ -116,6 +116,51 @@ describe("RowList", () => {
     expect(container.querySelectorAll(".family-underline")).toHaveLength(1);
   });
 
+  it("shows a monitor-only badge for a backtest-DEAD book promoted anyway", async () => {
+    globalThis.fetch = mockFetchWithBooks([
+      { book: "factory_combo_tsmom_gen_26d_tsmom_gen_237d", equity: 99958, return: -0.0004,
+        last_run: "2026-08-26", retired_at: null, family: "F", color: "#e34948",
+        introduced: "2026-08-25", return_today: 0, monitor_only: true,
+        sparkline: [100000, 99980, 99958] },
+    ]);
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() =>
+      expect(screen.getByText("factory_combo_tsmom_gen_26d_tsmom_gen_237d")).toBeInTheDocument()
+    );
+    expect(screen.getByText("monitor only")).toBeInTheDocument();
+  });
+
+  it("does not show a monitor-only badge for a real (non-monitor-only) book", async () => {
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
+    expect(screen.queryByText("monitor only")).not.toBeInTheDocument();
+  });
+
+  it("prefers the retired badge over monitor-only when a book is both", async () => {
+    globalThis.fetch = mockFetchWithBooks([
+      { book: "old_monitor_book", equity: 98000, return: -0.02, last_run: "2026-08-06",
+        retired_at: "2026-07-01T00:00:00", family: "A", color: "#eda100",
+        introduced: "2025-01-01", return_today: 0, monitor_only: true,
+        sparkline: [99000, 98500, 98000] },
+    ]);
+    render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("old_monitor_book")).toBeInTheDocument());
+    expect(screen.getByText("retired")).toBeInTheDocument();
+    expect(screen.queryByText("monitor only")).not.toBeInTheDocument();
+  });
+
   it("refetches with the new sort key when a different sort option is chosen", async () => {
     render(
       <MemoryRouter>
