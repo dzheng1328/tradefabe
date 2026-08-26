@@ -8,7 +8,7 @@ This is the generic-resolution guarantee CLAUDE.md's 2026-07-26 outage note warn
 about breaking silently."""
 import pandas as pd
 
-from tradefabe import dashboard
+from tradefabe import dashboard, remote
 
 
 def test_dead_strategy_returns_resolves_a_factory_only_strategy():
@@ -91,6 +91,7 @@ def test_load_generated_ledger_is_not_cached_across_calls(tmp_path, monkeypatch)
     """Same bug, same fix, for the factory's own name/family/rationale ledger -- a
     freshly-generated candidate's family/rationale must resolve without a restart."""
     monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
+    monkeypatch.setattr(remote, "REPO_ROOT", tmp_path)
     ledger_before = dashboard._load_generated_ledger()
     assert "tsmom_gen_999d" not in ledger_before
 
@@ -104,6 +105,7 @@ def test_load_generated_ledger_is_not_cached_across_calls(tmp_path, monkeypatch)
 def test_load_pipeline_ledger_is_not_cached_across_calls(tmp_path, monkeypatch):
     """Same bug, same fix, for the research pipeline's own rp_-prefixed ledger."""
     monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
+    monkeypatch.setattr(remote, "REPO_ROOT", tmp_path)
     ledger_before = dashboard._load_pipeline_ledger()
     assert "rp_new_idea_999" not in ledger_before
 

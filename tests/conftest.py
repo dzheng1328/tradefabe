@@ -32,10 +32,26 @@ import time
 
 import pytest
 
+from tradefabe import remote
+
 SUITE_DURATION_BUDGET_SECONDS = 45.0
 SLOW_TEST_BUDGET_SECONDS = 5.0
 
 _session_start = None
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch):
+    """remote.py tries GitHub before local disk (see its docstring) -- without this, every
+    test touching a dashboard loader makes a real HTTPS call, which is exactly the "real
+    network I/O instead of a mock" this file's own docstring tells you to fix, and it's
+    slow enough to trip SLOW_TEST_BUDGET_SECONDS on its own. Forces every read down the
+    local-disk fallback path so existing BASE/ART tmp_path isolation keeps working.
+    test_remote.py overrides this per-test to exercise the real network branch."""
+    def _blocked(url):
+        raise OSError(f"real network access blocked in tests: {url}")
+
+    monkeypatch.setattr(remote, "_get", _blocked)
 
 
 def pytest_sessionstart(session):

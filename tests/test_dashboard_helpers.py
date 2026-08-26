@@ -3,7 +3,7 @@ import os
 
 import pandas as pd
 
-from tradefabe import dashboard
+from tradefabe import dashboard, remote
 
 
 def test_book_colors_assigns_by_position_cycling_through_slots():
@@ -50,6 +50,7 @@ def test_available_windows_includes_all_when_span_covers_everything():
 
 def test_load_carry_risk_returns_none_when_the_file_does_not_exist(monkeypatch, tmp_path):
     monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
+    monkeypatch.setattr(remote, "REPO_ROOT", tmp_path)
     assert dashboard.load_carry_risk() is None
 
 
@@ -60,6 +61,7 @@ def test_load_carry_risk_reads_the_persisted_report(monkeypatch, tmp_path):
     with open(paper_dir / "carry_risk.json", "w") as fh:
         json.dump(report, fh)
     monkeypatch.setattr(dashboard, "BASE", str(tmp_path))
+    monkeypatch.setattr(remote, "REPO_ROOT", tmp_path)
     assert dashboard.load_carry_risk() == report
 
 
