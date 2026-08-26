@@ -5,17 +5,23 @@ time -- never makes the dashboard under-report what the cloud automations
 and artifacts/* are all written by those Actions, never by the dashboard process
 itself (see tradefabe/CLAUDE.md's Automations section).
 
-Cached for CACHE_SECONDS (TRADEFABE_REMOTE_CACHE_SECONDS, default 20): a dashboard page
-reads dozens of these files (one state/paper/*.json per book), and paying a fresh HTTPS
-round trip for every one of them on every page navigation is exactly the multi-second
-reload #227 traded the old "forgot to git pull" bug for. 20s is short enough that no
-automation cycle (hourly at the fastest) is meaningfully delayed, long enough that
-clicking between dashboard pages and back serves from cache. Callers that must see a
-just-written row on the very next call (a candidate the factory just drew, mid-request)
-pass ttl=0 -- see _load_generated_ledger()/_load_pipeline_ledger() in dashboard.py, the
-same freshness contract that caught the 2026-08-15 permanent-cache bug this doesn't
-repeat: THAT bug never invalidated at all; this one self-heals within CACHE_SECONDS even
-if a caller forgets to ask for ttl=0.
+Cached for CACHE_SECONDS (TRADEFABE_REMOTE_CACHE_SECONDS, default 600 = 10min): a
+dashboard page reads dozens of these files (one state/paper/*.json per book), and paying
+a fresh HTTPS round trip for every one of them on every page navigation is exactly the
+multi-second reload #227 traded the old "forgot to git pull" bug for. #229 first set this
+to 20s, which fixed rapid back-and-forth clicking but not realistic usage -- reading a
+chart for more than 20s before switching books or timeframe was enough to fall out of
+cache and pay the multi-second reload again on every single action (#233). 10 minutes is
+still short against the automations' own cadence (mark is hourly at the fastest, run/
+factory/pipeline daily) but long enough to cover a normal browsing session, matching
+Dave's own framing: "pull when we open the app", not on every click within it -- a fresh
+`tradefabe-api` process (started once per desktop-app launch) gets a cold cache on
+startup either way. Callers that must see a just-written row on the very next call (a
+candidate the factory just drew, mid-request) pass ttl=0 -- see
+_load_generated_ledger()/_load_pipeline_ledger() in dashboard.py, the same freshness
+contract that caught the 2026-08-15 permanent-cache bug this doesn't repeat: THAT bug
+never invalidated at all; this one self-heals within CACHE_SECONDS even if a caller
+forgets to ask for ttl=0.
 
 Falls back to the local disk copy on any network/API failure -- real-but-old over
 invented, the same doctrine engine.py's price cache already applies (TRADEFABE_CACHE_HOURS).
@@ -33,7 +39,7 @@ from tradefabe.paths import REPO_ROOT
 OWNER_REPO = "dzheng1328/tradefabe"
 BRANCH = "main"
 TIMEOUT = 5
-CACHE_SECONDS = float(os.environ.get("TRADEFABE_REMOTE_CACHE_SECONDS", 20))
+CACHE_SECONDS = float(os.environ.get("TRADEFABE_REMOTE_CACHE_SECONDS", 600))
 
 _session = requests.Session()
 _cache = {}  # relpath -> (fetched_at, bytes | None)
