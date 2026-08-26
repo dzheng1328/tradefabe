@@ -174,6 +174,14 @@ function Row({
               retired
             </span>
           )}
+          {!retired && r.monitor_only && (
+            <span
+              title="Backtest-DEAD -- promoted anyway to watch it live, never a confirmed survivor (DOCTRINE v1.2)"
+              className="text-[10px] leading-none px-1.5 py-0.5 rounded-full border border-ink-muted text-ink-muted shrink-0"
+            >
+              monitor only
+            </span>
+          )}
         </span>
         {trailingBadge}
         <span className="text-ink-muted font-mono text-xs shrink-0">
