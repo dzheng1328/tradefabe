@@ -5,48 +5,72 @@ time -- never makes the dashboard under-report what the cloud automations
 and artifacts/* are all written by those Actions, never by the dashboard process
 itself (see tradefabe/CLAUDE.md's Automations section).
 
-Deliberately UNCACHED, same reasoning as load_paper_state()/_load_generated_ledger() in
-dashboard.py: a freshly-committed row (a candidate the factory just drew, a verdict the
-pipeline just logged) must show up on the very next request, not after some TTL expires --
-that class of bug already bit this dashboard once (2026-08-15) from an in-process
-@functools.cache with no invalidation. One small file per call is cheap enough not to
-need caching.
+Cached for CACHE_SECONDS (TRADEFABE_REMOTE_CACHE_SECONDS, default 20): a dashboard page
+reads dozens of these files (one state/paper/*.json per book), and paying a fresh HTTPS
+round trip for every one of them on every page navigation is exactly the multi-second
+reload #227 traded the old "forgot to git pull" bug for. 20s is short enough that no
+automation cycle (hourly at the fastest) is meaningfully delayed, long enough that
+clicking between dashboard pages and back serves from cache. Callers that must see a
+just-written row on the very next call (a candidate the factory just drew, mid-request)
+pass ttl=0 -- see _load_generated_ledger()/_load_pipeline_ledger() in dashboard.py, the
+same freshness contract that caught the 2026-08-15 permanent-cache bug this doesn't
+repeat: THAT bug never invalidated at all; this one self-heals within CACHE_SECONDS even
+if a caller forgets to ask for ttl=0.
 
 Falls back to the local disk copy on any network/API failure -- real-but-old over
 invented, the same doctrine engine.py's price cache already applies (TRADEFABE_CACHE_HOURS).
+Uses a shared requests.Session so repeat fetches reuse one TLS connection to GitHub
+instead of paying a fresh handshake per file.
 """
 import json
-import urllib.error
-import urllib.request
+import os
+import time
+
+import requests
 
 from tradefabe.paths import REPO_ROOT
 
 OWNER_REPO = "dzheng1328/tradefabe"
 BRANCH = "main"
 TIMEOUT = 5
+CACHE_SECONDS = float(os.environ.get("TRADEFABE_REMOTE_CACHE_SECONDS", 20))
+
+_session = requests.Session()
+_cache = {}  # relpath -> (fetched_at, bytes | None)
 
 
 def _get(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "tradefabe-dashboard"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-        return resp.read()
+    resp = _session.get(url, timeout=TIMEOUT, headers={"User-Agent": "tradefabe-dashboard"})
+    resp.raise_for_status()
+    return resp.content
 
 
-def read_bytes(relpath):
+def read_bytes(relpath, ttl=CACHE_SECONDS):
     """Bytes for relpath: GitHub main if reachable, else the local disk copy. None only
-    if neither has it (never generated, or genuinely doesn't exist yet)."""
-    try:
-        return _get(f"https://raw.githubusercontent.com/{OWNER_REPO}/{BRANCH}/{relpath}")
-    except (urllib.error.URLError, OSError, TimeoutError):
-        pass
+    if neither has it (never generated, or genuinely doesn't exist yet).
+
+    ttl=0 forces a fresh fetch, bypassing the cache entirely -- for a caller that must
+    reflect a write made moments ago (see the module docstring)."""
+    now = time.time()
+    cached = _cache.get(relpath)
+    if cached is not None and ttl > 0 and now - cached[0] < ttl:
+        data = cached[1]
+    else:
+        try:
+            data = _get(f"https://raw.githubusercontent.com/{OWNER_REPO}/{BRANCH}/{relpath}")
+        except (requests.RequestException, OSError):
+            data = None
+        _cache[relpath] = (now, data)
+    if data is not None:
+        return data
     local = REPO_ROOT / relpath
     return local.read_bytes() if local.exists() else None
 
 
-def exists(relpath):
-    return read_bytes(relpath) is not None
+def exists(relpath, ttl=CACHE_SECONDS):
+    return read_bytes(relpath, ttl=ttl) is not None
 
 
-def read_json(relpath):
-    data = read_bytes(relpath)
+def read_json(relpath, ttl=CACHE_SECONDS):
+    data = read_bytes(relpath, ttl=ttl)
     return json.loads(data) if data is not None else None
