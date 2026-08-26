@@ -67,10 +67,30 @@ def test_backfill_never_writes_before_the_book_existed():
     assert len(b["history"]) == 3
 
 
-def test_backfill_on_an_empty_book_is_unbounded_but_harmless():
-    # no inception to respect yet; the first real mark establishes it
+def test_a_brand_new_book_gets_its_first_mark_at_the_real_current_time():
+    """End-to-end: backfill_marks() refusing to run on an empty book must not leave the
+    book un-marked -- run_mark()'s `ok = bool(filled) or books.mark(...)` fallback has to
+    pick up the slack and write the true first entry at `now`, not some backdated bar."""
     b = _book([])
-    assert books.backfill_marks(b, _bars(4)) == 4
+    px = _bars(30)  # simulate the ~30-day production price window, not a token 4 bars
+    filled = books.backfill_marks(b, px)
+    now = "2026-08-26T12:00"
+    ok = bool(filled) or books.mark(b, now, px.iloc[-1])
+    assert ok
+    assert len(b["history"]) == 1
+    assert b["history"][0][0] == now
+
+
+def test_backfill_refuses_to_run_on_a_brand_new_book():
+    """A book with no history yet has no inception to bound backfill against, so the old
+    code backfilled the price source's ENTIRE window (~30 days of real bars in production,
+    cap=400) as fabricated flat-equity history the book never held -- every freshly-
+    promoted book's first ledger entry was silently backdated 6-8 weeks (caught 2026-08-26
+    via graveyard.csv's two most recent ALIVE promotions). Must refuse outright and let the
+    caller's mark() fallback write the true first entry at the real current time."""
+    b = _book([])
+    assert books.backfill_marks(b, _bars(4)) == 0
+    assert b["history"] == []
 
 
 def test_backfill_skips_unpriceable_bars():

@@ -257,6 +257,14 @@ def backfill_marks(book: dict, px: pd.DataFrame, cap: int = 400) -> int:
     rows in one go."""
     if px is None or px.empty:
         return 0
+    # A brand-new book (just promoted, empty history) has no inception to bound against --
+    # the loop below would then happily backfill every one of the price source's ~30 days
+    # of bars as fabricated flat-equity history the book never held (caught 2026-08-26:
+    # every freshly-promoted book's "first mark" was silently backdated 6-8 weeks). Refuse
+    # outright and let the caller's mark() fallback write the true first entry at the real
+    # current time, which becomes tomorrow's inception.
+    if not book["history"]:
+        return 0
     # Tracked separately from history keys ON PURPOSE. The keys written by mark() are
     # WALL-CLOCK stamps ("2026-07-26T20:59"), while these are BAR times (Friday's close,
     # if the market has been shut since). Comparing the two key spaces made backfill go
@@ -266,11 +274,11 @@ def backfill_marks(book: dict, px: pd.DataFrame, cap: int = 400) -> int:
     # but a book opened three days ago did not hold these positions three weeks ago --
     # writing marks for that window would be inventing a history it never had, which is
     # the one thing this ledger must not do.
-    inception = book["history"][0][0] if book["history"] else None
+    inception = book["history"][0][0]
     added = 0
     for ts, row in px.iloc[-cap:].iterrows():
         key = utc_stamp(ts)
-        if inception is not None and key < inception:
+        if key < inception:
             continue
         if last_bar is not None and key <= last_bar:
             continue
