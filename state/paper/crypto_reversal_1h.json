@@ -1,9 +1,9 @@
 {
  "name": "crypto_reversal_1h",
- "cash": 165454.0789033432,
+ "cash": 165401.8034229016,
  "positions": {
-  "BTC-USD": -0.5300239678453235,
-  "ETH-USD": -16.862678406157887
+  "BTC-USD": -0.5293124367178319,
+  "ETH-USD": -16.86404038599495
  },
  "history": [
   [
@@ -5469,32 +5469,30 @@
   [
    "2026-08-29T17:04",
    82706.22
+  ],
+  [
+   "2026-08-29T18:00",
+   82677.32
+  ],
+  [
+   "2026-08-29T19:00",
+   82639.04
+  ],
+  [
+   "2026-08-29T20:00",
+   82700.92
+  ],
+  [
+   "2026-08-29T20:32",
+   82700.89
   ]
  ],
- "last_run": "2026-08-29T17:04:49",
- "last_rebalance": "2026-08-29T17:04",
+ "last_run": "2026-08-29T20:32:57",
+ "last_rebalance": "2026-08-29T20:32",
  "last_price_bar": "2026-08-29",
- "equity": 82706.22,
- "last_backfill_bar": "2026-08-29T17:00",
+ "equity": 82700.89,
+ "last_backfill_bar": "2026-08-29T20:00",
  "trades": [
-  {
-   "ts": "2026-08-16T13:32",
-   "ticker": "BTC-USD",
-   "side": "SHORT",
-   "shares": -1.593852,
-   "price": 62999.988281,
-   "notional": 100412.65,
-   "position_after": -0.796727
-  },
-  {
-   "ts": "2026-08-16T13:32",
-   "ticker": "ETH-USD",
-   "side": "SHORT",
-   "shares": -53.424365,
-   "price": 1879.530029,
-   "notional": 100412.7,
-   "position_after": -26.705503
-  },
   {
    "ts": "2026-08-16T14:24",
    "ticker": "BTC-USD",
@@ -9976,11 +9974,29 @@
    "price": 2453.580078,
    "notional": 83055.16,
    "position_after": -16.862678
+  },
+  {
+   "ts": "2026-08-29T20:32",
+   "ticker": "BTC-USD",
+   "side": "COVER",
+   "shares": 0.000712,
+   "price": 78121.078125,
+   "notional": 55.59,
+   "position_after": -0.529312
+  },
+  {
+   "ts": "2026-08-29T20:32",
+   "ticker": "ETH-USD",
+   "side": "SHORT",
+   "shares": -0.001362,
+   "price": 2451.98999,
+   "notional": 3.34,
+   "position_after": -16.86404
   }
  ],
  "last_prices": {
-  "BTC-USD": 78060.492188,
-  "ETH-USD": 2453.580078
+  "BTC-USD": 78121.078125,
+  "ETH-USD": 2451.98999
  },
- "last_prices_at": "2026-08-29T17:04"
+ "last_prices_at": "2026-08-29T20:32"
 }
