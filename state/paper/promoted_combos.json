@@ -564,5 +564,25 @@
     }
    }
   ]
+ },
+ {
+  "name": "factory_combo_tsmom_gen_280d_tsmom_gen_31d",
+  "freq": "M",
+  "legs": [
+   {
+    "name": "tsmom_gen_280d",
+    "family": "A",
+    "params": {
+     "lookback_days": 280
+    }
+   },
+   {
+    "name": "tsmom_gen_31d",
+    "family": "A",
+    "params": {
+     "lookback_days": 31
+    }
+   }
+  ]
  }
 ]
