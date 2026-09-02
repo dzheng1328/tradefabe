@@ -1,12 +1,12 @@
 {
  "name": "factory_combo_low_vol_xsec_gen_113d_tsmom_gen_30d",
- "cash": 24031.30092067026,
+ "cash": 26468.38254517196,
  "positions": {
-  "HYG": 50.244943717283256,
-  "IEF": 301.6591261803389,
-  "QQQ": -1.0755698557289393,
-  "SPY": 56.71716470170975,
-  "VNQ": 12.871630539474046
+  "HYG": 50.30235552551671,
+  "IEF": 302.41492050640636,
+  "IWM": -4.576830618850996,
+  "QQQ": -1.1513522642710818,
+  "SPY": 56.862113454212846
  },
  "history": [
   [
@@ -568,20 +568,24 @@
   [
    "2026-09-02T03:22",
    99472.91
+  ],
+  [
+   "2026-09-02T07:02",
+   99471.5
   ]
  ],
- "last_run": "2026-09-02T03:22:54",
- "last_rebalance": "2026-08-21",
+ "last_run": "2026-09-02T07:02:48",
+ "last_rebalance": "2026-09-01",
  "last_backfill_bar": "2026-09-01T19:30",
  "last_price_bar": "2026-09-01",
  "last_prices": {
   "HYG": 79.099998,
   "IEF": 92.099998,
+  "IWM": 290.570007,
   "QQQ": 707.640015,
-  "SPY": 761.780029,
-  "VNQ": 96.300003
+  "SPY": 761.780029
  },
- "last_prices_at": "2026-09-02T03:22",
+ "last_prices_at": "2026-09-02T07:02",
  "trades": [
   {
    "ts": "2026-08-23T03:11",
@@ -627,6 +631,60 @@
    "price": 98.5,
    "notional": 1267.86,
    "position_after": 12.871631
+  },
+  {
+   "ts": "2026-09-02T07:02",
+   "ticker": "HYG",
+   "side": "BUY",
+   "shares": 0.057412,
+   "price": 79.099998,
+   "notional": 4.54,
+   "position_after": 50.302356
+  },
+  {
+   "ts": "2026-09-02T07:02",
+   "ticker": "IEF",
+   "side": "BUY",
+   "shares": 0.755794,
+   "price": 92.099998,
+   "notional": 69.61,
+   "position_after": 302.414921
+  },
+  {
+   "ts": "2026-09-02T07:02",
+   "ticker": "IWM",
+   "side": "SHORT",
+   "shares": -4.576831,
+   "price": 290.570007,
+   "notional": 1329.89,
+   "position_after": -4.576831
+  },
+  {
+   "ts": "2026-09-02T07:02",
+   "ticker": "QQQ",
+   "side": "SHORT",
+   "shares": -0.075782,
+   "price": 707.640015,
+   "notional": 53.63,
+   "position_after": -1.151352
+  },
+  {
+   "ts": "2026-09-02T07:02",
+   "ticker": "SPY",
+   "side": "BUY",
+   "shares": 0.144949,
+   "price": 761.780029,
+   "notional": 110.42,
+   "position_after": 56.862113
+  },
+  {
+   "ts": "2026-09-02T07:02",
+   "ticker": "VNQ",
+   "side": "SELL",
+   "shares": -12.871631,
+   "price": 96.300003,
+   "notional": 1239.54,
+   "position_after": 0.0
   }
  ]
 }

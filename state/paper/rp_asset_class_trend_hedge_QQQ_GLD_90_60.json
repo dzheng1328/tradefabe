@@ -1,9 +1,9 @@
 {
  "name": "rp_asset_class_trend_hedge_QQQ_GLD_90_60",
- "cash": 94942.4188805244,
+ "cash": 94633.11475653862,
  "positions": {
-  "GLD": 5.855292741481826,
-  "QQQ": 3.619688939871205
+  "GLD": 6.221040920135878,
+  "QQQ": 3.8515002506146736
  },
  "history": [
   [
@@ -417,17 +417,21 @@
   [
    "2026-09-02T03:22",
    99826.94
+  ],
+  [
+   "2026-09-02T07:02",
+   99826.79
   ]
  ],
- "last_run": "2026-09-02T03:22:54",
- "last_rebalance": "2026-08-24",
+ "last_run": "2026-09-02T07:02:48",
+ "last_rebalance": "2026-09-01",
  "last_backfill_bar": "2026-09-01T19:30",
  "last_price_bar": "2026-09-01",
  "last_prices": {
   "GLD": 396.75,
   "QQQ": 707.640015
  },
- "last_prices_at": "2026-09-02T03:22",
+ "last_prices_at": "2026-09-02T07:02",
  "trades": [
   {
    "ts": "2026-08-25T03:07",
@@ -446,6 +450,24 @@
    "price": 706.320007,
    "notional": 2556.66,
    "position_after": 3.619689
+  },
+  {
+   "ts": "2026-09-02T07:02",
+   "ticker": "GLD",
+   "side": "BUY",
+   "shares": 0.365748,
+   "price": 396.75,
+   "notional": 145.11,
+   "position_after": 6.221041
+  },
+  {
+   "ts": "2026-09-02T07:02",
+   "ticker": "QQQ",
+   "side": "BUY",
+   "shares": 0.231811,
+   "price": 707.640015,
+   "notional": 164.04,
+   "position_after": 3.8515
   }
  ]
 }
