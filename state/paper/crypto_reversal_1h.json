@@ -1,9 +1,9 @@
 {
  "name": "crypto_reversal_1h",
- "cash": 165857.6820130927,
+ "cash": 160018.3888218796,
  "positions": {
-  "BTC-USD": -0.5284434073925202,
-  "ETH-USD": -17.15537573646869
+  "BTC-USD": -0.4929966560888877,
+  "ETH-USD": -15.973506302437197
  },
  "history": [
   [
@@ -6049,32 +6049,34 @@
   [
    "2026-09-03T13:19",
    82928.6
+  ],
+  [
+   "2026-09-03T14:00",
+   80583.25
+  ],
+  [
+   "2026-09-03T15:00",
+   79684.73
+  ],
+  [
+   "2026-09-03T16:00",
+   80279.8
+  ],
+  [
+   "2026-09-03T17:00",
+   80010.65
+  ],
+  [
+   "2026-09-03T17:36",
+   80007.74
   ]
  ],
- "last_run": "2026-09-03T13:19:54",
- "last_rebalance": "2026-09-03T13:19",
+ "last_run": "2026-09-03T17:36:27",
+ "last_rebalance": "2026-09-03T17:36",
  "last_price_bar": "2026-09-03",
- "equity": 82928.6,
- "last_backfill_bar": "2026-09-03T13:00",
+ "equity": 80007.74,
+ "last_backfill_bar": "2026-09-03T17:00",
  "trades": [
-  {
-   "ts": "2026-08-17T21:27",
-   "ticker": "BTC-USD",
-   "side": "SHORT",
-   "shares": -0.000862,
-   "price": 64278.390625,
-   "notional": 55.43,
-   "position_after": -0.783252
-  },
-  {
-   "ts": "2026-08-17T21:27",
-   "ticker": "ETH-USD",
-   "side": "BUY",
-   "shares": 0.023073,
-   "price": 1904.75,
-   "notional": 43.95,
-   "position_after": 26.4319
-  },
   {
    "ts": "2026-08-17T22:26",
    "ticker": "BTC-USD",
@@ -10556,11 +10558,29 @@
    "price": 2417.0,
    "notional": 438.49,
    "position_after": -17.155376
+  },
+  {
+   "ts": "2026-09-03T17:36",
+   "ticker": "BTC-USD",
+   "side": "COVER",
+   "shares": 0.035447,
+   "price": 81147.257812,
+   "notional": 2876.41,
+   "position_after": -0.492997
+  },
+  {
+   "ts": "2026-09-03T17:36",
+   "ticker": "ETH-USD",
+   "side": "COVER",
+   "shares": 1.181869,
+   "price": 2504.47998,
+   "notional": 2959.97,
+   "position_after": -15.973506
   }
  ],
  "last_prices": {
-  "BTC-USD": 78465.4375,
-  "ETH-USD": 2417.0
+  "BTC-USD": 81147.257812,
+  "ETH-USD": 2504.47998
  },
- "last_prices_at": "2026-09-03T13:19"
+ "last_prices_at": "2026-09-03T17:36"
 }
