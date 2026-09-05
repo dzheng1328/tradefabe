@@ -1,9 +1,9 @@
 {
  "name": "crypto_reversal_1h",
- "cash": 82401.07720319618,
+ "cash": 164733.47169168905,
  "positions": {
-  "BTC-USD": 0.5173377912801325,
-  "ETH-USD": -16.768702739280855
+  "BTC-USD": -0.5152502971811895,
+  "ETH-USD": -16.69552684069137
  },
  "history": [
   [
@@ -6297,32 +6297,30 @@
   [
    "2026-09-05T13:42",
    82401.08
+  ],
+  [
+   "2026-09-05T14:00",
+   82437.49
+  ],
+  [
+   "2026-09-05T15:00",
+   82427.79
+  ],
+  [
+   "2026-09-05T16:00",
+   82387.42
+  ],
+  [
+   "2026-09-05T16:35",
+   82346.05
   ]
  ],
- "last_run": "2026-09-05T13:42:30",
- "last_rebalance": "2026-09-05T13:42",
+ "last_run": "2026-09-05T16:35:54",
+ "last_rebalance": "2026-09-05T16:35",
  "last_price_bar": "2026-09-05",
- "equity": 82401.08,
- "last_backfill_bar": "2026-09-05T13:00",
+ "equity": 82346.05,
+ "last_backfill_bar": "2026-09-05T16:00",
  "trades": [
-  {
-   "ts": "2026-08-18T12:49",
-   "ticker": "BTC-USD",
-   "side": "BUY",
-   "shares": 1.570809,
-   "price": 64182.308594,
-   "notional": 100818.16,
-   "position_after": 0.786785
-  },
-  {
-   "ts": "2026-08-18T12:49",
-   "ticker": "ETH-USD",
-   "side": "BUY",
-   "shares": 53.094595,
-   "price": 1898.329956,
-   "notional": 100791.06,
-   "position_after": 26.601118
-  },
   {
    "ts": "2026-08-18T13:43",
    "ticker": "BTC-USD",
@@ -10804,11 +10802,29 @@
    "price": 2458.219971,
    "notional": 12.98,
    "position_after": -16.768703
+  },
+  {
+   "ts": "2026-09-05T16:35",
+   "ticker": "BTC-USD",
+   "side": "SHORT",
+   "shares": -1.032588,
+   "price": 79948.929688,
+   "notional": 82554.31,
+   "position_after": -0.51525
+  },
+  {
+   "ts": "2026-09-05T16:35",
+   "ticker": "ETH-USD",
+   "side": "COVER",
+   "shares": 0.073176,
+   "price": 2467.350098,
+   "notional": 180.55,
+   "position_after": -16.695527
   }
  ],
  "last_prices": {
-  "BTC-USD": 79679.390625,
-  "ETH-USD": 2458.219971
+  "BTC-USD": 79948.929688,
+  "ETH-USD": 2467.350098
  },
- "last_prices_at": "2026-09-05T13:42"
+ "last_prices_at": "2026-09-05T16:35"
 }
