@@ -1,9 +1,9 @@
 {
  "name": "crypto_reversal_1h",
- "cash": 164927.73945816213,
+ "cash": 82401.07720319618,
  "positions": {
-  "BTC-USD": -0.5177158206297396,
-  "ETH-USD": -16.773982366069415
+  "BTC-USD": 0.5173377912801325,
+  "ETH-USD": -16.768702739280855
  },
  "history": [
   [
@@ -6281,32 +6281,30 @@
   [
    "2026-09-05T10:06",
    82463.82
+  ],
+  [
+   "2026-09-05T11:00",
+   82547.89
+  ],
+  [
+   "2026-09-05T12:00",
+   82416.03
+  ],
+  [
+   "2026-09-05T13:00",
+   82442.32
+  ],
+  [
+   "2026-09-05T13:42",
+   82401.08
   ]
  ],
- "last_run": "2026-09-05T10:06:38",
- "last_rebalance": "2026-09-05T10:06",
+ "last_run": "2026-09-05T13:42:30",
+ "last_rebalance": "2026-09-05T13:42",
  "last_price_bar": "2026-09-05",
- "equity": 82463.82,
- "last_backfill_bar": "2026-09-05T10:00",
+ "equity": 82401.08,
+ "last_backfill_bar": "2026-09-05T13:00",
  "trades": [
-  {
-   "ts": "2026-08-18T11:26",
-   "ticker": "BTC-USD",
-   "side": "SHORT",
-   "shares": -1.571367,
-   "price": 64302.851562,
-   "notional": 101043.41,
-   "position_after": -0.784024
-  },
-  {
-   "ts": "2026-08-18T11:26",
-   "ticker": "ETH-USD",
-   "side": "COVER",
-   "shares": 0.139109,
-   "price": 1902.920044,
-   "notional": 264.71,
-   "position_after": -26.493477
-  },
   {
    "ts": "2026-08-18T12:49",
    "ticker": "BTC-USD",
@@ -10788,11 +10786,29 @@
    "price": 2458.090088,
    "notional": 146.26,
    "position_after": -16.773982
+  },
+  {
+   "ts": "2026-09-05T13:42",
+   "ticker": "BTC-USD",
+   "side": "BUY",
+   "shares": 1.035054,
+   "price": 79679.390625,
+   "notional": 82472.44,
+   "position_after": 0.517338
+  },
+  {
+   "ts": "2026-09-05T13:42",
+   "ticker": "ETH-USD",
+   "side": "COVER",
+   "shares": 0.00528,
+   "price": 2458.219971,
+   "notional": 12.98,
+   "position_after": -16.768703
   }
  ],
  "last_prices": {
-  "BTC-USD": 79642.070312,
-  "ETH-USD": 2458.090088
+  "BTC-USD": 79679.390625,
+  "ETH-USD": 2458.219971
  },
- "last_prices_at": "2026-09-05T10:06"
+ "last_prices_at": "2026-09-05T13:42"
 }
