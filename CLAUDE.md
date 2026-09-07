@@ -268,6 +268,14 @@ the same DSR/CPCV gate.
 - **iCloud conflict copies (`"<name> 2.<ext>"`)** guarded by `.gitignore`, a CI step and
   `tests/test_repo_location.py` — one such copy once ran as a second live paper-engine
   workflow. Guards hold only while the repo stays outside `~/Documents`.
+- **GitHub Actions' `schedule:` trigger is best-effort, not a real hourly clock (found
+  2026-09-07).** The old `"0 * * * *"` mark cron was spaced 2-5h apart in practice
+  (`gh run list --workflow=paper-engine.yml`), even though every run itself succeeded —
+  GitHub's own documented scheduling delay under platform load, not a bug in the workflow
+  or `tradefabe mark`. Fixed by removing that `schedule:` entry and having an external
+  always-on scheduler (cron-job.org) call `workflow_dispatch` on a real hourly timer
+  instead — see `paper-engine.yml`'s header comment. Don't re-add a native hourly
+  `schedule:` cron; it will drift the same way.
 
 ## Roadmap
 **`gh issue list` is authoritative. The board is a lagging VIEW** —
