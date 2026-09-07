@@ -227,6 +227,16 @@ the same DSR/CPCV gate.
   still only `tradefabe retire <book>`; the frontend's "Up for review" list
   (`GET /api/books/up_for_review`) is a read-only nudge toward that, never an action of
   its own (DOCTRINE v1.6 unchanged).
+- **Capped per combo SHAPE too (`MAX_PER_COMBO_SHAPE=3`, 2026-09-07).**
+  `MAX_FACTORY_PROMOTED` alone let the pool concentrate: 17 of 35 live books turned out
+  to be just two leg-family pairings (tsmom+tsmom, tsmom+low_vol_xsec) reparameterized
+  by lookback window, since `complementary_pairs()` keeps picking the same
+  low-correlation families regardless of window. A combo's shape
+  (`factory.combo_shape()`, the sorted pair of its legs' families) is capped at 3 LIVE
+  (non-retired) books; a cycle whose combo wins the ranking but is already at its
+  shape's cap falls back to the best individual candidate instead. Existing over-cap
+  books are untouched (still v1.6: retirement stays Dave's manual call) -- this only
+  stops the pool from getting MORE lopsided going forward.
 
 ## Live gotchas — check these before assuming something's broken
 - **yfinance returns a PARTIAL trailing bar** for the current, still-open or non-trading day:
