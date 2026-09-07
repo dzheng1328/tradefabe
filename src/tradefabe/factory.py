@@ -413,6 +413,17 @@ def promote_combo(spec):
         json.dump(entries, fh, indent=1)
 
 
+def combo_shape(legs):
+    """The unordered pair of primitive families making up a combo, e.g. ("A", "D") for
+    a tsmom+low_vol_xsec pairing -- identity only, independent of which leg is which or
+    either leg's own parameter window. A same-family combo (tsmom+tsmom) still returns
+    a 2-tuple, ("A", "A"). Single source of truth for "what shape is this combo",
+    shared by the live promotion cap (research/factory_run.py's MAX_PER_COMBO_SHAPE)
+    and the dashboard's grouping (dashboard.book_group()) so the two can never
+    silently disagree on what counts as a duplicate."""
+    return tuple(sorted(leg["family"] for leg in legs))
+
+
 def _leg_signal(leg):
     """A leg is either a TEMPLATES entry (name alone is enough) or a generated candidate
     (needs family+params to rebuild)."""
