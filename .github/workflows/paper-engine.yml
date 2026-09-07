@@ -13,7 +13,7 @@ name: paper engine
 # is best-effort, not a real clock: a week of `gh run list` showed the "hourly"
 # "0 * * * *" cron actually landing 2-5h apart even though every run succeeded -- see
 # CLAUDE.md's Live gotchas. An external always-on scheduler (cron-job.org) now calls
-# this workflow's workflow_dispatch endpoint every 15 minutes instead, with
+# this workflow's workflow_dispatch endpoint every 5 minutes instead, with
 # `inputs.job` left at its "mark" default. The two daily `schedule:` crons below
 # (rebalance, factory) are unaffected and still fire natively.
 
