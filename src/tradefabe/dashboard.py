@@ -844,6 +844,17 @@ def _load_pipeline_ledger():
             for _, row in df.iterrows()}
 
 
+def _load_promoted_combo_legs():
+    """name -> legs (list of {"name","family","params"} dicts), for every combo the
+    factory has ever promoted -- RETIRED ONES INCLUDED, since retiring a book never
+    removes its promote_combo() registry entry (factory.load_promoted_combos()'s own
+    docstring) and a retired book still needs a group to render into on the Paper
+    Books "Retired" section. Same deliberately-uncached-per-call convention as
+    _load_generated_ledger()/_load_pipeline_ledger() above -- a freshly-promoted combo
+    must resolve correctly without a process restart."""
+    return {c["name"]: c["legs"] for c in factory.load_promoted_combos()}
+
+
 # harness.is_factory_origin()/is_pipeline_origin() are the doctrine-authoritative
 # classifiers, but harness.py lives at the repo root, outside the installed `tradefabe`
 # package -- importable from a pytest run (pyproject's pythonpath=[".", ...]) or a
@@ -907,6 +918,32 @@ def book_family(name, generated_ledger=None, pipeline_ledger=None):
     if pipe:
         return pipe["family"]
     return "?"
+
+
+def book_group(name, generated_ledger=None, pipeline_ledger=None, combo_legs=None):
+    """(group_key, group_label) for the Paper Books default view -- finer than
+    book_family() for factory combos specifically. book_family() buckets EVERY combo
+    (hand-picked piggyback or factory-discovered) into one "H" family, which hides the
+    real redundancy: most of the factory's combo pool turned out to be just two
+    leg-family pairings (tsmom+tsmom, tsmom+low_vol_xsec) reparameterized by lookback
+    window (2026-09-07 finding -- 17 of 35 live books). A combo whose legs are known
+    (via `combo_legs`, see _load_promoted_combo_legs()) groups by its shape
+    (factory.combo_shape()); everything else -- including hand-picked piggybacks, which
+    have no legs entry here -- falls back to the plain book_family() bucket, unchanged.
+
+    `combo_legs` follows the same opt-in pre-loaded-dict convention as
+    generated_ledger/pipeline_ledger: pass it from a per-row-loop caller
+    (api/main.py's books_summary()) to load the registry once per request rather than
+    once per row."""
+    if combo_legs is None:
+        combo_legs = _load_promoted_combo_legs()
+    legs = combo_legs.get(name)
+    if legs:
+        shape = factory.combo_shape(legs)
+        label = " + ".join(BOOK_FAMILIES.get(f, f) for f in shape)
+        return f"H:{'-'.join(shape)}", f"Combo: {label}"
+    fam = book_family(name, generated_ledger=generated_ledger, pipeline_ledger=pipeline_ledger)
+    return fam, BOOK_FAMILIES.get(fam, "Other")
 
 
 def book_colors(names: list[str]) -> dict[str, str]:
