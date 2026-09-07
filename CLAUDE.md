@@ -273,9 +273,9 @@ the same DSR/CPCV gate.
   (`gh run list --workflow=paper-engine.yml`), even though every run itself succeeded —
   GitHub's own documented scheduling delay under platform load, not a bug in the workflow
   or `tradefabe mark`. Fixed by removing that `schedule:` entry and having an external
-  always-on scheduler (cron-job.org) call `workflow_dispatch` on a real hourly timer
-  instead — see `paper-engine.yml`'s header comment. Don't re-add a native hourly
-  `schedule:` cron; it will drift the same way.
+  always-on scheduler (cron-job.org) call `workflow_dispatch` every 15 minutes instead
+  — see `paper-engine.yml`'s header comment. Don't re-add a native `schedule:` cron for
+  mark; it will drift the same way.
 
 ## Roadmap
 **`gh issue list` is authoritative. The board is a lagging VIEW** —
