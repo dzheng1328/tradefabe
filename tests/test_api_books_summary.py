@@ -56,7 +56,8 @@ def test_summary_row_has_all_expected_keys():
         return  # no paper state in this environment
     row = body["books"][0]
     for key in ("book", "equity", "return", "last_run", "retired_at", "family",
-                "color", "introduced", "return_today", "monitor_only", "sparkline"):
+                "group_key", "group_label", "color", "introduced", "return_today",
+                "monitor_only", "sparkline"):
         assert key in row
 
 
@@ -125,3 +126,37 @@ def test_summary_nan_fields_become_json_null_not_nan_token():
     for row in body["books"]:
         if row["return_today"] is not None:
             assert math.isfinite(row["return_today"])
+
+
+def test_summary_combo_rows_get_a_shape_specific_group_key():
+    client = TestClient(app)
+    body = client.get("/api/books/summary?sort=recent").json()
+    combo_legs = dashboard._load_promoted_combo_legs()
+    for row in body["books"]:
+        if row["book"] in combo_legs:
+            expected_key, expected_label = dashboard.book_group(
+                row["book"], combo_legs=combo_legs)
+            assert row["group_key"] == expected_key
+            assert row["group_label"] == expected_label
+
+
+def test_summary_loads_the_combo_registry_at_most_once_per_request(monkeypatch):
+    """Same regression class as the generated/pipeline ledger loaders (see
+    test_summary_loads_each_ledger_at_most_once_per_request above) -- confirm
+    _load_promoted_combo_legs() is hoisted to once per request, not once per row."""
+    psum, _phist = dashboard.load_paper_state()
+    if psum is None or psum.empty:
+        return  # no local paper state in this environment -- nothing to assert
+
+    calls = {"n": 0}
+    real = dashboard._load_promoted_combo_legs()
+
+    def counting():
+        calls["n"] += 1
+        return real
+    monkeypatch.setattr(dashboard, "_load_promoted_combo_legs", counting)
+
+    client = TestClient(app)
+    resp = client.get("/api/books/summary?sort=recent")
+    assert resp.status_code == 200
+    assert calls["n"] <= 1

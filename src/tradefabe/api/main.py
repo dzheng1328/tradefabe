@@ -69,9 +69,12 @@ def _sparkline(phist, name, n=20):
 
 
 def _row_json(r, *, colors, introduced, return_today, monitor_only, phist,
-              generated_ledger, pipeline_ledger):
+              generated_ledger, pipeline_ledger, combo_legs):
     name = r["book"]
     intro = introduced.get(name, pd.NaT)
+    group_key, group_label = dashboard.book_group(
+        name, generated_ledger=generated_ledger, pipeline_ledger=pipeline_ledger,
+        combo_legs=combo_legs)
     return {
         "book": name,
         "equity": _finite_or_none(r["equity"]),
@@ -80,6 +83,8 @@ def _row_json(r, *, colors, introduced, return_today, monitor_only, phist,
         "retired_at": r.get("retired_at") if pd.notna(r.get("retired_at")) else None,
         "family": dashboard.book_family(name, generated_ledger=generated_ledger,
                                         pipeline_ledger=pipeline_ledger),
+        "group_key": group_key,
+        "group_label": group_label,
         "color": colors.get(name),
         "introduced": intro.isoformat() if pd.notna(intro) else None,
         "return_today": _finite_or_none(return_today.get(name, float("nan"))),
@@ -105,11 +110,13 @@ def books_summary(sort: str = "total_return", show_monitor_only: bool = True):
     monitor_only = {n: dashboard._is_monitor_only(n, gy_last) for n in names}
     generated_ledger = dashboard._load_generated_ledger()
     pipeline_ledger = dashboard._load_pipeline_ledger()
+    combo_legs = dashboard._load_promoted_combo_legs()
 
     def row_kwargs():
         return dict(colors=colors, introduced=introduced, return_today=return_today,
                    monitor_only=monitor_only, phist=phist,
-                   generated_ledger=generated_ledger, pipeline_ledger=pipeline_ledger)
+                   generated_ledger=generated_ledger, pipeline_ledger=pipeline_ledger,
+                   combo_legs=combo_legs)
 
     rows = dashboard.sort_books_flat(psum, phist, gy_last, show_monitor_only, sort)
     return {"books": [_row_json(r, **row_kwargs()) for r in rows]}
