@@ -16,9 +16,9 @@ that runs the survivors as autonomous simulated books. **Paper only.**
 trade, never connect real money/credentials, never give personalized investment advice
 (state that boundary instead). Standing constraint, not a per-task one.
 
-**The repo lives at `~/tradefabe`** — moved out of `~/Documents` 2026-07-26 because iCloud
-sync corrupted the venv and wrote conflict copies of tracked files. A compatibility symlink
-remains at the old path; never point new config at it.
+**The repo lives at `~/tradefabe`**, not `~/Documents` — iCloud sync there corrupted the
+venv and wrote conflict copies of tracked files. A compat symlink remains at the old path;
+never point new config at it.
 
 ## Git workflow
 Branch + PR, one per issue, `gh pr create` with a body giving the change and test plan, merge
@@ -27,7 +27,7 @@ after CI is green. Never push to `main`.
 **NEVER chain a branch delete after a merge in the same command.** `gh pr merge` fails
 quietly on a bad flag or a `state/` conflict, and anything `;`-chained after it still runs —
 the delete then CLOSES the unmerged PR, and GitHub will not reopen a PR whose branch is gone.
-Cost: three reflog recoveries (#65, #80, #92).
+Cost: three past reflog recoveries.
 
 ```sh
 gh pr merge <N> --squash
@@ -48,18 +48,18 @@ sequence above, or the pre-register-before-results sequence for a new candidate,
 run the matching one instead — that's the whole reason they're written down.
 
 **Before merging any PR touching `STRATEGIES.md`/`graveyard.csv`, run the
-`doctrine-auditor` subagent first.** It exists exactly for this and got skipped once
-already (#195, 2026-08-04) — a new primitive merged with no doctrine review, caught only
-in retrospect. Its 5 checks catch the failure class this whole repo exists to prevent.
+`doctrine-auditor` subagent first.** It exists because a new primitive merged with no
+doctrine review once (#195) and was caught only in retrospect; its 5 checks catch the
+failure class this whole repo exists to prevent.
 
 ## The one-line finding
-Every predictive strategy tested is DEAD against pre-registered kill rules — trend,
+Nearly every predictive strategy tested is DEAD against pre-registered kill rules — trend,
 congress-copy, insider-copy, thematic, day-trading wicks, a pretrained OHLCV foundation
-model, and an automated factory of parametrized variants (139 unique strategies in
-`graveyard.csv` as of 2026-07-29, 0 ALIVE). Two things survived: diversified buy-and-hold,
-and delta-neutral **crypto funding carry** (~12%/yr net 2023–26, paid for bearing real
-crypto-infra tail risk). Don't relitigate this; extend it. New candidates go through the same
-doctrine — no lower bar because "this one feels different" or "a machine found it".
+model, and an automated factory of parametrized variants. `graveyard.csv` is the full,
+current tally; don't hand-copy a count here. Diversified buy-and-hold and delta-neutral
+**crypto funding carry** (~12%/yr net 2023–26, paid for bearing real crypto-infra tail risk)
+are the standing survivors. Don't relitigate this; extend it — new candidates go through the
+same doctrine, no lower bar because "this one feels different" or "a machine found it".
 
 ## Layout — only what `ls` won't tell you
 - **`src/tradefabe/engine.py`** is the data/sizing/returns core and the **single source of
@@ -68,19 +68,17 @@ doctrine — no lower bar because "this one feels different" or "a machine found
   the signals and the live monitor books, so a study and its book call one function rather
   than two drifting copies. **`kronos.py`'s torch imports are lazy** — importing it proves
   nothing; call `kronos.is_available()`.
-- **Dashboard rebuild — all 4 sub-projects shipped (#203/#204, #209-212, #215, #222,
-  #224, 2026-08-22).** `app.py`/Streamlit is retired and deleted; the live UI is
-  `frontend/` (Vite/React/TS/Tailwind/Framer Motion) over `src/tradefabe/api/`
-  (FastAPI), both fed by `src/tradefabe/dashboard.py` — the Streamlit-free data/chart
-  layer that's the single source of truth for dashboard logic, same pattern as
-  `engine.py`. Plotly only. **No emoji**: Material Symbols or the `.tf-badge` component.
-  **The desktop app is one process, not two**: `desktop.py` starts only `tradefabe-api`;
-  `ops/build_app.sh` runs `npm run build` first and `api/main.py` mounts
-  `frontend/dist/` directly, so the packaged app never spawns a live `npm run dev`. The
-  `npm run dev` browser workflow at localhost:5173 is unchanged and talks to the API
-  cross-origin (CORS pinned to both `localhost:5173` and `127.0.0.1:5173` — the WKWebView
-  and `desktop.py`'s own port check both target the IPv4 form, Vite/`localhost` default
-  to IPv6). Spec/plan history in `docs/superpowers/{specs,plans}/*dashboard-*`.
+- **Dashboard is `frontend/`** (Vite/React/TS/Tailwind/Framer Motion) over
+  `src/tradefabe/api/` (FastAPI), both fed by `src/tradefabe/dashboard.py` — the
+  data/chart layer that's the single source of truth for dashboard logic, same pattern
+  as `engine.py`. `app.py`/Streamlit is retired and deleted. Plotly only. **No emoji**:
+  Material Symbols or the `.tf-badge` component. **The desktop app is one process, not
+  two**: `desktop.py` starts only `tradefabe-api`; `ops/build_app.sh` runs `npm run
+  build` first and `api/main.py` mounts `frontend/dist/` directly, so the packaged app
+  never spawns a live `npm run dev`. The `npm run dev` browser workflow at
+  localhost:5173 is unchanged, talking to the API cross-origin (CORS pinned to both
+  `localhost:5173` and `127.0.0.1:5173` — WKWebView and `desktop.py`'s own port check
+  target IPv4, Vite defaults to IPv6).
 - **`tests/`** — pyproject's `pythonpath = [".", "research"]` is what makes `import harness` /
   `import factory_run` resolve under pytest.
 - **`graveyard.csv`** — the verdict ledger, every strategy ever evaluated. **Tracked in git**;
@@ -126,22 +124,22 @@ OWNER of `state/`**: it commits the ledger every cycle, so `git pull` before rea
 dashboard locally, and don't commit local `state/` writes. The `ops/*.plist` files still
 exist but nothing is `launchctl load`ed — that, not a rename, is the only thing stopping a
 second writer from forking the ledger. Check `launchctl list | grep tradefabe` is empty.
-- **mark** — hourly (best-effort; GitHub often spaces these ~2h apart).
-- **run** — daily ~02:00 UTC (off-hour deliberately, #152). **Moved from 22:07 UTC
-  2026-07-31 (#158):** kronos's yfinance daily bar was a day stale at 22:07, so
-  `books._regressed()` silently skipped `kronos_wick_agg`'s rebalance daily — why it
-  sat flat at $100k. Installs the CPU torch wheel, caches weights.
-- **factory** — daily 21:06 UTC. **Resumed 2026-07-31 (#163)** after pausing
-  2026-07-27–31 (#98): ledger segregation (DOCTRINE v1.5, #112/#120) stops factory
-  draws inflating `family_n_tested()` for hand-picked candidates, and
-  `MAX_FACTORY_PROMOTED` (#147, see Strategy factory below) caps growth.
-- **cost check** (`cost-check.yml`, #155) — weekly, Mondays ~9:37am ET, Alpaca PAPER
-  secrets, same paper-only gates as a local run.
-- **pipeline daily** (`pipeline-daily.yml`, #177-181) — daily, ~10:42am ET. Screens
-  (#175) → pre-registers on a pass (#179, automatic) → OOS-tests pending candidates,
-  promoting ALIVE ones capped at 10 (#180, own pool, not `MAX_FACTORY_PROMOTED`).
-  **Proposal isn't in this workflow** — a Claude Code Routine (claude.ai, up to 10/day
-  fixed) writes PIPELINE_LEDGER directly under Dave's Pro plan, no `ANTHROPIC_API_KEY`.
+- **mark** — no longer a native `schedule:` (removed 2026-09-07); an external scheduler
+  hits `workflow_dispatch` every 5 minutes instead. See Live gotchas below for why.
+- **run** — daily ~02:00 UTC (off-hour deliberately — see #152 in `paper-engine.yml`'s
+  header for the collision mechanics). Moved from 22:07 UTC because kronos's yfinance
+  daily bar was still a day stale there, silently skipping `kronos_wick_agg`'s rebalance.
+  Installs the CPU torch wheel, caches weights.
+- **factory** — daily 21:06 UTC. **Resumed 2026-07-31** after a prior pause; ledger
+  segregation (DOCTRINE v1.5) and `MAX_FACTORY_PROMOTED` (see Strategy factory below)
+  now bound its growth.
+- **cost check** (`cost-check.yml`) — weekly, Mondays ~9:37am ET, Alpaca PAPER secrets,
+  same paper-only gates as a local run.
+- **pipeline daily** (`pipeline-daily.yml`) — daily, ~10:42am ET. Screens → pre-registers
+  on a pass (automatic) → OOS-tests pending candidates, promoting ALIVE ones capped at 10
+  (own pool, not `MAX_FACTORY_PROMOTED`). **Proposal isn't in this workflow** — a Claude
+  Code Routine (claude.ai, up to 10/day fixed) writes PIPELINE_LEDGER directly under
+  Dave's Pro plan, no `ANTHROPIC_API_KEY`.
 
 Both exist because Claude's own `CronCreate` is session-local and silently vanishes on
 compaction — these can't.
@@ -158,18 +156,20 @@ because `--watch` can return a pass from an earlier push.
 
 **In-process** (inside the scheduled jobs, so invisible in `launchctl list`). All never raise
 — a data outage on a monitor book must not take down the cycle that owns the real ledger.
-- **`run_hourly()`** (`hourly.py`) — family L's three monitor-only books (#86). Called by
+- **`run_hourly()`** (`hourly.py`) — family L's three monitor-only books. Called by
   `run_daily()` AND `run_mark()`, and **rebalances on every mark**, unlike every other book.
-  Tested on a strict 1h clock; the ~2h mark cadence is the closest the engine gets, so **live
-  diverges from backtest for reasons unrelated to whether the edge is real.** All backtest-
-  DEAD, hence monitor-only forever under v1.2.
-- **`run_kronos()`** (`kronos_live.py`) — family M's two live monitor books (#126). Called by
-  `run_daily()` **only**: they're freq D, so a mark has nothing to forecast and would pay the
-  torch + 400MB-checkpoint cost ~12x/day for nothing. Skips silently without the `[kronos]`
-  extra. Appends every live forecast to the same `artifacts/kronos_forecasts.csv` the
-  verdicts came from — stochastic sampling means an unsnapshotted position can't be audited.
-- **`run_carry()`** — accrues real Hyperliquid funding. Called by both, so it stamps a
-  minute-resolution row ~48x/day.
+  Tested on a strict 1h clock; the actual mark cadence (externally dispatched, see
+  Automations) never matched that clock, so **live diverges from backtest for reasons
+  unrelated to whether the edge is real.** All backtest-DEAD, hence monitor-only forever
+  under v1.2.
+- **`run_kronos()`** (`kronos_live.py`) — family M's two live monitor books. Called by
+  `run_daily()` **only**: they're freq D, so a mark has nothing to forecast and would pay
+  the torch + 400MB-checkpoint cost on every mark for nothing. Skips silently without the
+  `[kronos]` extra. Appends every live forecast to the same `artifacts/kronos_forecasts.csv`
+  the verdicts came from — stochastic sampling means an unsnapshotted position can't be
+  audited.
+- **`run_carry()`** — accrues real Hyperliquid funding. Called by both, stamping a
+  minute-resolution row on every call.
 - **`check_carry_risk()`** — funding-flip + liquidation distance, `run_daily()` **only**, so
   `carry_risk.json` lagging by up to a day is expected; the dashboard prints `generated_at`.
 - **Factory auto-promotion** — writes `state/paper/promoted*.json`, which `runner.py` reads
@@ -189,26 +189,23 @@ Pre-registered, OOS-only, data-derived noise floor (500 random strategies per fr
 is 2018 for every family except M, whose window starts at its model's pretraining cutoff.
 
 - **Gate 1 decides on Deflated Sharpe Ratio + CPCV** (`harness.deflated_sharpe_ratio()`,
-  v1.4). Bonferroni is still computed and logged for continuity but decides nothing.
+  v1.4); Bonferroni is logged for continuity but decides nothing.
 - **v1.2 — paper promote/kill.** A backtest-DEAD book is **monitor-only forever, never
   `paper-confirmed`**, no matter how good its paper data looks.
-- **v1.5 — CURRENT since 2026-07-29** (#112/#120). `n_tested` is segregated by origin so
-  factory draws stop inflating the bar for hand-picked candidates (23 vs 139 on family M),
-  and the duty-cycle-matched null is the default. **Forward-only**: no historical verdict is
-  ever re-scored, so the `n_tested` column is **discontinuous at 2026-07-29**.
-- **v1.6 — retiring a paper book is Dave's decision alone** (#113). No performance trigger,
-  no drawdown threshold, no age rule; v1.2's kill criteria are **advisory findings, never
-  actions**. Auto-killing losers would filter the forward record on results — manufacturing
-  survivorship bias in the one dataset here that has none. Retired = frozen (no rebalance, no
-  mark; history, `summary.csv` row and dashboard card preserved). **Never add an automatic
-  path**: `tests/test_retirement.py` fails from two directions if you do.
+- **v1.5 — CURRENT.** `n_tested` is segregated by origin so factory draws can't inflate
+  the bar for hand-picked candidates. **Forward-only**: no historical verdict is ever
+  re-scored. Full reasoning and dates: `DOCTRINE.md`.
+- **v1.6 — retiring a paper book is Dave's decision alone.** No performance, drawdown, or
+  age trigger; v1.2's kill criteria are advisory only. Retired = frozen, never deleted.
+  **Never add an automatic path** — `tests/test_retirement.py` guards it from two
+  directions.
 - A v1.1 touching gate 2 (diversifier clause) was discussed and is **not approved**.
 
 Roster, evidence, and family taxonomy: `STRATEGIES.md`. Add new candidates there *before*
 running them — including the factory's `GENERATION_RANGES` (the range is the
 pre-registration; the drawn value is logged to `generated_templates.csv`).
 
-## Strategy factory — running daily again since 2026-07-31 (#163), doctrine-gated
+## Strategy factory — doctrine-gated
 `src/tradefabe/factory.py` + `research/factory_run.py` test ~20 candidates per cycle through
 the same DSR/CPCV gate.
 - **Live generation is deliberately NOT free-form.** Only the parameter RANGE per family is
@@ -216,17 +213,15 @@ the same DSR/CPCV gate.
   the fix for the meta-level p-hacking risk DOCTRINE.md warns about.
 - **Promotion picks the single best-ranked candidate per cycle regardless of verdict** —
   Dave's explicit call, one new monitor-only book per cycle, not a rotating slot. Ranked
-  by CPCV/OOS Sharpe, **not raw DSR** (#145) — DSR saturates to 1.000 for every
-  daily-rebalanced family regardless of quality, which used to make every promotion
-  `turn_of_month_gen_*` by candidate-list order rather than merit.
+  by CPCV/OOS Sharpe, not raw DSR, which saturates to 1.000 for every daily-rebalanced
+  family regardless of quality.
 - **The correlation-picked combo competes in that same ranking**, not promoted in addition.
   Combos live in `promoted_combos.json` carrying their legs' full specs so a fresh process
   can rebuild both signals; rebalance freq is the FINER of the two legs'.
-- **Capped at `MAX_FACTORY_PROMOTED` (#147).** At/over the cap a cycle still evaluates and
-  logs its full batch, it just stops promoting. Not a retirement path — freeing a slot is
-  still only `tradefabe retire <book>`; the frontend's "Up for review" list
-  (`GET /api/books/up_for_review`) is a read-only nudge toward that, never an action of
-  its own (DOCTRINE v1.6 unchanged).
+- **Capped at `MAX_FACTORY_PROMOTED`.** At/over the cap a cycle still evaluates and logs
+  its full batch, it just stops promoting. Not a retirement path — freeing a slot is still
+  only `tradefabe retire <book>`; the frontend's "Up for review" list is a read-only nudge
+  toward that, never an action of its own.
 
 ## Live gotchas — check these before assuming something's broken
 - **yfinance returns a PARTIAL trailing bar** for the current, still-open or non-trading day:
@@ -242,16 +237,16 @@ the same DSR/CPCV gate.
   *lazily inside main()*, so omitting `[desktop]` leaves the import succeeding and the app
   dead on launch. A module-import check will not catch it; `setup_venv.sh` and
   `build_app.sh` import `webview` explicitly for this reason. Same shape as `kronos.py`.
-  `broker.py` (#5, Alpaca paper connectivity) is the same shape again: optional `[alpaca]`
+  `broker.py` (Alpaca paper connectivity) is the same shape again: optional `[alpaca]`
   extra, lazy import, `is_available()` is the real check. Not wired into `runner.py` yet —
   connectivity only, credentials in a repo-root `.env` (gitignored, never committed).
 - **Any live paper book needs a persisted backtest curve, or `api/main.py`'s
   `book_detail()` dies on a bare `KeyError`.** `book_panel_data()` resolves
-  `piggyback_returns.csv` → `factory_returns.csv`
-  → `hourly_returns.csv` → `kronos_returns.csv` → `full_returns.csv`. **A new source that can
-  become a live book needs its own persisted-curve story, wired into the Paper Books lookup
-  AND the Research Lab's `_dead_strategy_returns()`** — doing one only is the actual
-  2026-07-26 outage. Tests: `test_book_panel_data.py`, `test_kronos_live.py`.
+  `piggyback_returns.csv` → `factory_returns.csv` → `hourly_returns.csv` →
+  `kronos_returns.csv` → `full_returns.csv`. **A new source that can become a live book
+  needs its own persisted-curve story, wired into both the Paper Books lookup AND the
+  Research Lab's `_dead_strategy_returns()`.** Tests: `test_book_panel_data.py`,
+  `test_kronos_live.py`.
 - **A book's live history must be stamped to the MINUTE, not the date.** A bare date makes
   the hourly mark overwrite one row per day, leaving charts a single point, and sorts to
   midnight. Use `isoformat(timespec="minutes")`, matching `books.mark()`. Tests:
@@ -260,28 +255,25 @@ the same DSR/CPCV gate.
   $0-anchored axis flattens every sub-percent move into a straight line. Don't "restore" a
   zero baseline; `drawdown_chart()` is the one chart that legitimately anchors at 0.
 - **`congress_copy` is verdicted but deliberately has NO `graveyard.csv` row.**
-  `research/congress_backtest.py` reproduces it (NANC alpha −0.28%/yr, t=−0.12, R² 0.93 on
-  SPY+QQQ — pure tech beta). Judged by factor regression, not the gates.
+  `research/congress_backtest.py` reproduces it (pure tech beta vs. SPY+QQQ). Judged by
+  factor regression, not the gates.
 - **`tsmom_12m`/`green_line_200d` opening identical-to-the-cent is not a bug** — a uniform
   uptrend agreed on sign. `test_tsmom_and_green_line_genuinely_diverge` settles it; don't
   re-open without new evidence.
 - **iCloud conflict copies (`"<name> 2.<ext>"`)** guarded by `.gitignore`, a CI step and
   `tests/test_repo_location.py` — one such copy once ran as a second live paper-engine
   workflow. Guards hold only while the repo stays outside `~/Documents`.
-- **GitHub Actions' `schedule:` trigger is best-effort, not a real hourly clock (found
-  2026-09-07).** The old `"0 * * * *"` mark cron was spaced 2-5h apart in practice
-  (`gh run list --workflow=paper-engine.yml`), even though every run itself succeeded —
-  GitHub's own documented scheduling delay under platform load, not a bug in the workflow
-  or `tradefabe mark`. Fixed by removing that `schedule:` entry and having an external
-  always-on scheduler (cron-job.org) call `workflow_dispatch` every 5 minutes instead
-  — see `paper-engine.yml`'s header comment. Don't re-add a native `schedule:` cron for
-  mark; it will drift the same way.
+- **GitHub Actions' `schedule:` trigger is best-effort, not a real clock** (found
+  2026-09-07: the old hourly mark cron drifted 2-5h under platform load, no bug in the
+  workflow or `tradefabe mark`). Mark now runs via `workflow_dispatch` from an external
+  always-on scheduler (cron-job.org) instead — see `paper-engine.yml`'s header comment.
+  **Don't re-add a native `schedule:` cron for mark; it will drift the same way.**
 
 ## Roadmap
 **`gh issue list` is authoritative. The board is a lagging VIEW** —
 https://github.com/users/dzheng1328/projects/1. When they disagree, the issues win. It has
-drifted 13 issues behind before (#117) and will again — keeping it current is manual, step 7
-of the `ship` skill. Reading it needs `project` scope (`gh auth refresh -s project`; plain
+drifted many issues behind before and will again — keeping it current is manual, step 7 of
+the `ship` skill. Reading it needs `project` scope (`gh auth refresh -s project`; plain
 `repo` isn't enough, `read:project` can't write).
 
 **Don't hand-maintain issue numbers or counts in this file** — they go stale within a day, and
