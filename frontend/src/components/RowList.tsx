@@ -238,7 +238,9 @@ function clusterRows(rows: BookRow[]): BookRow[][] {
 // the same "preserve the server's own sort order" convention clusterRows() already
 // uses, just keyed on the API's grouping field instead of curve identity. Each
 // section still runs its own clusterRows() pass, so identical-curve collapsing keeps
-// working WITHIN a group.
+// working WITHIN a group -- clusterRows() now runs per group rather than once over the
+// whole active list, so a book's curve can only collapse with another book in the SAME
+// group; intentional, not an oversight.
 function groupRows(rows: BookRow[]): { key: string; label: string; rows: BookRow[] }[] {
   const order: string[] = [];
   const groups = new Map<string, { label: string; rows: BookRow[] }>();

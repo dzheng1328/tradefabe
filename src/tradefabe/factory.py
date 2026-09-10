@@ -420,8 +420,15 @@ def combo_shape(legs):
     a 2-tuple, ("A", "A"). Single source of truth for "what shape is this combo",
     shared by the live promotion cap (research/factory_run.py's MAX_PER_COMBO_SHAPE)
     and the dashboard's grouping (dashboard.book_group()) so the two can never
-    silently disagree on what counts as a duplicate."""
-    return tuple(sorted(leg["family"] for leg in legs))
+    silently disagree on what counts as a duplicate.
+
+    A leg missing its family (e.g. a bare template leg -- see _leg_signal()'s own
+    template-leg branch and test_a_template_leg_needs_no_params) maps to "?" rather
+    than raising: this function has two production callers with no error handling
+    upstream (dashboard.book_group() on every API request row, and
+    live_combo_shape_counts() inside the daily promotion Action), so a malformed or
+    unusual registry entry must degrade into an odd-looking shape key, never a crash."""
+    return tuple(sorted((leg.get("family") or "?") for leg in legs))
 
 
 def _leg_signal(leg):

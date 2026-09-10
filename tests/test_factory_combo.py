@@ -119,3 +119,10 @@ def test_combo_shape_is_independent_of_leg_order():
     a_first = factory.combo_shape([{"family": "A"}, {"family": "D"}])
     d_first = factory.combo_shape([{"family": "D"}, {"family": "A"}])
     assert a_first == d_first == ("A", "D")
+
+
+def test_combo_shape_tolerates_a_template_leg_with_no_family():
+    # template legs carry no "family" (see _leg_signal()'s own template-leg branch and
+    # test_a_template_leg_needs_no_params below) -- combo_shape() must degrade to "?"
+    # rather than crash, since it has production callers with no error handling upstream.
+    assert factory.combo_shape([{"family": "A"}, {"family": None}]) == ("?", "A")

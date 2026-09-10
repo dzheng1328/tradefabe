@@ -848,8 +848,10 @@ def _load_promoted_combo_legs():
     """name -> legs (list of {"name","family","params"} dicts), for every combo the
     factory has ever promoted -- RETIRED ONES INCLUDED, since retiring a book never
     removes its promote_combo() registry entry (factory.load_promoted_combos()'s own
-    docstring) and a retired book still needs a group to render into on the Paper
-    Books "Retired" section. Same deliberately-uncached-per-call convention as
+    docstring), so a retired combo still carries a valid group_key in the
+    /api/books/summary payload rather than falling back to the catch-all "H" bucket,
+    even though today's Retired section renders as one flat block and doesn't group
+    by it. Same deliberately-uncached-per-call convention as
     _load_generated_ledger()/_load_pipeline_ledger() above -- a freshly-promoted combo
     must resolve correctly without a process restart."""
     return {c["name"]: c["legs"] for c in factory.load_promoted_combos()}
