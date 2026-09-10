@@ -241,6 +241,119 @@ def test_combo_promotion_does_not_also_promote_an_individual(scratch_graveyard, 
     individuals = set(factory_run.factory.load_promoted()) | \
         {g["name"] for g in factory_run.factory.load_promoted_generated()}
     assert not individuals, "combo won, so no individual should have been promoted"
+
+
+# ---------------------------------------------------------------- per-shape cap (2026-09-07)
+# 17 of 35 real live books turned out to be just two leg-family pairings (tsmom+tsmom,
+# tsmom+low_vol_xsec) reparameterized by lookback window -- complementary_pairs() keeps
+# re-picking the same low-correlation families regardless of which specific windows got
+# drawn that cycle. This caps how many LIVE (non-retired) combo books of the same SHAPE
+# (factory.combo_shape()) may exist; a cycle whose combo wins the ranking but is already
+# at its shape's cap must fall back to the best individual candidate instead. Explicitly
+# NOT a retirement mechanism, same guarantee as MAX_FACTORY_PROMOTED (#147) -- nothing
+# existing is ever closed, frozen, or hidden by this cap.
+def _seed_combo_pool(shape, count, prefix="preexisting_combo"):
+    """Pre-populates the promoted-combos registry with `count` non-retired books,
+    monkeypatched (by the caller) to all report the given `shape` via factory.combo_shape
+    -- decouples a cap test from which real pair complementary_pairs() happens to draw
+    this cycle (that pairing logic is factory.combo_shape()'s own concern, covered in
+    test_factory_combo.py)."""
+    names = []
+    for i in range(count):
+        name = f"{prefix}_{i}"
+        factory_run.factory.promote_combo({
+            "name": name, "freq": "D",
+            "legs": [{"name": f"leg_a_{i}", "family": shape[0], "params": {}},
+                     {"name": f"leg_b_{i}", "family": shape[1], "params": {}}],
+        })
+        factory_run.books.save(factory_run.books.load(name))
+        names.append(name)
+    return names
+
+
+def _force_combo_to_win(monkeypatch):
+    real_rows_for = factory_run.rows_for
+
+    def fake_rows_for(names):
+        rows = real_rows_for(names).copy()
+        combo = [n for n in names if n.startswith("factory_combo_")]
+        assert combo, "the combo must be in the ranking pool for this test to be meaningful"
+        rows.loc[rows["strategy"].isin(combo), "cpcv_sharpe_mean"] = 99.0
+        rows.loc[~rows["strategy"].isin(combo), "cpcv_sharpe_mean"] = 0.0
+        return rows
+    monkeypatch.setattr(factory_run, "rows_for", fake_rows_for)
+
+
+def test_run_cycle_falls_back_to_an_individual_when_the_winning_combos_shape_is_at_cap(
+        scratch_graveyard, monkeypatch):
+    monkeypatch.setattr(factory_run, "MAX_PER_COMBO_SHAPE", 3)
+    _seed_combo_pool(("A", "A"), 3)
+    # every combo built this cycle reports shape ("A", "A") regardless of its real legs.
+    monkeypatch.setattr(factory_run.factory, "combo_shape", lambda legs: ("A", "A"))
+    _force_combo_to_win(monkeypatch)
+
+    evaluated = factory_run.run_cycle(n=4, seed=42, verbose=False)
+    combo_names_this_cycle = [n for n in evaluated if n.startswith("factory_combo_")]
+    assert combo_names_this_cycle, "a combo must still have been built and evaluated"
+
+    promoted_after = {c["name"] for c in factory_run.factory.load_promoted_combos()}
+    assert not (promoted_after & set(combo_names_this_cycle)), (
+        "the shape is already at MAX_PER_COMBO_SHAPE -- this cycle's combo must not be "
+        "added to the registry despite topping the ranking")
+    individuals = set(factory_run.factory.load_promoted()) | \
+        {g["name"] for g in factory_run.factory.load_promoted_generated()}
+    assert individuals, "promotion must fall back to the best INDIVIDUAL instead"
+
+
+def test_run_cycle_promotes_the_combo_normally_when_its_shape_is_under_cap(
+        scratch_graveyard, monkeypatch):
+    monkeypatch.setattr(factory_run, "MAX_PER_COMBO_SHAPE", 3)
+    _seed_combo_pool(("A", "A"), 2)   # under the cap of 3
+    monkeypatch.setattr(factory_run.factory, "combo_shape", lambda legs: ("A", "A"))
+    _force_combo_to_win(monkeypatch)
+
+    evaluated = factory_run.run_cycle(n=4, seed=42, verbose=False)
+    combo_names_this_cycle = [n for n in evaluated if n.startswith("factory_combo_")]
+    assert combo_names_this_cycle
+
+    promoted_after = {c["name"] for c in factory_run.factory.load_promoted_combos()}
+    assert promoted_after & set(combo_names_this_cycle), (
+        "under the cap, the winning combo must be promoted exactly like before")
+
+
+def test_run_cycle_still_evaluates_and_logs_a_capped_combo_to_the_graveyard(
+        scratch_graveyard, monkeypatch):
+    monkeypatch.setattr(factory_run, "MAX_PER_COMBO_SHAPE", 3)
+    _seed_combo_pool(("A", "A"), 3)
+    monkeypatch.setattr(factory_run.factory, "combo_shape", lambda legs: ("A", "A"))
+    _force_combo_to_win(monkeypatch)
+
+    evaluated = factory_run.run_cycle(n=4, seed=42, verbose=False)
+    combo_names_this_cycle = [n for n in evaluated if n.startswith("factory_combo_")]
+    gy = pd.read_csv(scratch_graveyard)
+    assert set(combo_names_this_cycle) <= set(gy["strategy"]), (
+        "a capped combo is still fully evaluated and logged -- only promotion is blocked")
+
+
+def test_live_combo_shape_counts_excludes_a_manually_retired_book(scratch_graveyard):
+    names = _seed_combo_pool(("A", "D"), 2)
+    assert factory_run.live_combo_shape_counts() == {("A", "D"): 2}
+
+    factory_run.books.retire(names[0], reason="test: freeing a shape slot")
+    assert factory_run.live_combo_shape_counts() == {("A", "D"): 1}
+
+
+def test_live_combo_shape_counts_keys_by_shape_not_by_individual_combo_name(scratch_graveyard):
+    _seed_combo_pool(("A", "A"), 2)
+    # distinct prefix: promote_combo() is idempotent by name (factory.py's own
+    # docstring), so reusing the default "preexisting_combo_0" here would silently
+    # no-op against the first pool's same-named entry instead of registering a second
+    # shape -- this test's whole point is telling shapes apart, so the names must not
+    # collide.
+    _seed_combo_pool(("A", "D"), 1, prefix="preexisting_combo_ad")
+    assert factory_run.live_combo_shape_counts() == {("A", "A"): 2, ("A", "D"): 1}
+
+
 def _all_promoted_names():
     # union across all three registries -- a cycle's winner can be a template, a
     # generated candidate, OR a combo (#64); this only cares that something new landed

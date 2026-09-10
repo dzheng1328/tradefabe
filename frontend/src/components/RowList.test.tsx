@@ -14,10 +14,12 @@ vi.mock("react-router-dom", async (importOriginal) => {
 const FLAT_RESPONSE = {
   books: [
     { book: "tsmom_12m", equity: 103241, return: 0.032, last_run: "2026-08-06",
-      retired_at: null, family: "A", color: "#2a78d6", introduced: "2026-01-01",
+      retired_at: null, family: "A", group_key: "A", group_label: "Trend / momentum",
+      color: "#2a78d6", introduced: "2026-01-01",
       return_today: 0.012, monitor_only: false, sparkline: [100000, 100500, 101000] },
     { book: "carry_btc_eth", equity: 112003, return: 0.12, last_run: "2026-08-06",
-      retired_at: null, family: "D", color: "#1baf7a", introduced: "2025-05-01",
+      retired_at: null, family: "D", group_key: "D", group_label: "Defensive anomaly",
+      color: "#1baf7a", introduced: "2025-05-01",
       return_today: 0.001, monitor_only: false, sparkline: [110000, 111500, 112003] },
   ],
 };
@@ -71,7 +73,7 @@ function mockFetchWithBooks(books: unknown[]) {
 }
 
 describe("RowList", () => {
-  it("renders the flat book list with no family grouping", async () => {
+  it("groups active books by group_key on the default view", async () => {
     const { container } = render(
       <MemoryRouter>
         <RowList selectedName={null} />
@@ -79,9 +81,44 @@ describe("RowList", () => {
     );
     await waitFor(() => expect(screen.getByText("tsmom_12m")).toBeInTheDocument());
     expect(screen.getByText("carry_btc_eth")).toBeInTheDocument();
-    // No retired books in FLAT_RESPONSE -- no "Retired" divider, no underline at all.
+    // FLAT_RESPONSE's two books are in different groups (A, D) -- two group headers.
+    expect(screen.getByText("Trend / momentum")).toBeInTheDocument();
+    expect(screen.getByText("Defensive anomaly")).toBeInTheDocument();
+    expect(container.querySelectorAll(".group-underline")).toHaveLength(2);
+    // No retired books in FLAT_RESPONSE -- no "Retired" divider, no family-underline at all.
     expect(screen.queryByText("Retired")).not.toBeInTheDocument();
     expect(container.querySelectorAll(".family-underline")).toHaveLength(0);
+  });
+
+  it("puts multiple books that share a group_key under one header, not one each", async () => {
+    globalThis.fetch = mockFetchWithBooks([
+      { book: "factory_combo_tsmom_gen_10d_tsmom_gen_200d", equity: 100500, return: 0.005,
+        last_run: "2026-09-06", retired_at: null, family: "H", group_key: "H:A-A",
+        group_label: "Combo: Trend / momentum + Trend / momentum", color: "#2a78d6",
+        introduced: "2026-08-01", return_today: 0.001, monitor_only: false,
+        sparkline: [100000, 100200, 100500] },
+      { book: "factory_combo_tsmom_gen_67d_tsmom_gen_300d", equity: 99800, return: -0.002,
+        last_run: "2026-09-06", retired_at: null, family: "H", group_key: "H:A-A",
+        group_label: "Combo: Trend / momentum + Trend / momentum", color: "#1baf7a",
+        introduced: "2026-08-02", return_today: -0.001, monitor_only: false,
+        sparkline: [100000, 99900, 99800] },
+      { book: "carry_btc_eth", equity: 112003, return: 0.12, last_run: "2026-08-06",
+        retired_at: null, family: "D", group_key: "D", group_label: "Defensive anomaly",
+        color: "#1baf7a", introduced: "2025-05-01", return_today: 0.001, monitor_only: false,
+        sparkline: [110000, 111500, 112003] },
+    ]);
+    const { container } = render(
+      <MemoryRouter>
+        <RowList selectedName={null} />
+      </MemoryRouter>
+    );
+    await waitFor(() =>
+      expect(screen.getByText("factory_combo_tsmom_gen_10d_tsmom_gen_200d")).toBeInTheDocument()
+    );
+    expect(screen.getByText("factory_combo_tsmom_gen_67d_tsmom_gen_300d")).toBeInTheDocument();
+    expect(screen.getAllByText("Combo: Trend / momentum + Trend / momentum")).toHaveLength(1);
+    // two group headers total: the shared "H:A-A" combo shape, and carry's "D" group.
+    expect(container.querySelectorAll(".group-underline")).toHaveLength(2);
   });
 
   it("never offers Family as a sort option", async () => {
@@ -102,7 +139,8 @@ describe("RowList", () => {
     globalThis.fetch = mockFetchWithBooks([
       ...FLAT_RESPONSE.books,
       { book: "old_dead_book", equity: 98000, return: -0.02, last_run: "2026-08-06",
-        retired_at: "2026-07-01T00:00:00", family: "A", color: "#eda100",
+        retired_at: "2026-07-01T00:00:00", family: "A", group_key: "A",
+        group_label: "Trend / momentum", color: "#eda100",
         introduced: "2025-01-01", return_today: 0, monitor_only: false,
         sparkline: [99000, 98500, 98000] },
     ]);
@@ -119,7 +157,8 @@ describe("RowList", () => {
   it("shows a monitor-only badge for a backtest-DEAD book promoted anyway", async () => {
     globalThis.fetch = mockFetchWithBooks([
       { book: "factory_combo_tsmom_gen_26d_tsmom_gen_237d", equity: 99958, return: -0.0004,
-        last_run: "2026-08-26", retired_at: null, family: "F", color: "#e34948",
+        last_run: "2026-08-26", retired_at: null, family: "F", group_key: "F",
+        group_label: "Volatility risk premium", color: "#e34948",
         introduced: "2026-08-25", return_today: 0, monitor_only: true,
         sparkline: [100000, 99980, 99958] },
     ]);
@@ -147,7 +186,8 @@ describe("RowList", () => {
   it("prefers the retired badge over monitor-only when a book is both", async () => {
     globalThis.fetch = mockFetchWithBooks([
       { book: "old_monitor_book", equity: 98000, return: -0.02, last_run: "2026-08-06",
-        retired_at: "2026-07-01T00:00:00", family: "A", color: "#eda100",
+        retired_at: "2026-07-01T00:00:00", family: "A", group_key: "A",
+        group_label: "Trend / momentum", color: "#eda100",
         introduced: "2025-01-01", return_today: 0, monitor_only: true,
         sparkline: [99000, 98500, 98000] },
     ]);
@@ -419,7 +459,8 @@ describe("RowList", () => {
 
   const DUPLICATE_BOOK = (name: string) => ({
     book: name, equity: 100627.66, return: 0.0063, last_run: "2026-08-06",
-    retired_at: null, family: "C", color: "#7d8877", introduced: "2026-07-23",
+    retired_at: null, family: "C", group_key: "C", group_label: "Calendar / seasonality",
+    color: "#7d8877", introduced: "2026-07-23",
     return_today: -0.0007, monitor_only: false,
     sparkline: [100600, 100610, 100627.66],
   });

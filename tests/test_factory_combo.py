@@ -100,3 +100,29 @@ def test_an_unknown_leg_raises_rather_than_silently_dropping(isolated):
                        _generated_leg()])
     with pytest.raises(KeyError):
         factory.combo_target_weights(_prices(), spec)
+
+
+# ---------------------------------------------------------------- shape (2026-09-07)
+# Single source of truth for "what shape is this combo" -- shared by the live promotion
+# cap (research/factory_run.py's MAX_PER_COMBO_SHAPE) and the dashboard's grouping
+# (dashboard.book_group()) so the two can never silently disagree on what counts as a
+# duplicate.
+def test_combo_shape_is_the_sorted_pair_of_leg_families():
+    assert factory.combo_shape([{"family": "D"}, {"family": "A"}]) == ("A", "D")
+
+
+def test_combo_shape_keeps_a_same_family_pair_as_a_two_tuple():
+    assert factory.combo_shape([{"family": "A"}, {"family": "A"}]) == ("A", "A")
+
+
+def test_combo_shape_is_independent_of_leg_order():
+    a_first = factory.combo_shape([{"family": "A"}, {"family": "D"}])
+    d_first = factory.combo_shape([{"family": "D"}, {"family": "A"}])
+    assert a_first == d_first == ("A", "D")
+
+
+def test_combo_shape_tolerates_a_template_leg_with_no_family():
+    # template legs carry no "family" (see _leg_signal()'s own template-leg branch and
+    # test_a_template_leg_needs_no_params below) -- combo_shape() must degrade to "?"
+    # rather than crash, since it has production callers with no error handling upstream.
+    assert factory.combo_shape([{"family": "A"}, {"family": None}]) == ("?", "A")

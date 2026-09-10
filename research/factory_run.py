@@ -81,6 +81,36 @@ def factory_owned_count():
     return sum(1 for n in names if not books.is_retired(books.load(n)))
 
 
+# Per-shape cap (2026-09-07): MAX_FACTORY_PROMOTED alone let the pool concentrate --
+# factory.complementary_pairs() keeps picking whichever pair is least-correlated THIS
+# cycle, and the same 1-2 leg-family pairings (tsmom+tsmom, tsmom+low_vol_xsec) turn out
+# to be structurally the least-correlated pairing most days regardless of the specific
+# lookback windows drawn, so the combo pool filled with near-duplicate
+# reparameterizations of the same couple of shapes rather than genuinely distinct
+# strategies (17 of 35 real live books, 2026-09-07 finding). This caps how many LIVE
+# (non-retired) combo books of the same shape (factory.combo_shape() -- the sorted pair
+# of leg families) may exist at once; a cycle whose combo wins the ranking but is
+# already at its shape's cap falls back to the best individual candidate instead of
+# promoting a 4th near-duplicate. The combo is still fully evaluated and logged to
+# graveyard.csv either way -- this only affects PROMOTION eligibility, same
+# non-retirement guarantee MAX_FACTORY_PROMOTED itself gives (see its own comment).
+MAX_PER_COMBO_SHAPE = 3
+
+
+def live_combo_shape_counts():
+    """How many non-retired combo books currently exist per shape (factory.combo_shape())
+    -- the live-book side of MAX_PER_COMBO_SHAPE, filtered by books.is_retired() the same
+    way factory_owned_count() is, so a manually retired book frees its shape's slot
+    immediately even though promote_combo()'s registry entry is never removed."""
+    counts = {}
+    for c in factory.load_promoted_combos():
+        if books.is_retired(books.load(c["name"])):
+            continue
+        shape = factory.combo_shape(c["legs"])
+        counts[shape] = counts.get(shape, 0) + 1
+    return counts
+
+
 def _persist_backtest_curve(name, r_oos):
     """Persists a PROMOTED candidate's OOS return series to artifacts/factory_returns.csv
     (git-tracked, same as full_returns.csv/piggyback_returns.csv) -- only called for the
@@ -248,6 +278,18 @@ def run_cycle(n=DEFAULT_N, seed=None, verbose=True):
     # cycle growth rate that CLAUDE.md documents.
     pool = names_this_cycle + ([combo_name] if combo_spec else [])
     rows = rows_for(pool)
+
+    if combo_spec:
+        shape = factory.combo_shape(combo_spec["legs"])
+        shape_count = live_combo_shape_counts().get(shape, 0)
+        if shape_count >= MAX_PER_COMBO_SHAPE:
+            if verbose:
+                print(f"\ncombo shape {shape} already has {shape_count}/{MAX_PER_COMBO_SHAPE} "
+                      f"live books -- {combo_name} stays evaluated/logged (graveyard.csv "
+                      f"already has its row) but is not eligible to win promotion this "
+                      f"cycle; the ranking falls back to the best individual candidate.")
+            rows = rows[rows["strategy"] != combo_name]
+
     owned = factory_owned_count()
     if owned >= MAX_FACTORY_PROMOTED:
         if verbose:

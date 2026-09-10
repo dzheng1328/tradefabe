@@ -10,6 +10,8 @@ type BookRow = {
   return: number | null;
   return_today: number | null;
   family: string;
+  group_key: string;
+  group_label: string;
   color: string;
   introduced: string | null;
   monitor_only: boolean;
@@ -231,6 +233,42 @@ function clusterRows(rows: BookRow[]): BookRow[][] {
   return order.map((sig) => groups.get(sig)!);
 }
 
+// Groups rows by group_key (the family, or a factory combo's specific leg-shape --
+// see dashboard.book_group() server-side), preserving first-seen order across groups --
+// the same "preserve the server's own sort order" convention clusterRows() already
+// uses, just keyed on the API's grouping field instead of curve identity. Each
+// section still runs its own clusterRows() pass, so identical-curve collapsing keeps
+// working WITHIN a group -- clusterRows() now runs per group rather than once over the
+// whole active list, so a book's curve can only collapse with another book in the SAME
+// group; intentional, not an oversight.
+function groupRows(rows: BookRow[]): { key: string; label: string; rows: BookRow[] }[] {
+  const order: string[] = [];
+  const groups = new Map<string, { label: string; rows: BookRow[] }>();
+  for (const r of rows) {
+    if (!groups.has(r.group_key)) {
+      groups.set(r.group_key, { label: r.group_label, rows: [] });
+      order.push(r.group_key);
+    }
+    groups.get(r.group_key)!.rows.push(r);
+  }
+  return order.map((key) => ({ key, ...groups.get(key)! }));
+}
+
+// Same header markup the "Retired" divider already used inline -- extracted so the new
+// per-group headers reuse it exactly, but with their OWN underline class
+// (`group-underline`, not `family-underline`) so the two are independently countable
+// in tests and neither treatment silently absorbs the other's styling hook.
+function SectionHeader({ label, underlineClass }: { label: string; underlineClass: string }) {
+  return (
+    <div className="px-4 pt-2 pb-1">
+      <span className="relative text-xs uppercase text-ink-muted">
+        {label}
+        <span className={`${underlineClass} absolute -bottom-1 left-0 h-px w-6 bg-accent origin-left animate-underline-draw`} />
+      </span>
+    </div>
+  );
+}
+
 function ClusterRow({
   group, selectedName, newBooks, deltaMode,
 }: { group: BookRow[]; selectedName: string | null; newBooks: Set<string>; deltaMode: DeltaMode }) {
@@ -378,30 +416,28 @@ export default function RowList({ selectedName }: { selectedName: string | null 
       <div className="px-4 pt-2 pb-1 flex items-center justify-end">{sortControl}</div>
       {(() => {
         // Backend already sorts retired last regardless of sort_key (see
-        // dashboard.sort_books_flat's own "_retired" primary sort key) -- this draws a
-        // "Retired" divider so retired books read as a distinct trailing section
-        // instead of trailing off silently.
+        // dashboard.sort_books_flat's own "_retired" primary sort key).
         const active = data.books.filter((b) => b.retired_at === null);
         const retired = data.books.filter((b) => b.retired_at !== null);
         return (
           <>
-            {clusterRows(active).map((group) => (
-              <ClusterRow
-                key={group[0].book}
-                group={group}
-                selectedName={selectedName}
-                newBooks={newBooks}
-                deltaMode={deltaMode}
-              />
+            {groupRows(active).map(({ key, label, rows }) => (
+              <div key={key}>
+                <SectionHeader label={label} underlineClass="group-underline" />
+                {clusterRows(rows).map((group) => (
+                  <ClusterRow
+                    key={group[0].book}
+                    group={group}
+                    selectedName={selectedName}
+                    newBooks={newBooks}
+                    deltaMode={deltaMode}
+                  />
+                ))}
+              </div>
             ))}
             {retired.length > 0 && (
               <div>
-                <div className="px-4 pt-2 pb-1">
-                  <span className="relative text-xs uppercase text-ink-muted">
-                    Retired
-                    <span className="family-underline absolute -bottom-1 left-0 h-px w-6 bg-accent origin-left animate-underline-draw" />
-                  </span>
-                </div>
+                <SectionHeader label="Retired" underlineClass="family-underline" />
                 {clusterRows(retired).map((group) => (
                   <ClusterRow
                     key={group[0].book}

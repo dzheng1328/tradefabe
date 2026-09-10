@@ -89,6 +89,62 @@ def test_book_family_uses_a_passed_in_generated_ledger_without_loading_its_own(m
     assert dashboard.book_family("nowhere_at_all", generated_ledger={}, pipeline_ledger={}) == "?"
 
 
+# ---------------------------------------------------------------- book_group (2026-09-07)
+# Finer than book_family() for factory combos specifically: book_family() buckets EVERY
+# combo (hand-picked piggyback or factory-discovered) into one "H" family, which hides
+# the real redundancy -- most of the factory's combo pool is just two leg-family
+# pairings (tsmom+tsmom, tsmom+low_vol_xsec) reparameterized by lookback window.
+def test_book_group_returns_plain_family_for_a_non_combo_book():
+    assert dashboard.book_group("tsmom_12m", combo_legs={}) == ("A", "Trend / momentum")
+
+
+def test_book_group_returns_plain_family_h_for_a_hand_picked_piggyback():
+    # no legs entry -- piggyback_2a/3/4 aren't factory combos, so they keep the plain
+    # "H" bucket, unchanged from book_family().
+    assert dashboard.book_group("piggyback_2a", combo_legs={}) == ("H", "Piggyback / combined")
+
+
+def test_book_group_splits_a_factory_combo_by_its_leg_shape():
+    legs = [{"name": "tsmom_gen_10d", "family": "A", "params": {}},
+            {"name": "tsmom_gen_200d", "family": "A", "params": {}}]
+    key, label = dashboard.book_group(
+        "factory_combo_tsmom_gen_10d_tsmom_gen_200d",
+        combo_legs={"factory_combo_tsmom_gen_10d_tsmom_gen_200d": legs})
+    assert key == "H:A-A"
+    assert label == "Combo: Trend / momentum + Trend / momentum"
+
+
+def test_book_group_gives_a_different_key_to_a_different_leg_shape():
+    tt_legs = [{"name": "a", "family": "A", "params": {}}, {"name": "b", "family": "A", "params": {}}]
+    ad_legs = [{"name": "c", "family": "A", "params": {}}, {"name": "d", "family": "D", "params": {}}]
+    tt_key, _ = dashboard.book_group("factory_combo_a_b", combo_legs={"factory_combo_a_b": tt_legs})
+    ad_key, _ = dashboard.book_group("factory_combo_c_d", combo_legs={"factory_combo_c_d": ad_legs})
+    assert tt_key != ad_key
+
+
+def test_book_group_falls_back_to_plain_family_when_the_combo_has_no_legs_entry():
+    # defensive: a factory_combo_* name with no matching registry entry (stale data,
+    # registry gap) must not crash -- falls back to book_family()'s own pattern match.
+    assert dashboard.book_group("factory_combo_something_missing", combo_legs={}) == \
+        ("H", "Piggyback / combined")
+
+
+def test_book_group_uses_a_passed_in_combo_legs_without_loading_its_own(monkeypatch):
+    def boom():
+        raise AssertionError("book_group() should not load its own combo registry when one is passed in")
+    monkeypatch.setattr(dashboard, "_load_promoted_combo_legs", boom)
+    assert dashboard.book_group(
+        "tsmom_12m", generated_ledger={}, pipeline_ledger={}, combo_legs={},
+    ) == ("A", "Trend / momentum")
+
+
+def test_load_promoted_combo_legs_reads_the_registry(monkeypatch, tmp_path):
+    monkeypatch.setattr(dashboard.factory, "PROMOTED_COMBOS_PATH", tmp_path / "promoted_combos.json")
+    legs = [{"name": "a", "family": "A", "params": {}}, {"name": "b", "family": "D", "params": {}}]
+    dashboard.factory.promote_combo({"name": "factory_combo_a_b", "freq": "D", "legs": legs})
+    assert dashboard._load_promoted_combo_legs() == {"factory_combo_a_b": legs}
+
+
 def test_research_kind_uses_a_passed_in_ledger_without_loading_its_own(monkeypatch):
     """Same guarantee as book_family() above, for research_kind() -- the function
     api/main.py's research_verdicts() calls once per graveyard row (487 rows as of

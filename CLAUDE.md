@@ -222,6 +222,14 @@ the same DSR/CPCV gate.
   its full batch, it just stops promoting. Not a retirement path — freeing a slot is still
   only `tradefabe retire <book>`; the frontend's "Up for review" list is a read-only nudge
   toward that, never an action of its own.
+- **Capped per combo SHAPE too (`MAX_PER_COMBO_SHAPE=3`, 2026-09-07).**
+  `MAX_FACTORY_PROMOTED` alone let the pool concentrate -- 17 of 35 live books were just
+  two leg-family pairings (tsmom+tsmom, tsmom+low_vol_xsec) reparameterized by lookback
+  window, since `complementary_pairs()` keeps picking the same low-correlation families.
+  A combo's shape (`factory.combo_shape()`, sorted leg-family pair) is capped at 3 LIVE
+  books; a winning combo already at its shape's cap falls back to the best individual
+  candidate instead. Existing over-cap books are untouched (v1.6: retirement stays
+  Dave's manual call).
 
 ## Live gotchas — check these before assuming something's broken
 - **yfinance returns a PARTIAL trailing bar** for the current, still-open or non-trading day:
