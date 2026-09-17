@@ -147,8 +147,17 @@ jobs:
             echo "nothing happened today"; exit 0
           fi
           git commit -qm "pipeline daily: $(date -u +%Y-%m-%dT%H:%M)Z [skip ci]"
+          # A failed `pull --rebase` leaves the tree mid-rebase (unmerged files) or just
+          # dirty (partially-applied patch) -- retrying `pull --rebase` straight into
+          # that state fails immediately every time, so 3 "attempts" were really one
+          # real attempt plus two guaranteed failures (#249). HEAD is always our own
+          # commit at this point, so reset --hard HEAD is safe: it only discards the
+          # previous attempt's rebase debris, never our ledger change.
           for i in 1 2 3; do
+            git rebase --abort 2>/dev/null || true
+            git reset --hard HEAD 2>/dev/null || true
             git pull --rebase --quiet origin main && git push --quiet origin HEAD:main && exit 0
             echo "push attempt $i failed, retrying"; sleep 5
           done
+          git rebase --abort 2>/dev/null || true
           exit 1
