@@ -155,8 +155,17 @@ jobs:
           # feature branch for a dispatch test. Hardcoding main would let a test run on a
           # branch shove that branch's state onto main.
           BR="${{ github.ref_name }}"
+          # A failed `pull --rebase` leaves the tree mid-rebase (unmerged files) or just
+          # dirty (partially-applied patch) -- retrying `pull --rebase` straight into
+          # that state fails immediately every time, so 3 "attempts" were really one
+          # real attempt plus two guaranteed failures (#249, seen 2026-09-17T07:37Z).
+          # HEAD is always our own commit at this point, so reset --hard HEAD is safe:
+          # it only discards the previous attempt's rebase debris, never our ledger change.
           for i in 1 2 3; do
+            git rebase --abort 2>/dev/null || true
+            git reset --hard HEAD 2>/dev/null || true
             git pull --rebase --quiet origin "$BR" && git push --quiet origin "HEAD:$BR" && exit 0
             echo "push attempt $i failed, retrying"; sleep 5
           done
+          git rebase --abort 2>/dev/null || true
           exit 1
