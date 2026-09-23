@@ -1,22 +1,22 @@
 {
  "name": "equity_tsmom_1h",
- "cash": 129591.71266502266,
+ "cash": 129611.07259286693,
  "positions": {
-  "SPY": 8.430691823097174,
-  "QQQ": 8.7469477802836,
-  "IWM": -22.916656156665674,
-  "EFA": 61.79586001275087,
-  "EEM": 95.53167836842884,
-  "TLT": -80.58090959249182,
-  "IEF": -71.91115164535759,
-  "LQD": -62.41188643506109,
-  "HYG": -82.91106160660289,
-  "GLD": -16.48120074611255,
-  "SLV": -111.090394257841,
-  "DBC": -197.6191929862993,
-  "USO": -43.83948329398718,
-  "VNQ": -70.49514847405057,
-  "UUP": 226.25476596293888
+  "SPY": 8.433061377381113,
+  "QQQ": 8.747694181009127,
+  "IWM": -22.9181125345674,
+  "EFA": 61.7695693948624,
+  "EEM": 95.54112125420464,
+  "TLT": -80.60390928634222,
+  "IEF": -71.90629048115083,
+  "LQD": -62.42105999482869,
+  "HYG": -82.92455922048475,
+  "GLD": -16.47780083097002,
+  "SLV": -111.07528949153728,
+  "DBC": -197.80703938616685,
+  "USO": -43.91511898061788,
+  "VNQ": -70.50978317266,
+  "UUP": 226.27713025034288
  },
  "history": [
   [
@@ -21494,167 +21494,36 @@
   [
    "2026-09-23T17:46",
    97192.14
+  ],
+  [
+   "2026-09-23T17:51",
+   97208.3
   ]
  ],
- "last_run": "2026-09-23T17:46:13",
- "last_rebalance": "2026-09-23T17:46",
+ "last_run": "2026-09-23T17:51:08",
+ "last_rebalance": "2026-09-23T17:51",
  "last_price_bar": "2026-09-23",
- "equity": 97192.14,
+ "equity": 97208.3,
  "last_backfill_bar": "2026-09-23T17:30",
  "last_prices": {
-  "SPY": 768.609985,
-  "QQQ": 740.820007,
-  "IWM": 282.76001,
-  "EFA": 104.860001,
+  "SPY": 768.469971,
+  "QQQ": 740.830017,
+  "IWM": 282.769989,
+  "EFA": 104.915001,
   "EEM": 67.830002,
-  "TLT": 80.415001,
-  "IEF": 90.110001,
-  "LQD": 103.824997,
-  "HYG": 78.154999,
-  "GLD": 393.170013,
-  "SLV": 58.330101,
-  "DBC": 32.789902,
-  "USO": 147.809998,
-  "VNQ": 91.919998,
+  "TLT": 80.400002,
+  "IEF": 90.125,
+  "LQD": 103.82,
+  "HYG": 78.150002,
+  "GLD": 393.290009,
+  "SLV": 58.3438,
+  "DBC": 32.762001,
+  "USO": 147.570007,
+  "VNQ": 91.910004,
   "UUP": 28.6399
  },
- "last_prices_at": "2026-09-23T17:46",
+ "last_prices_at": "2026-09-23T17:51",
  "trades": [
-  {
-   "ts": "2026-09-23T15:01",
-   "ticker": "SPY",
-   "side": "SELL",
-   "shares": -0.001241,
-   "price": 770.228088,
-   "notional": 0.96,
-   "position_after": 8.410283
-  },
-  {
-   "ts": "2026-09-23T15:01",
-   "ticker": "TLT",
-   "side": "SHORT",
-   "shares": -0.020729,
-   "price": 80.835098,
-   "notional": 1.68,
-   "position_after": -80.136431
-  },
-  {
-   "ts": "2026-09-23T15:01",
-   "ticker": "USO",
-   "side": "COVER",
-   "shares": 0.019885,
-   "price": 147.035004,
-   "notional": 2.92,
-   "position_after": -44.056423
-  },
-  {
-   "ts": "2026-09-23T15:01",
-   "ticker": "UUP",
-   "side": "BUY",
-   "shares": 0.013615,
-   "price": 28.6101,
-   "notional": 0.39,
-   "position_after": 226.417815
-  },
-  {
-   "ts": "2026-09-23T15:01",
-   "ticker": "VNQ",
-   "side": "COVER",
-   "shares": 0.049933,
-   "price": 92.014999,
-   "notional": 4.59,
-   "position_after": -70.399786
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "DBC",
-   "side": "SHORT",
-   "shares": -0.222738,
-   "price": 32.599899,
-   "notional": 7.26,
-   "position_after": -198.807548
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "EEM",
-   "side": "BUY",
-   "shares": 0.167139,
-   "price": 67.970001,
-   "notional": 11.36,
-   "position_after": 95.352448
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "EFA",
-   "side": "SHORT",
-   "shares": -0.066242,
-   "price": 105.135002,
-   "notional": 6.96,
-   "position_after": -61.64556
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "GLD",
-   "side": "SHORT",
-   "shares": -0.023364,
-   "price": 393.429993,
-   "notional": 9.19,
-   "position_after": -16.47334
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "HYG",
-   "side": "SHORT",
-   "shares": -0.06285,
-   "price": 78.330002,
-   "notional": 4.92,
-   "position_after": -82.741043
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "IEF",
-   "side": "SHORT",
-   "shares": -0.083631,
-   "price": 90.445,
-   "notional": 7.56,
-   "position_after": -71.657981
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "IWM",
-   "side": "SHORT",
-   "shares": -0.024045,
-   "price": 283.299988,
-   "notional": 6.81,
-   "position_after": -22.877184
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "LQD",
-   "side": "SHORT",
-   "shares": -0.079116,
-   "price": 104.165001,
-   "notional": 8.24,
-   "position_after": -62.219613
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "QQQ",
-   "side": "BUY",
-   "shares": 0.0074,
-   "price": 742.0354,
-   "notional": 5.49,
-   "position_after": 8.734228
-  },
-  {
-   "ts": "2026-09-23T15:05",
-   "ticker": "SLV",
-   "side": "SHORT",
-   "shares": -0.226192,
-   "price": 58.470001,
-   "notional": 13.23,
-   "position_after": -110.844979
-  },
   {
    "ts": "2026-09-23T15:05",
    "ticker": "SPY",
@@ -26019,6 +25888,141 @@
    "price": 91.919998,
    "notional": 11.16,
    "position_after": -70.495148
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "DBC",
+   "side": "SHORT",
+   "shares": -0.187846,
+   "price": 32.762001,
+   "notional": 6.15,
+   "position_after": -197.807039
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "EEM",
+   "side": "BUY",
+   "shares": 0.009443,
+   "price": 67.830002,
+   "notional": 0.64,
+   "position_after": 95.541121
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "EFA",
+   "side": "SELL",
+   "shares": -0.026291,
+   "price": 104.915001,
+   "notional": 2.76,
+   "position_after": 61.769569
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "GLD",
+   "side": "COVER",
+   "shares": 0.0034,
+   "price": 393.290009,
+   "notional": 1.34,
+   "position_after": -16.477801
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "HYG",
+   "side": "SHORT",
+   "shares": -0.013498,
+   "price": 78.150002,
+   "notional": 1.05,
+   "position_after": -82.924559
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "IEF",
+   "side": "COVER",
+   "shares": 0.004861,
+   "price": 90.125,
+   "notional": 0.44,
+   "position_after": -71.90629
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "IWM",
+   "side": "SHORT",
+   "shares": -0.001456,
+   "price": 282.769989,
+   "notional": 0.41,
+   "position_after": -22.918113
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "LQD",
+   "side": "SHORT",
+   "shares": -0.009174,
+   "price": 103.82,
+   "notional": 0.95,
+   "position_after": -62.42106
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "QQQ",
+   "side": "BUY",
+   "shares": 0.000746,
+   "price": 740.830017,
+   "notional": 0.55,
+   "position_after": 8.747694
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "SLV",
+   "side": "COVER",
+   "shares": 0.015105,
+   "price": 58.3438,
+   "notional": 0.88,
+   "position_after": -111.075289
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "SPY",
+   "side": "BUY",
+   "shares": 0.00237,
+   "price": 768.469971,
+   "notional": 1.82,
+   "position_after": 8.433061
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "TLT",
+   "side": "SHORT",
+   "shares": -0.023,
+   "price": 80.400002,
+   "notional": 1.85,
+   "position_after": -80.603909
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "USO",
+   "side": "SHORT",
+   "shares": -0.075636,
+   "price": 147.570007,
+   "notional": 11.16,
+   "position_after": -43.915119
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "UUP",
+   "side": "BUY",
+   "shares": 0.022364,
+   "price": 28.6399,
+   "notional": 0.64,
+   "position_after": 226.27713
+  },
+  {
+   "ts": "2026-09-23T17:51",
+   "ticker": "VNQ",
+   "side": "SHORT",
+   "shares": -0.014635,
+   "price": 91.910004,
+   "notional": 1.35,
+   "position_after": -70.509783
   }
  ]
 }
