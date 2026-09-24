@@ -1,9 +1,9 @@
 {
  "name": "crypto_reversal_1h",
- "cash": 121980.14321727416,
+ "cash": 121862.5975952751,
  "positions": {
-  "BTC-USD": -0.3606911713631918,
-  "ETH-USD": -11.320372453398818
+  "BTC-USD": -0.3599511564038068,
+  "ETH-USD": -11.300026821342112
  },
  "history": [
   [
@@ -27285,32 +27285,18 @@
   [
    "2026-09-24T19:21",
    60990.05
+  ],
+  [
+   "2026-09-24T19:26",
+   60931.27
   ]
  ],
- "last_run": "2026-09-24T19:21:01",
- "last_rebalance": "2026-09-24T19:21",
+ "last_run": "2026-09-24T19:26:04",
+ "last_rebalance": "2026-09-24T19:26",
  "last_price_bar": "2026-09-24",
- "equity": 60990.05,
+ "equity": 60931.27,
  "last_backfill_bar": "2026-09-24T19:00",
  "trades": [
-  {
-   "ts": "2026-09-23T22:35",
-   "ticker": "BTC-USD",
-   "side": "SHORT",
-   "shares": -3e-06,
-   "price": 84392.53125,
-   "notional": 0.26,
-   "position_after": -0.367084
-  },
-  {
-   "ts": "2026-09-23T22:35",
-   "ticker": "ETH-USD",
-   "side": "SHORT",
-   "shares": -0.006733,
-   "price": 2682.570068,
-   "notional": 18.06,
-   "position_after": -11.548309
-  },
   {
    "ts": "2026-09-23T22:40",
    "ticker": "BTC-USD",
@@ -31792,11 +31778,29 @@
    "price": 2693.820068,
    "notional": 54.85,
    "position_after": -11.320372
+  },
+  {
+   "ts": "2026-09-24T19:26",
+   "ticker": "BTC-USD",
+   "side": "COVER",
+   "shares": 0.00074,
+   "price": 84638.328125,
+   "notional": 62.63,
+   "position_after": -0.359951
+  },
+  {
+   "ts": "2026-09-24T19:26",
+   "ticker": "ETH-USD",
+   "side": "COVER",
+   "shares": 0.020346,
+   "price": 2696.070068,
+   "notional": 54.85,
+   "position_after": -11.300027
   }
  ],
  "last_prices": {
-  "BTC-USD": 84546.140625,
-  "ETH-USD": 2693.820068
+  "BTC-USD": 84638.328125,
+  "ETH-USD": 2696.070068
  },
- "last_prices_at": "2026-09-24T19:21"
+ "last_prices_at": "2026-09-24T19:26"
 }
